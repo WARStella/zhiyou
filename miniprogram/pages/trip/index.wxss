@@ -535,6 +535,18 @@
   padding: 18rpx 0;
   border-bottom: 1rpx solid #f0f2f4;
 }
+/* 名称 + 预选理由两行 —— 理由用弱化样式，不抢名字的注意力 */
+.sel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sel-reason {
+  font-size: 22rpx;
+  color: #9aa5b1;
+  margin-top: 4rpx;
+}
 .sel:last-child {
   border-bottom: none;
 }

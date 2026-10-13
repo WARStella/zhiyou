@@ -130,6 +130,15 @@ async function detail(ctx) {
 const PACE_LIMITS = { relaxed: 3, normal: 4, packed: 5 };
 
 /**
+ * 以 `kw` 命名、但**不是 `kw` 本身**的地方。
+ *
+ * 「哈工大**科技园**」「XX**校区**」「XX**分店**」—— 它们是**借这个名字**的地方，
+ * 不是用户说的那个地方。
+ */
+const SUB_ENTITY_SUFFIX_RE =
+  /^(科技园|产业园|工业园区|校区|分校区|分校|店|分店|门店|专柜|园区|大厦|写字楼|商务中心|购物中心|广场店|停车场|公寓|小区|门|口|站)/;
+
+/**
  * 在候选里找与 `kw` **最接近的那一个**。
  *
  * ⚠️ 为什么需要它（2026-10-13 第四次踩到"名字包含即相等"）：
@@ -139,28 +148,41 @@ const PACE_LIMITS = { relaxed: 3, normal: 4, packed: 5 };
  *
  * **用户说的"冰雪大世界"是一个地方，不是十个。**
  *
- * 排序依据（都可解释）：
- *   ① 名字**恰好等于**关键词的最优先；
- *   ② 其次**名字最短** —— 越短越接近"这个地方本身"：
- *      「哈尔滨冰雪大世界」(8) 优于「哈尔滨欣怡宾馆(冰雪大世界凯利广场店)」(20)。
+ * 排序依据（都可解释，从强到弱）：
+ *   ⓪ 名字**恰好等于**关键词 —— 就是它；
+ *   ① 名字含关键词，且**不是**"关键词 + 后缀"形态 —— 大概率是它；
+ *   ② **上游认定该词匹配**（`foundBy`），但名字对不上 ——
+ *      上游做了模糊/简称匹配，比我们自己的字符串规则更懂；
+ *   ③ 名字是"关键词 + 后缀"形态（「哈工大**科技园**」）——
+ *      它是**借这个名字**的地方，排最后；
  *
- * 不可游览的（交通、住宿）直接跳过 —— 名字再短也不该进游览顺序。
+ * ②在③之前是关键：「哈工大」的候选里有「哈工大科技园」（③），
+ * 而上游搜「哈工大」也会返回「哈尔滨工业大学」（②）——
+ * **简称与全称对不上字符串，但上游认得**，那就听上游的。
  */
 function bestMatch(candidates, kw, seen) {
-  const hits = (candidates || []).filter(
-    (c) =>
-      c.placeId &&
-      !seen.has(c.placeId) &&
-      c.visitable !== false &&
-      c.name &&
-      c.name.indexOf(kw) >= 0
+  const pool = (candidates || []).filter(
+    (c) => c.placeId && !seen.has(c.placeId) && c.visitable !== false && c.name
   );
+  if (!pool.length) return null;
+
+  const score = (c) => {
+    if (c.name === kw) return 0;
+    const named = c.name.indexOf(kw) >= 0;
+    const isExtension =
+      c.name.indexOf(kw) === 0 && c.name.length > kw.length &&
+      SUB_ENTITY_SUFFIX_RE.test(c.name.slice(kw.length));
+    if (named && !isExtension) return 1;
+    const fuzzed = (c.foundBy || []).indexOf(kw) >= 0;
+    if (!named && fuzzed) return 2;
+    if (named && isExtension) return 3;
+    return 4;
+  };
+
+  const hits = pool.filter((c) => score(c) < 4);
   if (!hits.length) return null;
 
-  return hits.slice().sort((a, b) => {
-    const exact = (x) => (x.name === kw ? 0 : x.name.indexOf(kw) === 0 ? 1 : 2);
-    return exact(a) - exact(b) || a.name.length - b.name.length;
-  })[0];
+  return hits.slice().sort((a, b) => score(a) - score(b) || a.name.length - b.name.length)[0];
 }
 
 function autoPick(candidates, req) {
@@ -181,8 +203,29 @@ function autoPick(candidates, req) {
     picked.push({ placeId: c.placeId, name: c.name, reason });
     seen.add(c.placeId);
   };
-  /** 检索词与必去项合起来 = 用户"点名"的地方 */
-  const named = keywords.concat(mustTexts.filter((m) => keywords.indexOf(m) < 0));
+  /**
+   * 用户"点名"的地方 = 检索词。
+   *
+   * ⚠️ **不能再把 `mustVisitTexts` 也并进来**（2026-10-13 修正）。
+   *
+   * 它们是**同一句话的两份表示**：
+   *
+   *     searchKeywords  = ["哈工大", "冰雪大世界", "哈学院"]        ← 用户原话
+   *     mustVisitTexts  = ["哈尔滨工业大学", "哈尔滨冰雪大世界", …]  ← 解析层规范化后的
+   *
+   * 合并之后「哈工大」和「哈尔滨工业大学」成了两个独立条目，
+   * 各自选了一个地方 —— 用户说**三个**地方，出来**四个**：
+   *
+   *     哈工大        → 哈工大科技园
+   *     哈尔滨工业大学 → 哈尔滨工业大学     ← 同一个地方，选了两次
+   *
+   * **用两份数据做同一件事，必然重复。**
+   *
+   * 检索词已经涵盖了必去项（规则解析器就是从必去项生成检索词的，
+   * 提示词也要求模型把点名的地方都放进 searchKeywords）。
+   * 没有检索词时才退回必去项。
+   */
+  const named = keywords.length ? keywords : mustTexts;
 
   /**
    * 「在某个区域逛」还是「去某几个具体地方」—— **这决定了要不要替他补地点**。
@@ -682,4 +725,4 @@ async function search(ctx) {
   });
 }
 
-module.exports = { list, detail, search, autoPick };
+module.exports = { list, detail, search, autoPick, bestMatch };

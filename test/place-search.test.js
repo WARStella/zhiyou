@@ -17,6 +17,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { makeWorld, expectOk, NOW, C } = require('./helpers');
+/** 纯函数直接测 —— 预选规则是业务规则，必须能被测试（见 place.js 的说明） */
+const { autoPick, bestMatch } = require('../cloudfunctions/api/actions/place');
 
 const FAKE = { provider: 'fake' };
 const CENTER = { latitude: 45.7756, longitude: 126.6175 };
@@ -274,6 +276,103 @@ test('住宿名字被识别为不可游览，并说明原因', async () => {
       assert.equal(c.notVisitableReason, null, `${c.name} 可游览却带了原因`);
     }
   }
+});
+
+// ── 一个名字只对应一个地方 ────────────────────────────────
+
+test('bestMatch：上游认得简称时，要听上游的，而不是自己猜"XX+后缀"', () => {
+  /**
+   * ⚠️ **真实事故的回归**（2026-10-13）。
+   *
+   * 用户说「哈工大」，候选里有两条：
+   *   · 「哈工大科技园」—— 名字以「哈工大」开头，是**借这个名字**的地方；
+   *   · 「哈尔滨工业大学」—— **就是它**，但简称与全称对不上字符串。
+   *
+   * 只按"名字含关键词 + 名字最短"排序，会选中**科技园** ——
+   * 用户要的是大学，不是它的科技园。
+   *
+   * 而上游搜索「哈工大」时会返回「哈尔滨工业大学」（`foundBy` 里有它），
+   * **上游做了模糊/简称匹配，比我们自己的字符串规则更懂。**
+   */
+  const cands = [
+    { placeId: 'p1', name: '哈工大科技园', category: '旅游景点:景点', visitable: true, foundBy: ['哈工大'] },
+    { placeId: 'p2', name: '哈尔滨工业大学', category: '教育;高等院校', visitable: true, foundBy: ['哈工大'] },
+  ];
+
+  const best = bestMatch(cands, '哈工大', new Set());
+  assert.equal(best.name, '哈尔滨工业大学', '简称对应的是全称，不是"XX科技园"');
+});
+
+test('bestMatch：名字恰好等于关键词时，压过一切', () => {
+  const cands = [
+    { placeId: 'p1', name: '哈尔滨冰雪大世界', category: '旅游景点:景点', visitable: true, foundBy: ['冰雪大世界'] },
+    { placeId: 'p2', name: '冰雪大世界', category: '旅游景点:景点', visitable: true, foundBy: ['冰雪大世界'] },
+  ];
+  assert.equal(bestMatch(cands, '冰雪大世界', new Set()).name, '冰雪大世界');
+});
+
+test('bestMatch：同名的一堆里，短名字优先于"蹭名字"的长名字', () => {
+  const cands = [
+    { placeId: 'p1', name: '哈尔滨欣怡宾馆(冰雪大世界凯利广场店)', category: '住宿', visitable: false },
+    { placeId: 'p2', name: '哈尔滨冰雪大世界', category: '旅游景点:景点', visitable: true },
+    { placeId: 'p3', name: '哈尔滨冰雪大世界梦幻冰雪馆', category: '旅游景点:景点', visitable: true },
+  ];
+  const best = bestMatch(cands, '冰雪大世界', new Set());
+  assert.equal(best.name, '哈尔滨冰雪大世界');
+  assert.equal(best.visitable, true, '不可游览的根本不参与');
+});
+
+test('bestMatch：没有候选匹配时返回 null，不能硬凑一个', () => {
+  const cands = [{ placeId: 'p1', name: '中央大街', category: '旅游景点', visitable: true }];
+  assert.equal(bestMatch(cands, '冰雪大世界', new Set()), null);
+});
+
+test('同一句话的两份表示不能重复计数 —— 三个地方就是三个', () => {
+  /**
+   * ⚠️ **真实事故的回归**（2026-10-13）。
+   *
+   * 解析层对同一句话给出**两份表示**：
+   *
+   *     searchKeywords  = ["哈工大", "冰雪大世界", "哈学院"]        ← 用户原话
+   *     mustVisitTexts  = ["哈尔滨工业大学", "哈尔滨冰雪大世界", …]  ← 规范化后的
+   *
+   * 旧的合并逻辑把它们并成一个列表，于是「哈工大」和「哈尔滨工业大学」
+   * 成了两个独立条目、各选一个地方 —— **用户说三个，出来四个**。
+   *
+   * **用两份数据做同一件事，必然重复。**
+   */
+  const cands = [
+    { placeId: 'p1', name: '哈尔滨工业大学', category: '教育;高等院校', visitable: true, foundBy: ['哈工大'] },
+    { placeId: 'p2', name: '哈工大科技园', category: '旅游景点:景点', visitable: true, foundBy: ['哈工大'] },
+    { placeId: 'p3', name: '哈尔滨冰雪大世界', category: '旅游景点:景点', visitable: true, foundBy: ['冰雪大世界'] },
+    { placeId: 'p4', name: '哈尔滨学院', category: '教育;高等院校', visitable: true, foundBy: ['哈学院'] },
+  ];
+
+  const r = autoPick(cands, {
+    pace: 'normal',
+    keywords: ['哈工大', '冰雪大世界', '哈学院'],
+    mustVisitTexts: ['哈尔滨工业大学', '哈尔滨冰雪大世界', '哈尔滨学院'],
+  });
+
+  assert.equal(
+    r.placeIds.length,
+    3,
+    `用户说了三个地方，实际选了 ${r.items.map((x) => x.name).join('、')}`
+  );
+  assert.deepEqual(
+    r.items.map((x) => x.name),
+    ['哈尔滨工业大学', '哈尔滨冰雪大世界', '哈尔滨学院'],
+    '每个关键词各出一个，且要是对的那个'
+  );
+});
+
+test('没有检索词时才退回必去项 —— 不能因此漏掉用户明说要去的地方', () => {
+  const cands = [
+    { placeId: 'p1', name: '兆麟公园', category: '旅游景点:公园', visitable: true },
+    { placeId: 'p2', name: '圣索菲亚教堂', category: '旅游景点:教堂', visitable: true },
+  ];
+  const r = autoPick(cands, { pace: 'relaxed', mustVisitTexts: ['兆麟公园'] });
+  assert.ok(r.placeIds.includes('p1'), '没有检索词时，必去项必须仍然生效');
 });
 
 test('地点检索：默认全城检索，需要"附近的"时才用坐标', async () => {

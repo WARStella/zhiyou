@@ -330,6 +330,12 @@ Page({
     }
 
     const ids = picked.placeIds
+    /** 预选理由 —— 直接显示在游览顺序里，用户一眼能看出"为什么是它" */
+    const reasonOf = {}
+    ;(picked.items || []).forEach(function (x) {
+      reasonOf[x.placeId] = x.reason
+    })
+
     const selected = candidates
       .filter((x) => ids.indexOf(x.placeId) >= 0)
       .map((x) => ({
@@ -337,14 +343,19 @@ Page({
         name: x.name,
         category: x.category,
         verified: x.verified,
+        reason: reasonOf[x.placeId] || '',
       }))
+
+    const missingNote = (picked.keywordsMissing || []).length
+      ? `；**没找到**：${picked.keywordsMissing.join('、')}`
+      : ''
 
     this.setData({
       selected: selected,
       candidates: candidates.map((x) =>
         Object.assign({}, x, { selected: ids.indexOf(x.placeId) >= 0 })
       ),
-      note: picked.note + '。可以直接生成路线，也可以自己增减。',
+      note: picked.note + missingNote + '。可以直接生成路线，也可以自己增减。',
     })
   },
 

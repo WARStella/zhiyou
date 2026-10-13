@@ -151,7 +151,14 @@
       </view>
       <view wx:for="{{selected}}" wx:key="placeId" class="sel">
         <text class="sel-seq">{{index + 1}}</text>
-        <text class="sel-name">{{item.name}}</text>
+        <view class="sel-body">
+          <text class="sel-name">{{item.name}}</text>
+          <!--
+            预选理由 —— 用户一眼能看出"为什么是它"。
+            系统替他选了地方，就必须说清依据（不藏依据是这个项目的一贯要求）。
+          -->
+          <text wx:if="{{item.reason}}" class="sel-reason">{{item.reason}}</text>
+        </view>
         <text class="sel-del" data-id="{{item.placeId}}" bindtap="removeSelected">移除</text>
       </view>
     </view>
