@@ -634,6 +634,72 @@ test('约束缺 confirmedAt 就不算硬约束 —— 界面漏传会被静默�
   );
 });
 
+test('规划会真的调用地图步行接口，并把结果缓存下来', async () => {
+  const w = await makeWorld();
+  const legs = VALID_PLACES.length - 1;
+
+  // ① 第一次：只对**缺失的**路段取，已有的踏勘记录不重复取。
+  //    首版规划器只用 walkableTo 缓存或直线估算，**从不调用地图接口** ——
+  //    于是"根据路况计算"名不副实（实测同一条路直线估算与真实路线差 1.35 倍）。
+  const first = expectOk(
+    await w.A('trip.plan', { placeIds: VALID_PLACES, startAt: NOW, constraints: [] })
+  );
+  assert.equal(first.walkTimes.fromCache, 1, '夹具里 p_zhongyang→p_fanghong 有踏勘实测，应直接命中');
+  assert.equal(first.walkTimes.mapApiCalls, 1, '只对缺失的那一段发请求，不浪费配额');
+  assert.equal(first.walkTimes.fetchedFromMap, 1);
+  assert.equal(first.walkTimes.upstreamFailed, 0);
+  assert.equal(first.walkTimes.bySource.survey, 1, '踏勘记录优先于地图接口');
+  assert.equal(first.walkTimes.bySource.upstream, 1, '缺的那段来自地图接口');
+  assert.match(first.walkTimes.note, /真实步行路线/);
+
+  // ② 第二次：全部命中缓存，零配额，且结果稳定
+  const second = expectOk(
+    await w.A('trip.plan', { placeIds: VALID_PLACES, startAt: NOW, constraints: [] })
+  );
+  assert.equal(second.walkTimes.mapApiCalls, 0, '第二次应全部命中缓存，不重复消耗配额');
+  assert.equal(second.walkTimes.fromCache, 2);
+  assert.equal(second.summary.totalWalkMin, first.summary.totalWalkMin, '缓存后结果必须一致');
+  assert.equal(
+    second.walkTimes.bySource.upstream,
+    1,
+    '缓存来源仍是 upstream —— **不能因为存下来了就当成踏勘实测**'
+  );
+
+  // ③ 缓存确实落库了（下次别的行程也能用）
+  const place = await w.repo.get(C.PLACES, VALID_PLACES[1]);
+  const rec = (place.walkableTo || []).find((x) => x.placeId === VALID_PLACES[2]);
+  assert.ok(rec, '缺的那段应已写入 places 缓存');
+  assert.equal(rec.source, 'upstream', '缓存来源必须标为地图接口，不能冒充踏勘');
+  assert.equal(typeof rec.walkMin, 'number');
+});
+
+test('地图接口取不到路线时回落直线估算，并如实报告失败段', async () => {
+  const w = await makeWorld();
+
+  // 通过假服务的故障注入开关模拟上游故障。
+  // 不能用替换模块的办法：trip.js 在加载时就解构捕获了 provider 工厂。
+  process.env.MAP_FAKE_FAIL = 'walk';
+  try {
+    const res = expectOk(
+      await w.A('trip.plan', { placeIds: VALID_PLACES, startAt: NOW, constraints: [] })
+    );
+
+    assert.equal(res.walkTimes.upstreamFailed, 1, '失败段数要如实报告');
+    assert.equal(res.walkTimes.bySource.estimated, 1);
+    assert.equal(res.walkTimes.bySource.survey, 1, '已有踏勘记录不受上游故障影响');
+    assert.match(res.walkTimes.note, /直线估算/, '必须说明回落到了估算，不能含糊');
+    assert.equal(res.walkTimes.failures[0].reason, 'UPSTREAM_FAILED');
+    assert.ok(res.saved, '取不到路线不该让规划整体失败 —— 但要标注来源');
+
+    // **未取到的时间绝不能写进缓存**，否则会把一次估算变成永久事实
+    const place = await w.repo.get(C.PLACES, VALID_PLACES[1]);
+    const rec = (place.walkableTo || []).find((x) => x.placeId === VALID_PLACES[2]);
+    assert.equal(rec, undefined, '失败时不得写缓存');
+  } finally {
+    delete process.env.MAP_FAKE_FAIL;
+  }
+});
+
 test('ops.selfTest：测量各类写入形态，并只写 selftest 集合', async () => {
   const w = await makeWorld();
   const res = expectOk(await w.A('ops.selfTest', {}));

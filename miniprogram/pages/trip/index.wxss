@@ -458,3 +458,44 @@
   color: #8a5a00;
 }
 
+/* ── 路线地图 ─────────────────────────────── */
+.map-card {
+  padding: 16rpx 16rpx 20rpx;
+}
+.route-map {
+  width: 100%;
+  height: 420rpx;
+  border-radius: 12rpx;
+}
+
+/* ── 步行来源 ─────────────────────────────── */
+.src-row {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 14rpx;
+}
+.src {
+  font-size: 22rpx;
+  border-radius: 6rpx;
+  padding: 6rpx 14rpx;
+  margin: 0 12rpx 8rpx 0;
+}
+.src.good {
+  background: #e8f5ee;
+  color: #0f9d58;
+}
+.src.bad {
+  background: #fff1e8;
+  color: #d9642a;
+}
+.travel-warn {
+  color: #d9642a;
+  margin-left: 8rpx;
+}
+.badge.unverified {
+  background: #f4f6f8;
+  color: #9aa5b1;
+  margin-right: 8rpx;
+}
+
+

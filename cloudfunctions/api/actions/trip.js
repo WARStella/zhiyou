@@ -9,8 +9,89 @@ const { checkFeasibility } = require('../domain/feasibility');
 const { generateCandidates } = require('../domain/planner');
 const constraintMod = require('../domain/constraint');
 const { logEvent, logDecision } = require('../lib/trace');
+const { createMapProvider } = require('../lib/map');
+const geo = require('../lib/geo');
 const time = require('../lib/time');
 const C = require('../lib/repo/collections');
+
+/**
+ * 把缺失的步行时间从**地图路线接口**取回来。
+ *
+ * ⚠️ 2026-10-13 修正：首版规划器只用 `place.walkableTo` 缓存或直线估算，
+ * **从不调用地图接口** —— 于是全天调通的步行路线接口在规划里一次都没被用到，
+ * "根据路况计算"名不副实（实测：同一条路直线估算与真实路线差 1.35 倍，
+ * 短距离下差 7.6 倍）。
+ *
+ * `buildTimeline` 是同步纯函数，所以这里先一次性取回、写进 `placesById`，
+ * 再交给它同步计算。
+ *
+ * 取回的时间会**写回 places 集合**作为缓存：下次同路段零成本、零延迟。
+ * 但一律标记 `source: 'upstream'` —— **它不是踏勘实测**，可信度不同，不能混为一谈。
+ */
+async function fillMissingWalkTimes(ctx) {
+  const { repo, placesById, placeIds, now } = ctx;
+  const out = { fetched: 0, fromCache: 0, failed: 0, skipped: 0, mapApiCalls: 0, failures: [] };
+
+  const legs = [];
+  for (let i = 1; i < placeIds.length; i++) {
+    const from = placesById[placeIds[i - 1]];
+    const to = placesById[placeIds[i]];
+    if (!from || !to) continue;
+    if (!geo.needsWalkFetch(from, to)) {
+      out.fromCache++;
+      continue;
+    }
+    if (!from.location || !to.location) {
+      out.skipped++;
+      continue;
+    }
+    legs.push({ from, to });
+  }
+  if (!legs.length) return out;
+
+  const provider = createMapProvider(process.env.MAP_PROVIDER);
+
+  for (const leg of legs) {
+    let r;
+    try {
+      r = await provider.walkingRoute(leg.from.location, leg.to.location);
+    } catch (e) {
+      r = { ok: false, reason: 'THREW', message: (e && e.message) || String(e) };
+    }
+    out.mapApiCalls++;
+
+    if (!r.ok) {
+      // 取不到就让它回落直线估算，但**必须记下失败** —— 不掩盖、不冒充
+      out.failed++;
+      out.failures.push({
+        from: leg.from.name,
+        to: leg.to.name,
+        reason: r.reason || 'UPSTREAM_FAILED',
+        message: r.message || null,
+      });
+      continue;
+    }
+
+    const rec = {
+      walkMin: r.durationMinutes,
+      walkMeters: r.distanceMeters,
+      source: geo.WALK_SOURCE.UPSTREAM,
+      measuredAt: now,
+    };
+
+    leg.from.walkableTo = geo.withWalkRecord(leg.from, leg.to._id, rec);
+
+    try {
+      await repo.update(C.PLACES, leg.from._id, { walkableTo: leg.from.walkableTo });
+    } catch (e) {
+      // 缓存写失败不该让整次规划失败 —— 本次仍用内存里的值
+      out.cacheWriteFailed = (out.cacheWriteFailed || 0) + 1;
+    }
+    out.fetched++;
+  }
+
+  return out;
+}
 
 /** 载入一组地点，返回 placeId -> place 映射；缺失的地点会让调用方明确报错。 */
 async function loadPlaces(repo, placeIds) {
@@ -164,6 +245,14 @@ async function plan(ctx) {
       }
     : null;
 
+  // ★ 先把缺失的步行时间从地图接口取回来，再交给同步的时间线计算
+  const walkFill = await fillMissingWalkTimes({
+    repo,
+    placesById,
+    placeIds: spec.placeIds,
+    now,
+  });
+
   const items = spec.placeIds.map((placeId, i) => ({ nodeId: `n_${i}_${placeId}`, placeId }));
   const tl = timelineMod.buildTimeline({ startAt: spec.startAt, items, placesById, params });
   const feasibility = checkFeasibility({
@@ -186,7 +275,39 @@ async function plan(ctx) {
     algoVersion: params.algoVersion,
     params,
     durationMs: Date.now() - started,
-    mapApiCalls: 0,
+    /** 本次规划真实消耗的地图接口调用次数（11/8、11/12 成本核算要用） */
+    mapApiCalls: walkFill.mapApiCalls,
+  };
+
+  /**
+   * 步行时间的来源构成 —— **必须随结果回传**。
+   *
+   * 界面上"步行 12 分钟"这句话，可能是真实路线、也可能是直线估算，
+   * 两者在短距离下能差 7 倍。不标出来，用户会以为一样可信。
+   */
+  const legSources = (tl.legs || []).reduce((acc, l) => {
+    const k = l.travelSource || 'none';
+    acc[k] = (acc[k] || 0) + 1;
+    return acc;
+  }, {});
+  const walkTimes = {
+    bySource: legSources,
+    fetchedFromMap: walkFill.fetched,
+    fromCache: walkFill.fromCache,
+    upstreamFailed: walkFill.failed,
+    failures: walkFill.failures,
+    mapApiCalls: walkFill.mapApiCalls,
+    note:
+      walkFill.failed > 0
+        ? `有 ${walkFill.failed} 段没能从地图服务取到路线，已回落为**直线估算**（时间可能明显偏小）`
+        : walkFill.fetched > 0
+          ? `本次从地图服务取回 ${walkFill.fetched} 段真实步行路线，已缓存，下次规划零成本`
+          : '全部路段均使用已有记录，未消耗地图配额',
+    sourceMeaning: {
+      survey: '踏勘实测，最可信',
+      upstream: '地图步行路线接口返回的真实路线',
+      estimated: '直线估算 —— 地图服务不可用时的兜底，短距离下很不可靠',
+    },
   };
 
   if (!feasibility.feasible && p.allowInfeasible !== true) {
@@ -202,6 +323,7 @@ async function plan(ctx) {
       nodes: [],
       saved: false,
       reason: 'INFEASIBLE',
+      walkTimes,
     });
   }
 
@@ -272,6 +394,8 @@ async function plan(ctx) {
     },
     /** 非 null 表示本次路线含未核验地点（可游览、不可作集合点）—— 界面必须显著标注 */
     unverifiedNotice,
+    /** 各段步行时间的来源构成 —— 界面必须能区分真实路线与直线估算 */
+    walkTimes,
     saved: true,
   });
 }

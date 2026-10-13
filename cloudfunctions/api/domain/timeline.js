@@ -61,6 +61,11 @@ function buildTimeline(p) {
       seq: idx,
       placeId: place._id,
       placeName: place.name,
+      /** 坐标下发到客户端 —— 地图上画游览顺序连线要用 */
+      location: place.location || null,
+      entranceLocation: place.entranceLocation || null,
+      /** 该地点是否经过实地核验：界面要能区分可信与待核验 */
+      verified: Boolean(place.verifiedAt) && place.confidence !== 'low',
       travelFromPrevMin: travelMin,
       travelFromPrevMeters: travelMeters,
       travelSource,
@@ -96,11 +101,17 @@ function toNodes(legs, source) {
     placeId: l.placeId,
     placeName: l.placeName,
     seq: l.seq,
+    /** 坐标：客户端据此在地图上画出游览顺序 */
+    location: l.location || null,
+    entranceLocation: l.entranceLocation || null,
+    verified: l.verified === true,
     plannedArriveAt: l.plannedArriveAt,
     plannedLeaveAt: l.plannedLeaveAt,
     plannedStayMin: l.plannedStayMin,
     travelFromPrevMin: l.travelFromPrevMin,
     travelFromPrevMeters: l.travelFromPrevMeters,
+    /** 这段步行时间的来源（survey / upstream / estimated）—— 界面必须能区分 */
+    travelSource: l.travelSource || 'none',
     status: 'pending',
     actualArriveAt: null,
     actualLeaveAt: null,

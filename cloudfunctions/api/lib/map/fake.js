@@ -17,8 +17,18 @@ const WALK_SPEED_M_PER_MIN = 75;
 function createFakeProvider(opts) {
   opts = opts || {};
   const speed = opts.walkSpeedMPerMin || WALK_SPEED_M_PER_MIN;
-  /** 让测试可以模拟"地图服务挂了" */
-  const failWith = opts.failWith || null;
+  /**
+   * 让测试可以模拟"地图服务挂了"。
+   *
+   * 也支持用环境变量注入（`MAP_FAKE_FAIL=walk`）—— 因为有些调用方
+   * （如 `trip.plan`）在模块加载时就解构捕获了 provider 工厂，
+   * 测试无法通过替换模块来注入故障。环境变量是唯一可靠的入口。
+   */
+  const failWith =
+    opts.failWith ||
+    (process.env.MAP_FAKE_FAIL === 'walk'
+      ? { reason: 'UPSTREAM_FAILED', message: '模拟地图上游故障（MAP_FAKE_FAIL=walk）' }
+      : null);
   /**
    * 假服务也遵守 Key 语义 —— 包括**前后空白要 trim**。
    * 否则真实世界最常见的粘贴错误（`"\t KEY"`）在本地测不到。

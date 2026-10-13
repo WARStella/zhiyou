@@ -12,6 +12,15 @@ const { invoke } = require('../cloudfunctions/api/lib/invoke');
 const C = require('../cloudfunctions/api/lib/repo/collections');
 const fixtures = require('./fixtures/places');
 
+/**
+ * 测试环境一律使用**假地图服务**。
+ *
+ * 规划器现在会真的去调步行路线接口（`lib/map`），若不指定就会发真实 HTTP ——
+ * 慢、不稳定、要花钱，而且不该出现在单元测试里。
+ * 需要真实上游行为的测试（如 `map.test.js` 的探针）应在 payload 里显式传 `provider`。
+ */
+process.env.MAP_PROVIDER = process.env.MAP_PROVIDER || 'fake';
+
 /** 固定基准时刻，保证测试可复现。 */
 const NOW = new Date('2026-10-20T01:00:00.000Z');
 

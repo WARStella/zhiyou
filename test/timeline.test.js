@@ -28,7 +28,9 @@ test('时间线：交通 + 停留 + 集合缓冲，串联正确', () => {
   assert.equal(tl.legs[0].travelFromPrevMin, 0, '首段没有交通时间');
   assert.equal(tl.legs[0].plannedStayMin, 45, '使用地点默认停留');
   assert.equal(tl.legs[1].travelFromPrevMin, 8, '优先使用踏勘实测步行时间');
-  assert.equal(tl.legs[1].travelSource, 'measured');
+  // 三种来源必须可区分（见 lib/geo.js 的 WALK_SOURCE）：
+  //   survey 踏勘实测 / upstream 地图接口 / estimated 直线估算
+  assert.equal(tl.legs[1].travelSource, 'survey', '踏勘实测的来源标记');
   assert.equal(tl.totalWalkMin, 8);
   assert.equal(tl.totalStayMin, 65);
   assert.equal(tl.endAt.getTime() - START.getTime(), 78 * 60000, '45+8+20+5(缓冲)');

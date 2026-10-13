@@ -128,12 +128,46 @@
         <text class="v muted">版本 v{{trip.version}}</text>
       </view>
       <view class="sum-row">
-        <view class="sum-item"><text class="sum-v">{{timeline.length}}</text><text class="sum-k">个节点</text></view>
+        <view class="sum-item"><text class="sum-v">{{summary.nodeCount}}</text><text class="sum-k">个节点</text></view>
         <view class="sum-item"><text class="sum-v">{{summary.totalWalkMin}}</text><text class="sum-k">分钟步行</text></view>
         <view class="sum-item"><text class="sum-v">{{summary.totalStayMin}}</text><text class="sum-k">分钟停留</text></view>
         <view class="sum-item"><text class="sum-v">{{summary.endAt}}</text><text class="sum-k">预计结束</text></view>
       </view>
       <button class="btn ghost" bindtap="resetTrip">重新选择地点</button>
+    </view>
+
+    <!-- 路线地图：把游览顺序连成一条线 -->
+    <view wx:if="{{routeMap}}" class="card map-card">
+      <map
+        id="routeMap"
+        class="route-map"
+        latitude="{{routeMap.center.latitude}}"
+        longitude="{{routeMap.center.longitude}}"
+        markers="{{routeMap.markers}}"
+        polyline="{{routeMap.polyline}}"
+        include-points="{{routeMap.includePoints}}"
+        show-location="{{false}}"
+      ></map>
+      <view class="sub">{{routeMap.note}}</view>
+    </view>
+
+    <!-- 步行时间的来源构成：真实路线与估算必须能区分 -->
+    <view wx:if="{{walkTimes}}" class="card">
+      <view class="row">
+        <text class="k">步行时间来源</text>
+        <text class="v muted">地图调用 {{walkTimes.mapApiCalls}} 次</text>
+      </view>
+      <view class="src-row">
+        <text wx:if="{{walkTimes.bySource.survey}}" class="src good">踏勘实测 {{walkTimes.bySource.survey}} 段</text>
+        <text wx:if="{{walkTimes.bySource.upstream}}" class="src good">真实路线 {{walkTimes.bySource.upstream}} 段</text>
+        <text wx:if="{{walkTimes.bySource.estimated}}" class="src bad">直线估算 {{walkTimes.bySource.estimated}} 段</text>
+      </view>
+      <view class="hint">{{walkTimes.note}}</view>
+      <view wx:if="{{walkTimes.failures.length}}" class="hint">
+        <view wx:for="{{walkTimes.failures}}" wx:key="from" class="conflict">
+          · {{item.from}} → {{item.to}}：{{item.message || item.reason}}
+        </view>
+      </view>
     </view>
 
     <!-- 非阻断性提醒（未核验、时间紧张等） -->
@@ -157,6 +191,7 @@
           <view class="node-head">
             <text class="node-seq">{{item.seq}}</text>
             <text class="node-name">{{item.placeName}}</text>
+            <text wx:if="{{!item.verified}}" class="badge unverified">未核验</text>
             <text class="badge {{item.status}}">{{item.statusLabel}}</text>
           </view>
 
@@ -168,6 +203,7 @@
 
           <view wx:if="{{item.travelMin}}" class="node-travel">
             前往下一站约 {{item.travelMin}} 分钟 · {{item.travelMeters}} 米
+            <text wx:if="{{item.travelWarn}}" class="travel-warn">{{item.travelWarn}}</text>
           </view>
 
           <view class="acts">

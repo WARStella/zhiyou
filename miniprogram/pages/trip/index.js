@@ -70,6 +70,8 @@ Page({
     trip: null,
     timeline: [],
     summary: null,
+    routeMap: null,
+    walkTimes: null,
     currentNodeIndex: 0,
     unverifiedNotice: null,
 
@@ -375,6 +377,9 @@ Page({
       stayMin: n.plannedStayMin,
       travelMin: n.travelFromPrevMin,
       travelMeters: n.travelFromPrevMeters,
+      // 只有"直线估算"需要提醒 —— 它与真实路线在短距离下能差 7 倍
+      travelWarn: n.travelSource === 'estimated' ? '（估算）' : '',
+      verified: n.verified,
       statusLabel: STATUS_LABEL[n.status] || n.status,
       status: n.status,
       isCurrent: i === currentIndex,
@@ -386,7 +391,19 @@ Page({
       trip: d.tripId ? { tripId: d.tripId, version: d.version } : this.data.trip,
       timeline,
       currentNodeIndex: currentIndex,
-      summary: d.summary || null,
+      // ⚠️ 后端给的是 ISO 字符串，这里必须格式化 —— 否则界面会显示
+      //    「预计结束 2026-10-14T03:37:41.233Z」这种没法看的东西
+      summary: d.summary
+        ? {
+            nodeCount: timeline.length,
+            endAt: hhmm(d.summary.endAt),
+            totalWalkMin: d.summary.totalWalkMin,
+            totalStayMin: d.summary.totalStayMin,
+            totalWalkMeters: d.summary.totalWalkMeters,
+          }
+        : null,
+      routeMap: this.buildRouteMap(nodes),
+      walkTimes: d.walkTimes || null,
       unverifiedNotice: d.unverifiedNotice || null,
       warnings: d.warnings || [],
       proposal: null,
@@ -396,6 +413,62 @@ Page({
       note: note || '',
       error: '',
     })
+  },
+
+  /**
+   * 把节点连成一条线，画在地图上。
+   *
+   * ⚠️ 这是**游览顺序连线**，不是逐段真实步行路径。
+   *
+   * 腾讯步行路线接口返回的 `polyline` 是**差分压缩格式**：
+   * 首对是绝对坐标，其后每对是相对前一点的增量。解码规则需以官方文档为准，
+   * **不靠观察猜**（工作日志里记了这件事）。顺序连线已经能表达
+   * "去哪几个地方、什么顺序、大概什么走向"，而真实路径留到有余力时再做。
+   */
+  buildRouteMap(nodes) {
+    const pts = nodes
+      .map((n) => n.location)
+      .filter((p) => p && typeof p.latitude === 'number' && typeof p.longitude === 'number')
+    if (pts.length < 2) return null
+
+    const points = pts.map((p) => ({ latitude: p.latitude, longitude: p.longitude }))
+
+    return {
+      center: points[0],
+      includePoints: points,
+      polyline: [
+        {
+          points: points,
+          color: '#0B3C6E',
+          width: 4,
+          arrowLine: true,
+          borderColor: '#FFFFFF',
+          borderWidth: 2,
+        },
+      ],
+      markers: nodes
+        .filter((n) => n.location)
+        .map((n, i) => ({
+          id: i,
+          latitude: n.location.latitude,
+          longitude: n.location.longitude,
+          iconPath: '/assets/pin-place.png',
+          width: 28,
+          height: 35,
+          // 序号与下方时间轴一一对应
+          callout: {
+            content: String(i + 1),
+            color: '#FFFFFF',
+            bgColor: n.verified ? '#0B3C6E' : '#9AA5B1',
+            fontSize: 11,
+            borderRadius: 10,
+            padding: 5,
+            display: 'ALWAYS',
+            textAlign: 'center',
+          },
+        })),
+      note: '连线为游览顺序示意，不是逐段真实步行路径',
+    }
   },
 
   // ══════════ 调整 ══════════
