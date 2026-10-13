@@ -75,6 +75,33 @@ function todayAt(text) {
   return d
 }
 
+/**
+ * 把候选转成"已选"。
+ *
+ * ⚠️ **必须带上完整的地点数据**（2026-10-13 改）。
+ *
+ * 检索结果**不入库**（用户决定：全从腾讯地图实时搜），所以
+ * `trip.plan` 不能再靠 `placeIds` 回库读 —— 它接受内嵌的 `places`。
+ * 于是这里要把规划需要的字段一并带着走；`placeId` 只是"库里有这条
+ * （踏勘过）"的标记，**没有它照样能规划**。
+ *
+ * 身份键是 `itemId`（稳定，与是否入库无关，见 lib/place-id.js）。
+ */
+function selectedOf(c, reason) {
+  return {
+    itemId: c.itemId,
+    /** 库里踏勘过的地点才有；没有就是 null */
+    placeId: c.placeId || null,
+    poiId: c.poiId || null,
+    name: c.name,
+    category: c.category,
+    location: c.location,
+    verified: c.verified,
+    visitDurationMin: c.visitDurationMin || null,
+    reason: reason || '',
+  }
+}
+
 Page({
   data: {
     // ── 需求输入 ──
@@ -337,7 +364,7 @@ Page({
    * 这里只负责把结果渲染出来。
    */
   applyAutoSelect(candidates, picked) {
-    if (!picked || !picked.placeIds || !picked.placeIds.length) {
+    if (!picked || !picked.itemIds || !picked.itemIds.length) {
       this.setData({
         selected: [],
         candidates: candidates.map((x) => Object.assign({}, x, { selected: false })),
@@ -346,22 +373,16 @@ Page({
       return
     }
 
-    const ids = picked.placeIds
+    const ids = picked.itemIds
     /** 预选理由 —— 直接显示在游览顺序里，用户一眼能看出"为什么是它" */
     const reasonOf = {}
     ;(picked.items || []).forEach(function (x) {
-      reasonOf[x.placeId] = x.reason
+      reasonOf[x.itemId] = x.reason
     })
 
     const selected = candidates
-      .filter((x) => ids.indexOf(x.placeId) >= 0)
-      .map((x) => ({
-        placeId: x.placeId,
-        name: x.name,
-        category: x.category,
-        verified: x.verified,
-        reason: reasonOf[x.placeId] || '',
-      }))
+      .filter((x) => ids.indexOf(x.itemId) >= 0)
+      .map((x) => selectedOf(x, reasonOf[x.itemId] || ''))
 
     const missingNote = (picked.keywordsMissing || []).length
       ? `；**没找到**：${picked.keywordsMissing.join('、')}`
@@ -370,7 +391,7 @@ Page({
     this.setData({
       selected: selected,
       candidates: candidates.map((x) =>
-        Object.assign({}, x, { selected: ids.indexOf(x.placeId) >= 0 })
+        Object.assign({}, x, { selected: ids.indexOf(x.itemId) >= 0 })
       ),
       note: picked.note + missingNote + '。可以直接生成路线，也可以自己增减。',
     })
@@ -433,14 +454,27 @@ Page({
 
           const mapped = (d.candidates || []).map(function (c) {
             return {
-              placeId: c.placeId,
+              /** 稳定身份键（与是否入库无关，见 lib/place-id.js） */
+              itemId: c.itemId,
+              /** 库里踏勘过的才有；没有就是 null */
+              placeId: c.placeId || null,
+              poiId: c.poiId || null,
               name: c.name,
               category: c.category,
+              location: c.location,
+              visitDurationMin: c.visitDurationMin || null,
               verified: c.verified,
               /** 交通设施等不可游览项 —— 系统不自动选它 */
               visitable: c.visitable !== false,
-              tripNodeAllowed: c.placeId ? true : false,
+              /**
+               * 能不能排进行程。
+               * ⚠️ 2026-10-13 起**不再要求入库** —— 检索结果不入库，
+               * 规划时随请求带上地点数据即可（有名称与坐标就够）。
+               */
+              tripNodeAllowed: Boolean(c.name && c.location),
               meetingPointAllowed: false,
+              /** 数据来自实地踏勘还是检索 —— 界面要能区分可信与未核验 */
+              matchedSurveyed: Boolean(c.matchedSurveyed),
               distanceText:
                 typeof c.straightLineMeters === 'number' ? `直线 ${c.straightLineMeters} 米` : '',
               durationText:
@@ -482,9 +516,9 @@ Page({
 
   /** 写入候选列表，并同步已选状态 */
   setCandidates(list, mode, rankingNote) {
-    const selectedIds = this.data.selected.map((x) => x.placeId)
+    const selectedIds = this.data.selected.map((x) => x.itemId)
     const marked = list.map((x) =>
-      Object.assign({}, x, { selected: selectedIds.indexOf(x.placeId) >= 0 })
+      Object.assign({}, x, { selected: selectedIds.indexOf(x.itemId) >= 0 })
     )
     this.setData({ candidates: marked, mode: mode, rankingNote: rankingNote || '' })
   },
@@ -494,7 +528,7 @@ Page({
   /** 点候选项：加入 / 移出已选。**勾选顺序即游览顺序。** */
   toggleCandidate(e) {
     const id = e.currentTarget.dataset.id
-    const item = this.data.candidates.find((x) => x.placeId === id)
+    const item = this.data.candidates.find((x) => x.itemId === id)
     if (!item) return
 
     if (!item.tripNodeAllowed) {
@@ -503,7 +537,7 @@ Page({
     }
 
     let selected = this.data.selected.slice()
-    const at = selected.findIndex((x) => x.placeId === id)
+    const at = selected.findIndex((x) => x.itemId === id)
 
     if (at >= 0) {
       selected.splice(at, 1)
@@ -516,24 +550,24 @@ Page({
       })
     }
 
-    const selectedIds = selected.map((x) => x.placeId)
+    const selectedIds = selected.map((x) => x.itemId)
     this.setData({
       selected: selected,
       note: '',
       candidates: this.data.candidates.map((x) =>
-        Object.assign({}, x, { selected: selectedIds.indexOf(x.placeId) >= 0 })
+        Object.assign({}, x, { selected: selectedIds.indexOf(x.itemId) >= 0 })
       ),
     })
   },
 
   removeSelected(e) {
     const id = e.currentTarget.dataset.id
-    const selected = this.data.selected.filter((x) => x.placeId !== id)
-    const selectedIds = selected.map((x) => x.placeId)
+    const selected = this.data.selected.filter((x) => x.itemId !== id)
+    const selectedIds = selected.map((x) => x.itemId)
     this.setData({
       selected: selected,
       candidates: this.data.candidates.map((x) =>
-        Object.assign({}, x, { selected: selectedIds.indexOf(x.placeId) >= 0 })
+        Object.assign({}, x, { selected: selectedIds.indexOf(x.itemId) >= 0 })
       ),
     })
   },
@@ -580,7 +614,7 @@ Page({
 
   createTrip() {
     const that = this
-    const ids = this.data.selected.map((x) => x.placeId)
+    const ids = this.data.selected.map((x) => x.itemId)
     if (!ids.length) return
 
     this.setData({ loading: true, error: '', note: '正在定位出发位置…', proposal: null, planRejected: false })
@@ -603,7 +637,23 @@ Page({
 
       api
         .callApi('trip.plan', {
-          placeIds: ids,
+          /**
+           * ⚠️ **传内嵌的地点数据，而不是 placeIds**（2026-10-13 改）。
+           *
+           * 检索结果不入库（用户决定：全从腾讯地图实时搜），所以
+           * 回库按 placeId 读是读不到的。有 `placeId` 的（踏勘过的）
+           * 一并带上 —— 服务端会用库里那份覆盖，从而获得核验待遇。
+           */
+          places: that.data.selected.map(function (x) {
+            return {
+              placeId: x.placeId || undefined,
+              poiId: x.poiId || undefined,
+              name: x.name,
+              category: x.category,
+              location: x.location,
+              visitDurationMin: x.visitDurationMin || undefined,
+            }
+          }),
           startAt: startAt,
           constraints: that.buildConstraints(),
           startPoint: startPoint || undefined,

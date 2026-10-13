@@ -449,14 +449,14 @@ test('预选要说明"为什么是它"，搜不到的词也要如实说', () => 
   const page = loadPage('miniprogram/pages/trip/index.js', {});
   page.setData({
     candidates: [
-      { placeId: 'p1', name: '哈尔滨工业大学', category: '教育', verified: true },
-      { placeId: 'p2', name: '哈工大科技园', category: '景点', verified: true },
+      { itemId: 'p1', name: '哈尔滨工业大学', category: '教育', verified: true },
+      { itemId: 'p2', name: '哈工大科技园', category: '景点', verified: true },
     ],
   });
 
   page.applyAutoSelect(page.data.candidates, {
-    placeIds: ['p1'],
-    items: [{ placeId: 'p1', name: '哈尔滨工业大学', reason: '你提到的「哈工大」' }],
+    itemIds: ['p1'],
+    items: [{ itemId: 'p1', name: '哈尔滨工业大学', reason: '你提到的「哈工大」' }],
     note: '按「正常」节奏预选 1 个地点',
     keywordsMissing: ['哈学院'],
   });

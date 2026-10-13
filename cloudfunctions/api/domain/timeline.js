@@ -79,6 +79,29 @@ function buildTimeline(p) {
       entranceLocation: place.entranceLocation || null,
       /** 该地点是否经过实地核验：界面要能区分可信与待核验 */
       verified: Boolean(place.verifiedAt) && place.confidence !== 'low',
+      /**
+       * ── 地点快照（2026-10-13 新增）──────────────────────────
+       *
+       * ⚠️ **检索到的地点不再入库**（用户决定：全从腾讯地图实时搜），
+       * 于是 `adjust` 事后回库按 `placeId` 读是读不到的。
+       * 快照让行程**自带它依赖的地点数据**。
+       *
+       * 与"行程自带约束快照"是同一个原则（见 docs/01）：
+       * `adjust` 不依赖原始需求，11/5 的固定测试集要能完整复现。
+       * **自洽的记录才可复现。**
+       */
+      placeSnapshot: {
+        _id: place._id,
+        name: place.name,
+        category: place.category || null,
+        location: place.location || null,
+        entranceLocation: place.entranceLocation || null,
+        visitDurationMin: place.visitDurationMin || null,
+        verifiedAt: place.verifiedAt || null,
+        confidence: place.confidence || null,
+        /** 踏勘实测的步行时间 —— 只有已核验地点才有 */
+        walkableTo: place.walkableTo || [],
+      },
       travelFromPrevMin: travelMin,
       travelFromPrevMeters: travelMeters,
       travelSource,
@@ -122,6 +145,8 @@ function toNodes(legs, source) {
     location: l.location || null,
     entranceLocation: l.entranceLocation || null,
     verified: l.verified === true,
+    /** 地点快照 —— 见 legs.push 处的说明（行程自洽，adjust 不回库读） */
+    placeSnapshot: l.placeSnapshot || null,
     plannedArriveAt: l.plannedArriveAt,
     plannedLeaveAt: l.plannedLeaveAt,
     plannedStayMin: l.plannedStayMin,

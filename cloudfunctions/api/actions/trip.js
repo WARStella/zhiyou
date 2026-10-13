@@ -81,6 +81,22 @@ async function fillMissingWalkTimes(ctx) {
 
     leg.from.walkableTo = geo.withWalkRecord(leg.from, leg.to._id, rec);
 
+    /**
+     * ⚠️ **只给库里的地点写缓存**（2026-10-13 加）。
+     *
+     * 检索来的地点不入库（用户决定：全从腾讯地图实时搜），
+     * 往一个不存在的文档上写会**静默失败或报错** ——
+     * 而它的 `_id` 是内存里合成的，库里根本没有这条记录。
+     *
+     * 代价：这些地点每次规划都要重新调一次地图接口。
+     * 值得 —— 换来的是"检索不污染地点库"。
+     */
+    if (leg.from.__persisted === false) {
+      out.skippedCache = (out.skippedCache || 0) + 1;
+      out.fetched++;
+      continue;
+    }
+
     try {
       await repo.update(C.PLACES, leg.from._id, { walkableTo: leg.from.walkableTo });
     } catch (e) {
@@ -93,7 +109,47 @@ async function fillMissingWalkTimes(ctx) {
   return out;
 }
 
-/** 载入一组地点，返回 placeId -> place 映射；缺失的地点会让调用方明确报错。 */
+/**
+ * 内嵌地点的**稳定标识**。
+ *
+ * ⚠️ **必须稳定**：同一批地点两次规划要得到相同的 `_id`，
+ * 否则 `nodes[].placeId` 每次都变，踏勘实测的步行时间（`walkableTo` 按
+ * placeId 索引）就永远对不上。
+ *
+ * 优先级：
+ *   ① 已入库地点用它的 `placeId`（踏勘过的）；
+ *   ② 上游 POI 的 `poiId`（腾讯给的，稳定）；
+ *   ③ 名字 + 坐标 —— 前两者都没有时的兜底，仍然稳定。
+ */
+function inlinePlaceId(item) {
+  if (!item) return null;
+  if (item.placeId) return item.placeId;
+  if (item.poiId) return `poi_${item.poiId}`;
+  const loc = item.location || {};
+  if (typeof loc.latitude !== 'number' || typeof loc.longitude !== 'number') return null;
+  if (!item.name) return null;
+  return `x_${item.name}_${loc.latitude.toFixed(6)}_${loc.longitude.toFixed(6)}`;
+}
+
+/**
+ * 决定游览顺序。
+ *
+ * 顺序**只由调用方给的次序决定** —— 内嵌 `places` 按数组顺序，
+ * `placeIds` 按数组顺序，两者都有时先 `places` 后 `placeIds`。
+ * 不按对象键顺序（那在 JS 里不保证，会让顺序随机漂移）。
+ */
+function resolveItemOrder(spec, placesById) {
+  const out = [];
+  const push = (id) => {
+    if (id && placesById[id] && out.indexOf(id) < 0) out.push(id);
+  };
+  for (const item of Array.isArray(spec.places) ? spec.places : []) push(inlinePlaceId(item));
+  for (const id of spec.placeIds || []) push(id);
+  return out;
+}
+
+/**
+ * 载入一组地点，返回 placeId -> place 映射；缺失的地点会让调用方明确报错。 */
 async function loadPlaces(repo, placeIds) {
   const map = {};
   const missing = [];
@@ -101,6 +157,31 @@ async function loadPlaces(repo, placeIds) {
     const p = await repo.get(C.PLACES, id);
     if (p) map[id] = p;
     else missing.push(id);
+  }
+  return { map, missing };
+}
+
+/**
+ * 从行程节点的**地点快照**重建 `placeId -> place` 映射。
+ *
+ * ⚠️ 为什么需要它（2026-10-13）：检索到的地点**不再入库**
+ * （用户决定：全从腾讯地图实时搜），所以 `adjust` 事后按 `placeId`
+ * 回库是读不到的。节点自带快照，行程就**自洽**了 ——
+ * 与"行程自带约束快照"是同一个原则：**自洽的记录才可复现**。
+ *
+ * 老行程可能没有快照（字段是后加的）→ 由调用方明确报错，
+ * **不要静默用一个空地点对象继续算**。
+ */
+function placesFromNodes(nodes) {
+  const map = {};
+  const missing = [];
+  for (const n of nodes || []) {
+    const snap = n.placeSnapshot;
+    if (!snap || !snap._id) {
+      missing.push(n.placeId || n.nodeId);
+      continue;
+    }
+    map[snap._id] = Object.assign({}, snap, { walkableTo: snap.walkableTo || [] });
   }
   return { map, missing };
 }
@@ -140,6 +221,7 @@ async function plan(ctx) {
       '无权使用该需求'
     );
     spec = {
+      places: (req.structured && req.structured.places) || [],
       placeIds: (req.structured && req.structured.placeIds) || [],
       startAt: (req.structured && req.structured.startAt) || now,
       constraints: req.constraints || [],
@@ -154,9 +236,22 @@ async function plan(ctx) {
         (req.structured && req.structured.stayByText) || p.stayByText || null,
     };
   } else {
-    require_fields(p, ['placeIds', 'startAt']);
+    /**
+     * ⚠️ **不再强制要求 `placeIds`**（2026-10-13 改）。
+     *
+     * 用户决定：检索到的地点不入库，全从腾讯地图实时搜 ——
+     * 那种情况下前端根本拿不到 `placeId`，只能传内嵌的 `places`。
+     * 两者给其一即可，由下面的 `resolveItemOrder` 统一处理。
+     */
+    assert(
+      (Array.isArray(p.places) && p.places.length > 0) ||
+        (Array.isArray(p.placeIds) && p.placeIds.length > 0),
+      CODES.INVALID_PARAM,
+      '至少需要一个地点：传 places（检索结果，含 name 与 location）或 placeIds（已入库的踏勘地点）'
+    );
     spec = {
-      placeIds: p.placeIds,
+      places: p.places || [],
+      placeIds: p.placeIds || [],
       startAt: p.startAt,
       constraints: p.constraints || [],
       crewId: p.crewId || null,
@@ -188,7 +283,6 @@ async function plan(ctx) {
   }
 
   const params = resolveParams(spec.paramsInput);
-  assert(Array.isArray(spec.placeIds) && spec.placeIds.length > 0, CODES.INVALID_PARAM, '至少需要一个地点');
 
   /**
    * 地图服务的取得方式：**通过 ctx 注入的工厂**。
@@ -202,8 +296,58 @@ async function plan(ctx) {
 
   if (spec.crewId) await requireCrewMember(repo, spec.crewId, openid);
 
-  const { map: placesById, missing } = await loadPlaces(repo, spec.placeIds);
-  assert(missing.length === 0, CODES.NOT_FOUND, `地点不存在：${missing.join(', ')}`);
+  /**
+   * ── 地点的两个来源（2026-10-13 改）────────────────────────
+   *
+   * ⚠️ 用户决定：**检索到的地点不再入库**，全从腾讯地图实时搜。
+   * 所以 `trip.plan` 必须能接受**内嵌的地点数据**，而不只是 `placeIds`。
+   *
+   *   ① `places: [{name, location, category?, ...}]` —— 检索回来的候选（不入库）
+   *   ② `placeIds: [...]`                        —— 库里**踏勘核验过**的地点
+   *
+   * 两者可同时给。①的 `_id` 由 `inlinePlaceId()` 稳定合成 ——
+   * **必须稳定**，否则同一批地点两次规划会得到不同的节点标识，
+   * `walkableTo`（踏勘实测的步行时间）也就对不上了。
+   */
+  const placesById = {};
+  const missing = [];
+
+  for (const item of Array.isArray(spec.places) ? spec.places : []) {
+    const id = inlinePlaceId(item);
+    if (!id) {
+      missing.push(item && item.name ? item.name : '(未命名)');
+      continue;
+    }
+    placesById[id] = {
+      _id: id,
+      name: item.name,
+      category: item.category || '未分类',
+      location: item.location || null,
+      entranceLocation: item.entranceLocation || null,
+      visitDurationMin: item.visitDurationMin || null,
+      /** 检索来的地点一律**未核验** —— 只有踏勘过的才算 */
+      verifiedAt: null,
+      confidence: 'low',
+      walkableTo: [],
+      dataSource: 'tencent-poi',
+      /** 不在库里 —— 步行时间缓存不能往它身上写（见 fillMissingWalkTimes） */
+      __persisted: false,
+    };
+  }
+
+  if (spec.placeIds.length) {
+    const loaded = await loadPlaces(repo, spec.placeIds);
+    for (const [id, p] of Object.entries(loaded.map)) {
+      // 库里的（踏勘过的）覆盖内嵌的同名项 —— 它才有核验信息
+      placesById[id] = Object.assign({}, p, { __persisted: true });
+    }
+    missing.push(...loaded.missing);
+  }
+
+  assert(missing.length === 0, CODES.NOT_FOUND, `地点不存在或数据不完整：${missing.join(', ')}`);
+  /** 顺序由 itemIds 决定，而不是对象键的顺序 */
+  const itemIds = resolveItemOrder(spec, placesById);
+  assert(itemIds.length > 0, CODES.INVALID_PARAM, '至少需要一个地点');
 
   /**
    * 行程节点准入：需要名称与坐标。
@@ -226,7 +370,7 @@ async function plan(ctx) {
       ts: now,
       kind: 'plan',
       crewId: spec.crewId,
-      inputDigest: { placeIds: spec.placeIds, startAt: time.toISO(spec.startAt) },
+      inputDigest: { itemIds: itemIds, startAt: time.toISO(spec.startAt) },
       candidates: [],
       algoVersion: params.algoVersion,
       params,
@@ -283,7 +427,7 @@ async function plan(ctx) {
   const walkFill = await fillMissingWalkTimes({
     repo,
     placesById,
-    placeIds: spec.placeIds,
+    placeIds: itemIds,
     now,
     makeProvider,
   });
@@ -308,7 +452,7 @@ async function plan(ctx) {
 
   let startLeg = null;
   if (startPoint) {
-    const firstPlace = placesById[spec.placeIds[0]];
+    const firstPlace = placesById[itemIds[0]];
     if (firstPlace && firstPlace.location) {
       const provider = makeProvider();
       let r;
@@ -359,7 +503,7 @@ async function plan(ctx) {
    * ⚠️ 不给时传 `undefined`，`buildTimeline` 会回落到 `visitDurationMin.default`
    * —— 注意不能用 `null`，那会被当成"停留 0 分钟"。
    */
-  const items = spec.placeIds.map((placeId, i) => {
+  const items = itemIds.map((placeId, i) => {
     const place = placesById[placeId];
     const byName = matchStayByText(spec.stayByText, place && place.name);
     const stayMin =
@@ -609,11 +753,31 @@ async function adjust(ctx) {
   assert(baseNodes.length > 0, CODES.INVALID_PARAM, '行程已全部完成，没有可调整的节点');
 
   const extraIds = [p.trigger.payload && p.trigger.payload.newPlaceId].filter(Boolean);
-  const { map: placesById, missing } = await loadPlaces(
-    repo,
-    baseNodes.map((n) => n.placeId).concat(extraIds)
+
+  /**
+   * ⚠️ **从行程节点的地点快照重建，不回库读**（2026-10-13 改）。
+   *
+   * 检索到的地点**不再入库**（用户决定：全从腾讯地图实时搜），
+   * 所以按 `placeId` 回库是读不到的。快照让行程自洽 ——
+   * 与"行程自带约束快照"是同一个原则。
+   */
+  const { map: placesById } = placesFromNodes(baseNodes);
+
+  /**
+   * 换地点/加地点时的"新地点"仍要回库读 —— 那通常是**踏勘核验过的**地点
+   * （`placeId` 有值），而库里只放踏勘数据。
+   */
+  if (extraIds.length) {
+    const extra = await loadPlaces(repo, extraIds);
+    assert(extra.missing.length === 0, CODES.NOT_FOUND, `地点不存在：${extra.missing.join(', ')}`);
+    Object.assign(placesById, extra.map);
+  }
+
+  assert(
+    baseNodes.every((n) => placesById[n.placeId]),
+    CODES.INVALID_PARAM,
+    '行程节点缺少地点快照，无法调整 —— 请重新生成行程'
   );
-  assert(missing.length === 0, CODES.NOT_FOUND, `地点不存在：${missing.join(', ')}`);
 
   const params = resolveParams(Object.assign({}, trip.params, p.params));
   const constraints = constraintMod.normalize(trip.constraints || []);

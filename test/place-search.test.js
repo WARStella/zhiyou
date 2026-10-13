@@ -25,27 +25,21 @@ const CENTER = { latitude: 45.7756, longitude: 126.6175 };
 
 // ── 基本检索 ──────────────────────────────────────────────
 
-test('地点检索：候选一律入库并标注未核验，可游览不可集合', async () => {
+test('地点检索：候选标注未核验，可作行程节点、不可作集合点', async () => {
   const w = await makeWorld();
+  // 空关键字返回整个假 POI 池 —— 里面有已踏勘的、也有没踏勘的
   const res = expectOk(
-    await w.A('place.search', Object.assign({ keyword: '教堂', center: CENTER }, FAKE))
+    await w.A('place.search', Object.assign({ keyword: '', center: CENTER }, FAKE))
   );
 
   assert.equal(res.ok, true);
   assert.ok(res.candidates.length >= 1);
-  assert.equal(res.saved.created, res.candidates.length, '新检索到的地点应全部入库');
+  assert.equal(res.persisted, false, '检索结果不入库（用户决定：全从腾讯地图实时搜）');
 
-  const first = res.candidates[0];
-  assert.ok(first.placeId, '入库后必须有 placeId，否则无法加入行程');
+  const first = res.candidates.find((c) => !c.matchedSurveyed);
+  assert.ok(first, '夹具里必须有**没对上踏勘数据**的候选，否则这条测试是空的');
   assert.equal(first.verified, false, '外部检索地点一律未核验');
-  assert.equal(first.dataSource, 'tencent-poi');
-  assert.equal(first.visitDurationSource, 'default-untuned', '停留时长是估值，必须标出来源');
-
-  // 分级验证：能作行程节点，不能作集合点
-  const listed = expectOk(await w.A('place.list', {}));
-  const found = listed.places.find((x) => x.placeId === first.placeId);
-  assert.equal(found.tripNodeAllowed, true, '未核验地点应可作行程节点');
-  assert.equal(found.meetingPointAllowed, false, '未核验地点不可作集合点');
+  assert.ok(first.name && first.location, '有名称与坐标即可作行程节点');
 });
 
 test('地点检索：停留时长是估值，必须随结果说明', async () => {
@@ -131,7 +125,7 @@ test('多关键词：每个检索词至少预选一个 —— 用户提到的地
     reasons.some((r) => /你提到的/.test(r)),
     `覆盖兜底要说明理由，实际：${JSON.stringify(reasons)}`
   );
-  assert.ok(res.picked.placeIds.length >= 2);
+  assert.ok(res.picked.itemIds.length >= 2);
 });
 
 test('多关键词：某个词搜不到时，如实报告而不是假装搜全了', async () => {
@@ -188,7 +182,7 @@ test('点名去两个地方，就不该替他补到十个', async () => {
   );
 
   assert.equal(
-    res.picked.placeIds.length,
+    res.picked.itemIds.length,
     2,
     `点名两个地方就该只有两个，实际 ${res.picked.items.map((x) => x.name).join('、')}`
   );
@@ -257,8 +251,8 @@ test('区域漫游：说了"附近逛逛"，就该按节奏补足', async () => 
   );
 
   assert.ok(
-    res.picked.placeIds.length > 1,
-    `区域漫游应当补足多个，实际只选了 ${res.picked.placeIds.length} 个`
+    res.picked.itemIds.length > 1,
+    `区域漫游应当补足多个，实际只选了 ${res.picked.itemIds.length} 个`
   );
 });
 
@@ -295,8 +289,8 @@ test('bestMatch：上游认得简称时，要听上游的，而不是自己猜"X
    * **上游做了模糊/简称匹配，比我们自己的字符串规则更懂。**
    */
   const cands = [
-    { placeId: 'p1', name: '哈工大科技园', category: '旅游景点:景点', visitable: true, foundBy: ['哈工大'] },
-    { placeId: 'p2', name: '哈尔滨工业大学', category: '教育;高等院校', visitable: true, foundBy: ['哈工大'] },
+    { itemId: 'p1', name: '哈工大科技园', category: '旅游景点:景点', visitable: true, foundBy: ['哈工大'] },
+    { itemId: 'p2', name: '哈尔滨工业大学', category: '教育;高等院校', visitable: true, foundBy: ['哈工大'] },
   ];
 
   const best = bestMatch(cands, '哈工大', new Set());
@@ -305,17 +299,17 @@ test('bestMatch：上游认得简称时，要听上游的，而不是自己猜"X
 
 test('bestMatch：名字恰好等于关键词时，压过一切', () => {
   const cands = [
-    { placeId: 'p1', name: '哈尔滨冰雪大世界', category: '旅游景点:景点', visitable: true, foundBy: ['冰雪大世界'] },
-    { placeId: 'p2', name: '冰雪大世界', category: '旅游景点:景点', visitable: true, foundBy: ['冰雪大世界'] },
+    { itemId: 'p1', name: '哈尔滨冰雪大世界', category: '旅游景点:景点', visitable: true, foundBy: ['冰雪大世界'] },
+    { itemId: 'p2', name: '冰雪大世界', category: '旅游景点:景点', visitable: true, foundBy: ['冰雪大世界'] },
   ];
   assert.equal(bestMatch(cands, '冰雪大世界', new Set()).name, '冰雪大世界');
 });
 
 test('bestMatch：同名的一堆里，短名字优先于"蹭名字"的长名字', () => {
   const cands = [
-    { placeId: 'p1', name: '哈尔滨欣怡宾馆(冰雪大世界凯利广场店)', category: '住宿', visitable: false },
-    { placeId: 'p2', name: '哈尔滨冰雪大世界', category: '旅游景点:景点', visitable: true },
-    { placeId: 'p3', name: '哈尔滨冰雪大世界梦幻冰雪馆', category: '旅游景点:景点', visitable: true },
+    { itemId: 'p1', name: '哈尔滨欣怡宾馆(冰雪大世界凯利广场店)', category: '住宿', visitable: false },
+    { itemId: 'p2', name: '哈尔滨冰雪大世界', category: '旅游景点:景点', visitable: true },
+    { itemId: 'p3', name: '哈尔滨冰雪大世界梦幻冰雪馆', category: '旅游景点:景点', visitable: true },
   ];
   const best = bestMatch(cands, '冰雪大世界', new Set());
   assert.equal(best.name, '哈尔滨冰雪大世界');
@@ -323,7 +317,7 @@ test('bestMatch：同名的一堆里，短名字优先于"蹭名字"的长名字
 });
 
 test('bestMatch：没有候选匹配时返回 null，不能硬凑一个', () => {
-  const cands = [{ placeId: 'p1', name: '中央大街', category: '旅游景点', visitable: true }];
+  const cands = [{ itemId: 'p1', name: '中央大街', category: '旅游景点', visitable: true }];
   assert.equal(bestMatch(cands, '冰雪大世界', new Set()), null);
 });
 
@@ -342,10 +336,10 @@ test('同一句话的两份表示不能重复计数 —— 三个地方就是三
    * **用两份数据做同一件事，必然重复。**
    */
   const cands = [
-    { placeId: 'p1', name: '哈尔滨工业大学', category: '教育;高等院校', visitable: true, foundBy: ['哈工大'] },
-    { placeId: 'p2', name: '哈工大科技园', category: '旅游景点:景点', visitable: true, foundBy: ['哈工大'] },
-    { placeId: 'p3', name: '哈尔滨冰雪大世界', category: '旅游景点:景点', visitable: true, foundBy: ['冰雪大世界'] },
-    { placeId: 'p4', name: '哈尔滨学院', category: '教育;高等院校', visitable: true, foundBy: ['哈学院'] },
+    { itemId: 'p1', name: '哈尔滨工业大学', category: '教育;高等院校', visitable: true, foundBy: ['哈工大'] },
+    { itemId: 'p2', name: '哈工大科技园', category: '旅游景点:景点', visitable: true, foundBy: ['哈工大'] },
+    { itemId: 'p3', name: '哈尔滨冰雪大世界', category: '旅游景点:景点', visitable: true, foundBy: ['冰雪大世界'] },
+    { itemId: 'p4', name: '哈尔滨学院', category: '教育;高等院校', visitable: true, foundBy: ['哈学院'] },
   ];
 
   const r = autoPick(cands, {
@@ -355,7 +349,7 @@ test('同一句话的两份表示不能重复计数 —— 三个地方就是三
   });
 
   assert.equal(
-    r.placeIds.length,
+    r.itemIds.length,
     3,
     `用户说了三个地方，实际选了 ${r.items.map((x) => x.name).join('、')}`
   );
@@ -368,11 +362,11 @@ test('同一句话的两份表示不能重复计数 —— 三个地方就是三
 
 test('没有检索词时才退回必去项 —— 不能因此漏掉用户明说要去的地方', () => {
   const cands = [
-    { placeId: 'p1', name: '兆麟公园', category: '旅游景点:公园', visitable: true },
-    { placeId: 'p2', name: '圣索菲亚教堂', category: '旅游景点:教堂', visitable: true },
+    { itemId: 'p1', name: '兆麟公园', category: '旅游景点:公园', visitable: true },
+    { itemId: 'p2', name: '圣索菲亚教堂', category: '旅游景点:教堂', visitable: true },
   ];
   const r = autoPick(cands, { pace: 'relaxed', mustVisitTexts: ['兆麟公园'] });
-  assert.ok(r.placeIds.includes('p1'), '没有检索词时，必去项必须仍然生效');
+  assert.ok(r.itemIds.includes('p1'), '没有检索词时，必去项必须仍然生效');
 });
 
 test('点名三个地方就三个 —— 模型误填 anchorText 也不能多塞', async () => {
@@ -414,7 +408,7 @@ test('点名三个地方就三个 —— 模型误填 anchorText 也不能多塞
   );
 
   assert.equal(
-    res.picked.placeIds.length,
+    res.picked.itemIds.length,
     2,
     `点名两个就两个，anchorText 不能触发补足。实际：${res.picked.items.map((x) => x.name).join('、')}`
   );
@@ -483,38 +477,77 @@ test('地点检索：缺 Key 是失败，且不写库', async () => {
 
 // ── 去重 ──────────────────────────────────────────────────
 
-test('地点检索：同一 POI 反复检索不重复入库', async () => {
+test('地点检索：**一律不入库** —— 反复检索也不会往库里写东西', async () => {
+  /**
+   * ⚠️ 用户决定（2026-10-13）："以后地点不会入库，全从腾讯地图搜索"。
+   *
+   * 原先每次检索都会把 POI 灌进 `places`，包括同一 POI 的复用逻辑
+   * （`saved.created` / `saved.reused`）。**那些字段现在不存在了。**
+   *
+   * 理由：检索回来的 POI 是**未核验**的，把它们灌进地点库
+   * 只会让"库里有这条"看起来像"我们确认过这个地方"。
+   * `places` 现在**只由踏勘写入**。
+   */
   const w = await makeWorld();
   const q = Object.assign({ keyword: '教堂', center: CENTER }, FAKE);
+  const before = (await w.A('place.list', {})).data.places.length;
 
   const first = expectOk(await w.A('place.search', q));
-  assert.equal(first.saved.created, 1);
-  assert.equal(first.saved.reused, 0);
+  assert.ok(first.candidates.length >= 1);
+  assert.equal(first.persisted, false, '响应必须说清"没有入库"');
+  assert.equal(first.saved, undefined, '`saved` 这个字段不该再存在 —— 它暗示检索会写库');
 
   const second = expectOk(await w.A('place.search', q));
-  assert.equal(second.saved.created, 0, '第二次不应再建新记录');
-  assert.equal(second.saved.reused, 1, '应复用已有记录');
-  assert.equal(second.candidates[0].placeId, first.candidates[0].placeId, 'placeId 必须稳定');
+  assert.ok(second.candidates.length >= 1);
 
-  const listed = expectOk(await w.A('place.list', {}));
-  assert.equal(listed.total, 8, '7 条夹具 + 1 条新检索');
+  const after = (await w.A('place.list', {})).data.places.length;
+  assert.equal(after, before, `检索不得改变地点库：${before} → ${after}`);
+
+  /**
+   * 但**稳定标识必须一致** —— 同一批地点两次检索要得到同一个 `itemId`，
+   * 否则踏勘实测的步行时间（按 placeId 索引）永远对不上、行程也无法复现。
+   */
+  assert.equal(
+    second.candidates[0].itemId,
+    first.candidates[0].itemId,
+    'itemId 必须稳定'
+  );
 });
 
-test('地点检索：save:false 只给候选，不写库', async () => {
+test('未踏勘的候选：能进游览顺序，但不能作集合点', async () => {
   const w = await makeWorld();
   const res = expectOk(
-    await w.A('place.search', Object.assign({ keyword: '公园', center: CENTER, save: false }, FAKE))
+    await w.A('place.search', Object.assign({ keyword: '', center: CENTER }, FAKE))
   );
 
-  assert.equal(res.ok, true);
-  assert.ok(res.candidates.length >= 1);
-  assert.equal(res.saved.created, 0);
-  assert.equal(
-    res.candidates.every((x) => x.placeId === null && x.saved === false),
-    true,
-    '未入库的候选没有 placeId，界面要据此禁用"加入行程"'
+  const c = res.candidates.find((x) => !x.matchedSurveyed);
+  assert.ok(c, '要挑一条**没对上踏勘数据**的候选');
+  assert.equal(c.saved, false, '不在库里');
+  assert.equal(c.placeId, null, '没有数据库 id');
+  assert.ok(c.itemId, '但必须有稳定标识 —— 规划要用它');
+  assert.equal(c.verified, false, '外部检索地点一律未核验');
+  assert.equal(c.dataSource, 'tencent-poi');
+  assert.equal(c.visitDurationSource, 'default-untuned', '停留时长是估值，必须标出来源');
+  assert.ok(c.name && c.location, '有名称与坐标就能排进行程（不必入库）');
+});
+
+test('检索结果对上了踏勘地点时，带上库里的 id 与核验状态', async () => {
+  /**
+   * 这是"检索保证覆盖度、踏勘保证可信度"两条线的**接缝**：
+   * 搜到一个我们已经实地核验过的地方，就该用库里那份数据 ——
+   * 它才有可信的停留时长、实测步行时间，才能当集合点。
+   */
+  const w = await makeWorld();
+  const res = expectOk(
+    await w.A('place.search', Object.assign({ keyword: '', center: CENTER }, FAKE))
   );
-  assert.equal((await w.A('place.list', {})).data.places.length, 7, '确实没有写库');
+
+  const hit = res.candidates.find((c) => c.matchedSurveyed);
+  assert.ok(hit, '假池里有与踏勘数据同名的地点，应当对上号');
+  assert.ok(hit.placeId, '对上号就带上库里的 id');
+  assert.equal(hit.saved, true);
+  assert.equal(hit.verified, true, '踏勘过的地点是核验状态');
+  assert.equal(res.matchedSurveyed >= 1, true, '响应里要能看出对上了几条');
 });
 
 // ── 排序 ──────────────────────────────────────────────────
@@ -535,8 +568,8 @@ test('自动预选：节奏决定选几个 —— 说了少走路就不该被塞
   assert.equal((await pick('normal')).limit, 4);
   assert.equal((await pick('packed')).limit, 5);
 
-  assert.equal((await pick('relaxed')).placeIds.length, 3, '轻松节奏只选 3 个');
-  assert.equal((await pick('packed')).placeIds.length, 5, '紧凑节奏选 5 个');
+  assert.equal((await pick('relaxed')).itemIds.length, 3, '轻松节奏只选 3 个');
+  assert.equal((await pick('packed')).itemIds.length, 5, '紧凑节奏选 5 个');
 
   // 非法节奏按 normal 处理，不报错也不乱选
   assert.equal((await pick('随便')).limit, 4);
@@ -565,10 +598,10 @@ test('自动预选：必去一定选上，且不被数量上限挤掉', async ()
     )
   );
 
-  const ids = res.picked.placeIds;
-  assert.ok(ids.includes(target.placeId), '必去的地点必须在预选里 —— 这是用户明说要去的地方');
+  const ids = res.picked.itemIds;
+  assert.ok(ids.includes(target.itemId), '必去的地点必须在预选里 —— 这是用户明说要去的地方');
   assert.equal(
-    res.picked.items.find((x) => x.placeId === target.placeId).reason,
+    res.picked.items.find((x) => x.itemId === target.itemId).reason,
     '必去',
     '要能说明为什么选它'
   );
@@ -590,9 +623,9 @@ test('自动预选：绝不自动选交通设施', async () => {
 
   const byId = {}
   res.candidates.forEach((c) => {
-    byId[c.placeId] = c
+    byId[c.itemId] = c
   })
-  for (const id of res.picked.placeIds) {
+  for (const id of res.picked.itemIds) {
     assert.equal(
       byId[id].visitable,
       true,
@@ -644,10 +677,10 @@ test('自动预选：「必去」也必须过类目这一关，交通设施不�
 
   const byId = {};
   res.candidates.forEach((c) => {
-    byId[c.placeId] = c;
+    byId[c.itemId] = c;
   });
 
-  for (const id of res.picked.placeIds) {
+  for (const id of res.picked.itemIds) {
     assert.equal(
       byId[id].visitable,
       true,
@@ -661,7 +694,7 @@ test('自动预选：「必去」也必须过类目这一关，交通设施不�
   );
   if (real) {
     assert.ok(
-      res.picked.placeIds.includes(real.placeId),
+      res.picked.itemIds.includes(real.placeId),
       '真正的冰雪大世界应该因"必去"被选中'
     );
   }
@@ -678,7 +711,7 @@ test('自动预选：说明里要写清选了谁、为什么', async () => {
 
   assert.match(res.picked.note, /预选 \d+ 个地点/);
   assert.match(res.picked.note, /（/, '每一项都要带理由');
-  assert.equal(res.picked.items.length, res.picked.placeIds.length);
+  assert.equal(res.picked.items.length, res.picked.itemIds.length);
 });
 
 test('自动预选：不传 autoPick 时不做预选', async () => {
@@ -810,34 +843,65 @@ test('地点检索：enrichWalk 用真实步行时间精排，并如实计入配
 
 // ── 与规划的衔接 ──────────────────────────────────────────
 
-test('检索入库的地点可以直接排进路线，并带未核验标注', async () => {
+test('**未入库**的检索结果可以直接排进路线（不必先入库）', async () => {
+  /**
+   * ⚠️ 用户决定（2026-10-13）："以后地点不会入库，全从腾讯地图搜索"。
+   *
+   * 所以规划**不能再要求 placeIds** —— 检索结果没有数据库 id。
+   * 改为把地点数据**内嵌**传给 `trip.plan`（`places: [...]`）。
+   */
   const w = await makeWorld();
   const found = expectOk(await w.A('place.search', Object.assign({ keyword: '公园', center: CENTER }, FAKE)));
-  const ids = found.candidates.map((x) => x.placeId);
+
+  const places = found.candidates.map((x) => ({
+    itemId: x.itemId,
+    name: x.name,
+    category: x.category,
+    location: x.location,
+    poiId: x.poiId,
+  }));
+
+  assert.equal(
+    places.every((x) => x.name && x.location),
+    true,
+    '内嵌地点必须有名称与坐标'
+  );
 
   const trip = expectOk(
-    await w.A('trip.plan', { placeIds: ids, startAt: NOW, constraints: [] })
+    await w.A('trip.plan', { places: places, startAt: NOW, constraints: [], startPoint: null })
   );
 
-  assert.equal(trip.saved, true, '检索回来的地点应能直接生成路线');
-  assert.equal(trip.unverifiedNotice.count, ids.length);
-  assert.equal(trip.unverifiedNotice.scope, 'tripNodeOnly');
+  assert.equal(trip.saved, true, '未入库的检索结果应能直接生成路线');
+  assert.equal(trip.nodes.length, places.length);
+  /**
+   * 节点必须带**地点快照** —— 否则事后 `adjust` 回库读不到
+   * （那些地点根本不在库里）。行程要**自洽**。
+   */
+  for (const n of trip.nodes) {
+    assert.ok(n.placeSnapshot, `节点 ${n.placeName} 缺少地点快照`);
+    assert.ok(n.placeSnapshot.name && n.placeSnapshot.location);
+  }
 });
 
-test('检索入库的地点不能作集合点，且排除原因要说明它还能用在哪', async () => {
+test('未核验的地点不能作集合点，且排除原因要说明它还能用在哪', async () => {
+  /**
+   * 库里那条「未核验的某处」（夹具）代表**已入库但尚未踏勘**的地点。
+   * 它可作行程节点，不可作集合点 —— 这就是准入分级的意义。
+   */
   const w = await makeWorld();
-  const found = expectOk(
-    await w.A('place.search', Object.assign({ keyword: '防洪', center: CENTER }, FAKE))
-  );
-  const placeId = found.candidates[0].placeId;
+  const listed = expectOk(await w.A('place.list', {}));
+  const target = listed.places.find((p) => !p.verified);
+
+  assert.ok(target, '夹具里必须有未核验的地点，否则这条测试是空的');
+  assert.ok(target.placeId);
 
   // 设成可作集合点的类别（MEET_CATEGORIES 里的值），
   // 排除原因才会走到"未核验"这一支，而不是被类目筛掉
-  await w.repo.update(C.PLACES, placeId, { category: 'meeting' });
+  await w.repo.update(C.PLACES, target.placeId, { category: 'meeting' });
 
   const { crewId } = await makeCrewSafe(w);
   const rec = expectOk(await w.A('meet.recommend', { crewId }));
-  const why = (rec.excluded || []).find((x) => x.placeId === placeId);
+  const why = (rec.excluded || []).find((x) => x.placeId === target.placeId);
   assert.ok(why, '未核验地点必须出现在排除原因里');
   assert.equal(why.reason, 'PLACE_NOT_MEETING_POINT');
   assert.match(why.message, /可安排为游览节点/);

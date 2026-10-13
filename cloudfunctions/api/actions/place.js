@@ -6,6 +6,7 @@ const { placeEligibility, canBeMeetingPoint } = require('../lib/authz');
 const { createMapProvider } = require('../lib/map');
 const { haversineMeters } = require('../lib/geo');
 const { isVisitableCategory, isVisitablePlace, LODGING_NAME_RE } = require('../lib/ai/rulebased');
+const { stablePlaceId } = require('../lib/place-id');
 const { logEvent } = require('../lib/trace');
 const C = require('../lib/repo/collections');
 
@@ -111,6 +112,12 @@ async function detail(ctx) {
   });
 }
 
+/** 「名字 + 千分位坐标」的匹配键 —— 用于把检索结果与踏勘地点对上号 */
+function nameKey(name, loc) {
+  if (!name || !loc) return '';
+  return `${String(name).trim()}|${loc.latitude.toFixed(3)}|${loc.longitude.toFixed(3)}`;
+}
+
 /**
  * 按需求**自动预选**地点。
  *
@@ -162,7 +169,12 @@ const SUB_ENTITY_SUFFIX_RE =
  */
 function bestMatch(candidates, kw, seen) {
   const pool = (candidates || []).filter(
-    (c) => c.placeId && !seen.has(c.placeId) && c.visitable !== false && c.name
+    /**
+     * ⚠️ 用 `itemId` 而不是 `placeId` —— 检索结果**不入库**，
+     * `placeId` 是 null，用它会让预选**一个都选不出**。
+     * `itemId` 是与是否入库无关的稳定标识（见 lib/place-id.js）。
+     */
+    (c) => c.itemId && !seen.has(c.itemId) && c.visitable !== false && c.name
   );
   if (!pool.length) return null;
 
@@ -200,8 +212,8 @@ function autoPick(candidates, req) {
   const picked = [];
   const seen = new Set();
   const take = (c, reason) => {
-    picked.push({ placeId: c.placeId, name: c.name, reason });
-    seen.add(c.placeId);
+    picked.push({ itemId: c.itemId, placeId: c.placeId || null, name: c.name, reason });
+    seen.add(c.itemId);
   };
   /**
    * 用户"点名"的地方 = 检索词。
@@ -279,13 +291,14 @@ function autoPick(candidates, req) {
   const quota = areaMode ? Math.max(limit, named.length) : named.length;
   for (const c of candidates) {
     if (picked.length >= quota) break;
-    if (!c.placeId || seen.has(c.placeId)) continue;
+    if (!c.itemId || seen.has(c.itemId)) continue;
     if (c.visitable === false) continue;
     take(c, pace === 'relaxed' ? '按「少走路」少选几个' : '相关性靠前');
   }
 
   return {
-    placeIds: picked.map((x) => x.placeId),
+    /** 稳定标识（不一定是数据库 id）—— 前端拿它对应候选 */
+    itemIds: picked.map((x) => x.itemId),
     items: picked,
     limit,
     pace,
@@ -333,14 +346,13 @@ function toPlaceDoc(item, now) {
   };
 }
 
-function rankByDistance(rows, center, basis, verifiedIds) {
+function rankByDistance(rows, center, basis) {
   const withMetrics = rows.map((r) => {
     const straight =
       center && r.location ? Math.round(haversineMeters(center, r.location)) : null;
-    return Object.assign({}, r, {
-      straightLineMeters: straight,
-      verified: verifiedIds.has(r.placeId),
-    });
+    // ⚠️ `verified` 由上面的行构造阶段就算好了（检索结果与踏勘地点对上号时才是 true），
+    //    这里不再自己判断 —— 之前靠一个 `verifiedIds` 集合，现在那个集合不存在了
+    return Object.assign({}, r, { straightLineMeters: straight });
   });
 
   const dist = (x) => (x.straightLineMeters == null ? Number.MAX_SAFE_INTEGER : x.straightLineMeters);
@@ -510,61 +522,86 @@ async function search(ctx) {
 
   // ── 去重：以 poiId 为键。集合规模在项目量级内，直接全量取回建映射，
   //    避免依赖不确定的查询操作符（这是今天反复踩过的坑）。
+  /**
+   * ── 检索结果**一律不入库**（2026-10-13 用户决定）─────────────
+   *
+   *     "以后地点不会入库，全从腾讯地图搜索"
+   *
+   * 理由站得住：检索回来的 POI 是**未核验**的，把它们灌进地点库
+   * 只会让"库里有这条"看起来像"我们确认过这个地方"。
+   * `places` 集合现在**只由踏勘写入**。
+   *
+   * 但要做一件事：**把检索结果与已踏勘的地点对上号**。
+   * 对上号的候选可以带上库里那个 `placeId`，于是它自动获得
+   * 核验待遇（可作集合点、可用实测步行时间）。
+   * 这是"检索保证覆盖度、踏勘保证可信度"两条线的**接缝**。
+   */
   const existing = await repo.find(C.PLACES, {}, { limit: 500 });
   const byPoiId = new Map();
-  const verifiedIds = new Set();
+  const byNameKey = new Map();
   for (const pl of existing) {
     if (pl.poiId) byPoiId.set(pl.poiId, pl);
-    if (pl.verifiedAt && pl.confidence !== 'low') verifiedIds.add(pl._id);
+    // 没有 poiId 的（手工录入的踏勘数据）用"名字 + 千分位坐标"兜底匹配
+    if (pl.name && pl.location) byNameKey.set(nameKey(pl.name, pl.location), pl);
   }
 
-  const save = p.save !== false;
-  let created = 0;
-  let reused = 0;
   const rows = [];
 
   for (const item of upstream.items) {
     if (!item.title || !item.location) continue; // 缺名称或坐标的条目直接丢弃
 
-    let place = item.poiId ? byPoiId.get(item.poiId) : null;
-    if (place) {
-      reused++;
-    } else if (save) {
-      const doc = toPlaceDoc(item, now);
-      const saved = await repo.insert(C.PLACES, doc);
-      place = saved || Object.assign({ _id: doc._id }, doc);
-      created++;
-      if (item.poiId) byPoiId.set(item.poiId, place);
-    } else {
-      // 不入库：仍返回候选，但没有 placeId，界面要据此禁用"加入行程"
-      rows.push({
-        placeId: null,
-        poiId: item.poiId,
-        name: item.title,
-        category: item.category,
-        address: item.address,
-        location: item.location,
-        saved: false,
-        /** 这个候选是被哪个检索词找到的 —— 多关键词时要能说清 */
-        foundBy: item.foundBy || [],
-      });
-      continue;
-    }
+    // 与已踏勘的地点对上号 → 用库里的记录（它才有核验信息）
+    const surveyed =
+      (item.poiId && byPoiId.get(item.poiId)) || byNameKey.get(nameKey(item.title, item.location));
 
-    rows.push({
-      placeId: place._id,
-      poiId: item.poiId,
-      name: place.name,
-      foundBy: item.foundBy || [],
-      category: place.category,
-      address: place.address || item.address || null,
-      location: place.location,
-      visitDurationMin: place.visitDurationMin,
-      visitDurationSource: place.visitDurationSource || null,
-      verified: Boolean(place.verifiedAt) && place.confidence !== 'low',
-      dataSource: place.dataSource,
-      saved: true,
-    });
+    rows.push(
+      surveyed
+        ? {
+            /** 稳定标识：已入库地点就是它自己的 id */
+            itemId: surveyed._id,
+            placeId: surveyed._id,
+            poiId: item.poiId,
+            name: surveyed.name,
+            foundBy: item.foundBy || [],
+            category: surveyed.category,
+            address: surveyed.address || item.address || null,
+            location: surveyed.location,
+            visitDurationMin: surveyed.visitDurationMin,
+            visitDurationSource: surveyed.visitDurationSource || null,
+            verified: Boolean(surveyed.verifiedAt) && surveyed.confidence !== 'low',
+            dataSource: surveyed.dataSource,
+            /** 已入库（踏勘过）—— 前端可以直接传 placeId */
+            saved: true,
+            /** 这份数据来自**实地踏勘**，不是检索 */
+            matchedSurveyed: true,
+          }
+        : {
+            /**
+             * ⚠️ 未入库也要有**稳定标识**（`itemId`）—— 下游处处要用它：
+             * 预选去重、`trip.plan` 的 placesById 键、`nodes[].placeId`、
+             * 踏勘步行时间的索引。见 lib/place-id.js。
+             */
+            itemId: stablePlaceId({
+              name: item.title,
+              poiId: item.poiId,
+              location: item.location,
+            }),
+            placeId: null,
+            poiId: item.poiId,
+            name: item.title,
+            foundBy: item.foundBy || [],
+            category: item.category,
+            address: item.address || null,
+            location: item.location,
+            /** 未踏勘 → 用默认停留时长，前端要能看到它是估值 */
+            visitDurationMin: Object.assign({}, DEFAULT_VISIT_DURATION),
+            visitDurationSource: 'default-untuned',
+            verified: false,
+            dataSource: 'tencent-poi',
+            saved: false,
+            matchedSurveyed: false,
+          }
+    );
   }
 
   /**
@@ -594,7 +631,7 @@ async function search(ctx) {
       return Object.assign({}, r, {
         upstreamIndex: i,
         straightLineMeters: straight,
-        verified: verifiedIds.has(r.placeId),
+        // `verified` 在行构造阶段已算好（见 rankByDistance 的说明）
         /**
          * 能不能作为**游览地点**。
          *
@@ -626,7 +663,7 @@ async function search(ctx) {
       .filter((x) => x.visitable)
       .concat(withIdx.filter((x) => !x.visitable));
   } else {
-    ranked = rankByDistance(rows, center, basis, verifiedIds);
+    ranked = rankByDistance(rows, center, basis);
   }
 
   /**
@@ -674,7 +711,13 @@ async function search(ctx) {
     result: 'ok',
     durationMs: Date.now() - started,
     mapApiCalls,
-    detail: { keyword, created, reused, itemCount: upstream.items.length, enriched },
+    detail: {
+      keywords: provided,
+      itemCount: upstream.items.length,
+      enriched,
+      /** 其中有多少条对上了**踏勘核验过**的地点 */
+      matchedSurveyed: rows.filter((r) => r.matchedSurveyed).length,
+    },
   });
 
   return resp.ok({
@@ -687,7 +730,15 @@ async function search(ctx) {
     regionUsed: useNearby ? null : p.region || DEFAULT_REGION,
     /** 本次是"找那个地方"还是"找附近的" */
     scopeUsed: useNearby ? 'nearby' : 'city',
-    saved: { created, reused, skipped: upstream.items.length - created - reused },
+    /**
+     * ⚠️ **检索结果不入库**（2026-10-13 用户决定）。
+     *
+     * 这个字段保留是为了让调用方一眼看清"没有新增任何地点"，
+     * 而不是留一个 `saved` 让人以为检索会写库。
+     */
+    persisted: false,
+    /** 有多少条对上了库里**踏勘核验过**的地点 —— 那才是可信数据 */
+    matchedSurveyed: candidates.filter((c) => c.matchedSurveyed).length,
     ranking: {
       basis,
       enriched,
