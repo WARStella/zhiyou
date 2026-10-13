@@ -1,0 +1,360 @@
+.page {
+  padding: 24rpx 24rpx 60rpx;
+}
+
+/* ── 提示条 ───────────────────────────────── */
+.warn {
+  background: #fff8ed;
+  border-left: 8rpx solid #f5a623;
+  border-radius: 8rpx;
+  padding: 18rpx 20rpx;
+  margin-bottom: 20rpx;
+  font-size: 23rpx;
+  line-height: 1.7;
+  color: #8a5a00;
+}
+.err {
+  background: #fdecec;
+  border-left: 8rpx solid #e5484d;
+  border-radius: 8rpx;
+  padding: 18rpx 20rpx;
+  margin-bottom: 20rpx;
+  font-size: 24rpx;
+  color: #b02a2e;
+}
+.note {
+  font-size: 23rpx;
+  color: #0b6bcb;
+  padding: 4rpx 0 16rpx;
+}
+
+/* ── 卡片 ─────────────────────────────────── */
+.card {
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 24rpx;
+  margin-bottom: 20rpx;
+  box-shadow: 0 2rpx 10rpx rgba(11, 60, 110, 0.06);
+}
+.card.bad {
+  border-left: 8rpx solid #e5484d;
+}
+.row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+.k {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #1f2933;
+}
+.v {
+  font-size: 26rpx;
+  font-weight: 600;
+}
+.v.link {
+  color: #0b6bcb;
+}
+.v.muted {
+  color: #9aa5b1;
+  font-weight: 400;
+}
+.ok {
+  color: #0f9d58;
+}
+.bad {
+  color: #e5484d;
+}
+.sub {
+  margin-top: 10rpx;
+  font-size: 23rpx;
+  line-height: 1.6;
+  color: #7b8794;
+}
+.hint {
+  margin-top: 12rpx;
+  font-size: 23rpx;
+  line-height: 1.7;
+  color: #7b8794;
+}
+.conflict {
+  margin-top: 10rpx;
+  font-size: 24rpx;
+  line-height: 1.6;
+  color: #b02a2e;
+}
+
+/* ── 地点选择 ─────────────────────────────── */
+.place {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid #f0f2f4;
+}
+.place:last-child {
+  border-bottom: none;
+}
+.place-left {
+  display: flex;
+  align-items: center;
+}
+.order {
+  width: 40rpx;
+  height: 40rpx;
+  line-height: 40rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: #eef1f4;
+  color: #b0b8c1;
+  font-size: 22rpx;
+  margin-right: 16rpx;
+}
+.order.on {
+  background: #0b3c6e;
+  color: #fff;
+}
+.place-text {
+  display: flex;
+  flex-direction: column;
+}
+.place-name {
+  font-size: 27rpx;
+  color: #1f2933;
+}
+.place-meta {
+  margin-top: 4rpx;
+  font-size: 21rpx;
+  color: #9aa5b1;
+}
+.check {
+  font-size: 30rpx;
+  color: #0f9d58;
+}
+.place.on .place-name {
+  font-weight: 600;
+  color: #0b3c6e;
+}
+
+/* ── 按钮 ─────────────────────────────────── */
+.btn {
+  margin: 0 0 20rpx;
+  background: #0b3c6e;
+  color: #fff;
+  font-size: 29rpx;
+  border-radius: 12rpx;
+}
+.btn[disabled] {
+  background: #9aa5b1;
+  color: #fff;
+}
+.btn.ghost {
+  background: #fff;
+  color: #0b3c6e;
+  border: 2rpx solid #0b3c6e;
+}
+.btn.ghost[disabled] {
+  color: #9aa5b1;
+  border-color: #cfd6dd;
+}
+.btn.small {
+  margin-top: 20rpx;
+  font-size: 26rpx;
+  padding: 6rpx 0;
+}
+
+/* ── 概览 ─────────────────────────────────── */
+.summary .sum-row {
+  display: flex;
+  justify-content: space-between;
+  margin: 22rpx 0 6rpx;
+}
+.sum-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+.sum-v {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #0b3c6e;
+}
+.sum-k {
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  color: #9aa5b1;
+}
+
+/* ── 时间轴 ───────────────────────────────── */
+.tl {
+  margin-bottom: 10rpx;
+}
+.node {
+  display: flex;
+  padding-bottom: 8rpx;
+}
+.node-rail {
+  width: 40rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 30rpx;
+}
+.dot {
+  width: 18rpx;
+  height: 18rpx;
+  border-radius: 50%;
+  background: #cfd6dd;
+  flex: none;
+}
+.node.current .dot {
+  width: 24rpx;
+  height: 24rpx;
+  background: #ff7a45;
+}
+.node.done .dot {
+  background: #0f9d58;
+}
+.node.skipped .dot {
+  background: #e5484d;
+}
+.line {
+  width: 3rpx;
+  flex: 1;
+  background: #e6eaee;
+  margin-top: 6rpx;
+}
+.node-body {
+  flex: 1;
+  background: #fff;
+  border-radius: 16rpx;
+  padding: 22rpx;
+  margin-bottom: 16rpx;
+  box-shadow: 0 2rpx 10rpx rgba(11, 60, 110, 0.06);
+}
+.node.current .node-body {
+  border-left: 8rpx solid #ff7a45;
+}
+.node-head {
+  display: flex;
+  align-items: center;
+}
+.node-seq {
+  font-size: 22rpx;
+  color: #9aa5b1;
+  margin-right: 12rpx;
+}
+.node-name {
+  font-size: 29rpx;
+  font-weight: 600;
+  color: #1f2933;
+  flex: 1;
+}
+.badge {
+  font-size: 20rpx;
+  padding: 4rpx 12rpx;
+  border-radius: 20rpx;
+  background: #eef1f4;
+  color: #7b8794;
+}
+.badge.done {
+  background: #e8f5ee;
+  color: #0f9d58;
+}
+.badge.arrived {
+  background: #fff1e8;
+  color: #d9642a;
+}
+.badge.skipped {
+  background: #fdecec;
+  color: #e5484d;
+}
+.node-times {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 14rpx;
+}
+.t {
+  font-size: 23rpx;
+  color: #52606d;
+  margin-right: 22rpx;
+}
+.node-travel {
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  color: #0fa98a;
+}
+.acts {
+  display: flex;
+  margin-top: 18rpx;
+  border-top: 1rpx solid #f0f2f4;
+  padding-top: 16rpx;
+}
+.act {
+  flex: 1;
+  text-align: center;
+  font-size: 22rpx;
+  color: #0b6bcb;
+}
+.act.warn-act {
+  color: #d9642a;
+}
+
+/* ── 候选卡片 ─────────────────────────────── */
+.cand-head {
+  padding: 20rpx 24rpx;
+}
+.cand-label {
+  font-size: 29rpx;
+  font-weight: 600;
+  color: #0b3c6e;
+}
+.card.cand.infeasible {
+  opacity: 0.72;
+  border-left: 8rpx solid #e5484d;
+}
+.cand-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 16rpx;
+}
+.m {
+  font-size: 22rpx;
+  color: #52606d;
+  background: #f4f6f8;
+  border-radius: 6rpx;
+  padding: 6rpx 14rpx;
+  margin: 0 12rpx 10rpx 0;
+}
+.changes {
+  margin-top: 14rpx;
+}
+.changes-hd {
+  font-size: 22rpx;
+  color: #9aa5b1;
+  margin-bottom: 8rpx;
+}
+.change {
+  font-size: 23rpx;
+  line-height: 1.7;
+  color: #1f2933;
+}
+.quality-warn {
+  margin-top: 14rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+  color: #d9642a;
+}
+.conflicts {
+  margin-top: 12rpx;
+}
+
+.foot {
+  text-align: center;
+  font-size: 21rpx;
+  line-height: 1.6;
+  color: #b0b8c1;
+  padding: 24rpx 10rpx 40rpx;
+}

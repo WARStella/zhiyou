@@ -495,6 +495,52 @@ test('业务异常不受影响：错误码与提示原样返回，且不带堆�
   assert.doesNotMatch(err.message, /stack|RangeError/i);
 });
 
+test('开发期放行开关：allowUnverified 仅 dev 有效，且必须显式标注', async () => {
+  const dev = await makeWorld();
+
+  // ① 不开开关 → 未核验地点被拒绝（§6.6「检索到资料 ≠ 资料可信」）
+  const rejected = expectOk(
+    await dev.A('trip.plan', { placeIds: ['p_unverified'], startAt: NOW, constraints: [] })
+  );
+  assert.equal(rejected.saved, false);
+  assert.equal(rejected.reason, 'PLACE_UNVERIFIED');
+  assert.match(rejected.hint, /allowUnverified/, '拒绝时要告诉开发者开发期怎么自测');
+
+  // ② dev 环境 + 显式开关 → 放行，但**必须随结果回传标注**
+  const bypass = expectOk(
+    await dev.A('trip.plan', {
+      placeIds: ['p_unverified'],
+      startAt: NOW,
+      constraints: [],
+      allowUnverified: true,
+    })
+  );
+  assert.equal(bypass.saved, true, 'dev 环境显式开关应放行');
+  assert.ok(bypass.unverifiedBypass, '放行必须显式标注，不得静默通过');
+  assert.equal(bypass.unverifiedBypass.count, 1);
+  assert.deepEqual(bypass.unverifiedBypass.placeIds, ['p_unverified']);
+  assert.match(bypass.unverifiedBypass.warning, /核验|开发调试/);
+
+  // ③ prod 环境 → 开关失效（正式实测不得使用未核验地点）
+  const prod = await makeWorld({ env: 'prod' });
+  const prodRes = expectOk(
+    await prod.A('trip.plan', {
+      placeIds: ['p_unverified'],
+      startAt: NOW,
+      constraints: [],
+      allowUnverified: true,
+    })
+  );
+  assert.equal(prodRes.saved, false, 'prod 环境必须忽略该开关');
+  assert.equal(prodRes.reason, 'PLACE_UNVERIFIED');
+
+  // ④ 全部地点都已核验时，不应出现标注
+  const clean = expectOk(
+    await dev.A('trip.plan', { placeIds: VALID_PLACES, startAt: NOW, constraints: [] })
+  );
+  assert.equal(clean.unverifiedBypass, null, '没有未核验地点时不得无端报警');
+});
+
 test('ops.selfTest：测量各类写入形态，并只写 selftest 集合', async () => {
   const w = await makeWorld();
   const res = expectOk(await w.A('ops.selfTest', {}));

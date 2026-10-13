@@ -44,7 +44,7 @@ async function loadTripForRead(repo, tripId, openid) {
  * 这是"遇到异常不会悄悄执行错误安排"在规划入口的落地。
  */
 async function plan(ctx) {
-  const { repo, openid } = ctx;
+  const { repo, openid, env } = ctx;
   const p = ctx.payload || {};
   const started = Date.now();
   const now = new Date(ctx.now ? ctx.now : Date.now());
@@ -94,7 +94,23 @@ async function plan(ctx) {
   const unverified = Object.values(placesById).filter(
     (pl) => !pl.verifiedAt || pl.confidence === 'low'
   );
-  if (unverified.length) {
+  /**
+   * 开发期放行开关 —— 仅 `env === 'dev'` 有效。
+   *
+   * 为什么需要它：10/16 踏勘之前，库里只有未核验的占位地点，
+   * 页面与规划流程**完全无法自测**；而 W1 的交付恰恰是「单人路线可用」。
+   *
+   * 为什么它是安全的：
+   *   · 由 `env === 'dev'` 把关，正式实测期（`ZY_ENV=prod`）失效；
+   *   · **放行时必须显式标注**（响应里的 `unverifiedBypass`），绝不静默通过；
+   *   · 决策记录里同样留痕，11/5 固定测试集能分辨哪些结果用了它。
+   *
+   * 与计划书 §14.2「体验版与正式发布是两件事」同一思路：
+   * 开发期的便利必须与正式期的严格**在配置上分开**，而不是靠自觉。
+   */
+  const devBypass = p.allowUnverified === true && env === 'dev';
+
+  if (unverified.length && !devBypass) {
     // 拒绝也必须留痕：11/5 要能分清"正常拒绝、误拒绝和错误放行"
     await logDecision(repo, {
       ts: now,
@@ -124,8 +140,21 @@ async function plan(ctx) {
       nodes: [],
       saved: false,
       reason: 'PLACE_UNVERIFIED',
+      hint: '请于 10/16 踏勘后由 C 录入核验信息；开发期可使用 allowUnverified:true 自测页面流程',
     });
   }
+
+  /** 放行时**必须**随结果一起回传，界面要显著标注，不得静默 */
+  const unverifiedBypass =
+    devBypass && unverified.length
+      ? {
+          count: unverified.length,
+          placeIds: unverified.map((pl) => pl._id),
+          warning:
+            '本次规划使用了未经实地核验的地点，仅用于开发调试。' +
+            '正式实验（ZY_ENV=prod）会拒绝这些地点。',
+        }
+      : null;
 
   const items = spec.placeIds.map((placeId, i) => ({ nodeId: `n_${i}_${placeId}`, placeId }));
   const tl = timelineMod.buildTimeline({ startAt: spec.startAt, items, placesById, params });
@@ -233,6 +262,8 @@ async function plan(ctx) {
       totalWalkMeters: tl.totalWalkMeters,
       totalStayMin: tl.totalStayMin,
     },
+    /** 非 null 表示本次规划用了未核验地点 —— 界面必须显著标注，不得静默 */
+    unverifiedBypass,
     saved: true,
   });
 }

@@ -1,0 +1,197 @@
+<view class="page">
+
+  <!-- 开发期：使用了未核验地点时必须显著提示，不得静默 -->
+  <view wx:if="{{unverifiedBypass}}" class="warn">
+    ⚠️ 本次使用了 {{unverifiedBypass.count}} 个**未核验**地点，仅用于开发调试。
+    正式实验会拒绝这些地点。
+  </view>
+
+  <view wx:if="{{error}}" class="err">{{error}}</view>
+  <view wx:if="{{note}}" class="note">{{note}}</view>
+
+  <!-- ══════════ 未生成路线：地点选择 ══════════ -->
+  <block wx:if="{{!trip}}">
+
+    <view class="card">
+      <view class="row">
+        <text class="k">出发时间</text>
+        <picker mode="time" value="{{startAtText}}" bindchange="onStartTimeChange">
+          <text class="v link">{{startAtText}} ›</text>
+        </picker>
+      </view>
+      <view class="sub">依次勾选想去的地点，**勾选顺序即游览顺序**</view>
+    </view>
+
+    <!-- 规划被判定不可行：如实展示冲突，并指向可调整的条件 -->
+    <view wx:if="{{planRejected}}" class="card bad">
+      <view class="row"><text class="k">当前条件下无法生成路线</text></view>
+      <view wx:for="{{conflicts}}" wx:key="code" class="conflict">· {{item.message}}</view>
+      <view class="hint">请调整上面的地点选择或出发时间后重试；若已设置硬约束（如必须几点前结束），需要放宽其中一项。</view>
+    </view>
+
+    <view class="card">
+      <view class="row">
+        <text class="k">选择地点</text>
+        <text class="v muted">已选 {{selectedIds.length}}</text>
+      </view>
+
+      <view wx:if="{{loading && !places.length}}" class="hint">正在加载地点…</view>
+      <view wx:if="{{!loading && !places.length}}" class="hint">
+        数据库里没有地点。先到「自检」页点「初始化数据库」灌入种子地点；
+        真实可信地点将在 10/16 踏勘后录入。
+      </view>
+
+      <view
+        wx:for="{{places}}"
+        wx:key="placeId"
+        class="place {{item.selected ? 'on' : ''}}"
+        data-id="{{item.placeId}}"
+        bindtap="togglePlace"
+      >
+        <view class="place-left">
+          <view class="order {{item.selected ? 'on' : ''}}">{{item.order || ''}}</view>
+          <view class="place-text">
+            <text class="place-name">{{item.name}}</text>
+            <text class="place-meta">{{item.category}}{{item.usable ? '' : ' · 未核验'}}</text>
+          </view>
+        </view>
+        <text class="check">{{item.selected ? '✓' : ''}}</text>
+      </view>
+    </view>
+
+    <button class="btn" bindtap="createTrip" disabled="{{loading || !selectedIds.length}}">
+      {{loading ? '生成中…' : '生成路线'}}
+    </button>
+  </block>
+
+  <!-- ══════════ 已生成：时间轴（§5.1） ══════════ -->
+  <block wx:else>
+
+    <view class="card summary">
+      <view class="row">
+        <text class="k">路线概览</text>
+        <text class="v muted">版本 v{{trip.version}}</text>
+      </view>
+      <view class="sum-row">
+        <view class="sum-item"><text class="sum-v">{{timeline.length}}</text><text class="sum-k">个节点</text></view>
+        <view class="sum-item"><text class="sum-v">{{summary.totalWalkMin}}</text><text class="sum-k">分钟步行</text></view>
+        <view class="sum-item"><text class="sum-v">{{summary.totalStayMin}}</text><text class="sum-k">分钟停留</text></view>
+        <view class="sum-item"><text class="sum-v">{{summary.endAt}}</text><text class="sum-k">预计结束</text></view>
+      </view>
+      <button class="btn ghost" bindtap="resetTrip">重新选择地点</button>
+    </view>
+
+    <!-- 时间轴 -->
+    <view class="tl">
+      <view
+        wx:for="{{timeline}}"
+        wx:key="nodeId"
+        class="node {{item.isCurrent ? 'current' : ''}} {{item.status}}"
+      >
+        <view class="node-rail">
+          <view class="dot"></view>
+          <view wx:if="{{!item.isLast}}" class="line"></view>
+        </view>
+
+        <view class="node-body">
+          <view class="node-head">
+            <text class="node-seq">{{item.seq}}</text>
+            <text class="node-name">{{item.placeName}}</text>
+            <text class="badge {{item.status}}">{{item.statusLabel}}</text>
+          </view>
+
+          <view class="node-times">
+            <text class="t">到达 {{item.arrive}}</text>
+            <text class="t">停留 {{item.stayMin}} 分钟</text>
+            <text class="t">离开 {{item.leave}}</text>
+          </view>
+
+          <view wx:if="{{item.travelMin}}" class="node-travel">
+            前往下一站约 {{item.travelMin}} 分钟 · {{item.travelMeters}} 米
+          </view>
+
+          <view class="acts">
+            <view class="act" data-nodeid="{{item.nodeId}}" data-key="extend" bindtap="nodeAction">多停 10 分钟</view>
+            <view class="act" data-nodeid="{{item.nodeId}}" data-key="shorten" bindtap="nodeAction">少停 10 分钟</view>
+            <view class="act warn-act" data-nodeid="{{item.nodeId}}" data-key="skip" bindtap="nodeAction">跳过</view>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <!-- ══════════ 调整候选（§5.2 四种展示情况） ══════════ -->
+    <block wx:if="{{proposal}}">
+      <view class="card cand-head">
+        <view class="row">
+          <text class="k">调整方案</text>
+          <text class="v muted">{{proposalNote}}</text>
+        </view>
+      </view>
+
+      <!-- 没有可行方案：指出冲突，请用户选择调整哪个条件 -->
+      <view wx:if="{{proposalMode === 'none'}}" class="card bad">
+        <view class="row"><text class="k">没有可行的调整方案</text></view>
+        <view class="hint">冲突所在：</view>
+        <view wx:for="{{candidates}}" wx:key="candidateId">
+          <view wx:for="{{item.conflicts}}" wx:for-item="c" wx:key="*this" class="conflict">· {{c}}</view>
+        </view>
+        <view class="hint">
+          请选择要放宽的条件：把出发时间提前、减少一个地点，或放宽结束时间要求。
+          **系统不会为了凑出一个方案而放宽你自己设定的硬约束。**
+        </view>
+      </view>
+
+      <!-- 有可行方案：逐条展示差异与取舍 -->
+      <block wx:else>
+        <view
+          wx:for="{{candidates}}"
+          wx:key="candidateId"
+          class="card cand {{item.feasible ? '' : 'infeasible'}}"
+        >
+          <view class="row">
+            <text class="cand-label">{{item.label}}</text>
+            <text class="v {{item.feasible ? 'ok' : 'bad'}}">
+              {{item.feasible ? '可行' : '不可行'}}
+            </text>
+          </view>
+
+          <view class="cand-metrics">
+            <text class="m">保留 {{item.preserved}} 个节点</text>
+            <text class="m">预计结束 {{item.endAt}}</text>
+            <text wx:if="{{item.endShiftMin}}" class="m">结束时间变化 {{item.endShiftMin}} 分钟</text>
+            <text wx:if="{{item.walkDelta}}" class="m">步行增加 {{item.walkDelta}} 分钟</text>
+          </view>
+
+          <view wx:if="{{item.changes.length}}" class="changes">
+            <view class="changes-hd">改了什么</view>
+            <view wx:for="{{item.changes}}" wx:for-item="c" wx:key="*this" class="change">· {{c}}</view>
+          </view>
+
+          <view wx:if="{{!item.qualityOk}}" class="quality-warn">
+            ⚠️ 有地点的停留被压到下限以下，该节点不计入"有效保留"
+          </view>
+
+          <view wx:if="{{item.conflicts.length}}" class="conflicts">
+            <view wx:for="{{item.conflicts}}" wx:for-item="c" wx:key="*this" class="conflict">· {{c}}</view>
+          </view>
+
+          <button
+            wx:if="{{item.feasible}}"
+            class="btn small"
+            data-cid="{{item.candidateId}}"
+            bindtap="confirmCandidate"
+            disabled="{{busy}}"
+          >
+            {{busy === 'confirm' ? '确认中…' : '选择这个方案'}}
+          </button>
+        </view>
+
+        <button class="btn ghost" bindtap="discardProposal">保持原计划</button>
+      </block>
+    </block>
+
+    <view class="foot">
+      调整不会自动生效 —— 必须确认后才改写行程（版本 v{{trip.version}}）
+    </view>
+  </block>
+</view>
