@@ -11,9 +11,11 @@
  *   只有一条可行方案 → 展示一条，并说明限制条件
  *   没有可行方案     → **指出冲突所在，请用户选择调整哪个条件**
  *
- * ⚠️ 本页当前是**手动模式**：从地点列表勾选生成路线。
- * 10/15 之后 AI 解析接进来时，只需把"勾选地点"换成"说一句话"，
- * 调用的接口完全不变（`req.submit` → `trip.plan`）。
+ * ── 输入方式（2026-10-13 补）──────────────────────────────
+ * 本页是**手动模式**：搜索/浏览地点 → 勾选 → 生成路线 → 快捷调整。
+ *
+ * 10/15 之后 AI 解析接进来时，只需把"输入关键词"换成"说一句话"，
+ * 调用的接口完全不变（`place.search` / `trip.plan` / `trip.adjust`）。
  * 这也是计划书 §十 的 P0／P1 分界所在。
  */
 
@@ -26,13 +28,6 @@ const STATUS_LABEL = {
   skipped: '已跳过',
 }
 
-/** 快捷调整操作（§5.1：提供"多停留一会儿""跳过下一站"等快捷操作） */
-const QUICK_ACTIONS = [
-  { key: 'extend', label: '多停 10 分钟' },
-  { key: 'shorten', label: '少停 10 分钟' },
-  { key: 'skip', label: '跳过这一站' },
-]
-
 function hhmm(value) {
   if (!value) return '--:--'
   const d = new Date(value)
@@ -40,51 +35,69 @@ function hhmm(value) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
-function nowTimeText() {
-  const d = new Date()
+function timeText(d) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/** 把 HH:mm 落到今天的时间点 */
+function todayAt(text) {
+  const d = new Date()
+  const [hh, mm] = text.split(':')
+  d.setHours(Number(hh), Number(mm), 0, 0)
+  return d
 }
 
 Page({
   data: {
-    // ── 输入 ──
-    places: [],
-    selectedIds: [],
+    // ── 需求输入 ──
+    keyword: '',
     startAtText: '',
     startAt: '',
+    endAtText: '',
+    endAt: '', // 空字符串 = 不限
+    enrichWalk: false,
+
+    // ── 候选（搜索结果或已知地点）──
+    mode: 'browse', // browse | search
+    candidates: [],
+    rankingNote: '',
+    locating: false,
+
+    // ── 已选（勾选顺序即游览顺序）──
+    selected: [],
 
     // ── 行程 ──
     trip: null,
     timeline: [],
     summary: null,
     currentNodeIndex: 0,
+    unverifiedNotice: null,
 
     // ── 调整候选 ──
     proposal: null,
-    proposalMode: null, // two | merged | single | none
+    proposalMode: null,
     proposalNote: '',
-    candidates: [],
+    proposalCandidates: [],
 
     // ── 状态 ──
     loading: false,
     busy: '',
     error: '',
     note: '',
-    unverifiedNotice: null,
-    actions: QUICK_ACTIONS,
+    conflicts: [],
+    planRejected: false,
   },
 
   onLoad() {
-    const t = nowTimeText()
-    const d = new Date()
-    const [hh, mm] = t.split(':')
-    d.setHours(Number(hh), Number(mm), 0, 0)
-
-    this.setData({ startAtText: t, startAt: d.toISOString() })
-    this.loadPlaces()
+    const now = new Date()
+    this.setData({ startAtText: timeText(now), startAt: now.toISOString() })
+    this.loadKnown()
   },
 
-  loadPlaces() {
+  // ══════════ 候选来源 ══════════
+
+  /** 浏览模式：列出已知地点（含踏勘核验过的） */
+  loadKnown() {
     const that = this
     this.setData({ loading: true, error: '' })
     api
@@ -94,69 +107,229 @@ Page({
           that.setData({ loading: false, error: (res && res.error && res.error.message) || '地点加载失败' })
           return
         }
-        const places = (res.data.places || []).map(function (p) {
-          return {
-            placeId: p.placeId,
-            name: p.name,
-            category: p.category,
-            // 准入按用途分级（见 lib/authz.js）：能游览 ≠ 能集合
-            tripNodeAllowed: p.tripNodeAllowed,
-            meetingPointAllowed: p.meetingPointAllowed,
-            verified: p.verified,
-            dataSource: p.dataSource,
-            selected: false,
-            order: 0,
-          }
-        })
-        that.setData({ places, loading: false })
+        that.setCandidates(
+          (res.data.places || []).map(function (p) {
+            return {
+              placeId: p.placeId,
+              name: p.name,
+              category: p.category,
+              verified: p.verified,
+              tripNodeAllowed: p.tripNodeAllowed,
+              meetingPointAllowed: p.meetingPointAllowed,
+              distanceText: '',
+              durationText: '',
+            }
+          }),
+          'browse',
+          ''
+        )
+        that.setData({ loading: false })
       })
       .catch(function (err) {
         that.setData({ loading: false, error: (err && err.errMsg) || '地点加载失败' })
       })
   },
 
-  onStartTimeChange(e) {
-    const t = e.detail.value
-    const d = new Date()
-    const [hh, mm] = t.split(':')
-    d.setHours(Number(hh), Number(mm), 0, 0)
-    this.setData({ startAtText: t, startAt: d.toISOString() })
+  /**
+   * 尝试取当前位置，用于按"离我多远"排序。
+   * **失败不阻断搜索** —— 退回后端默认中心（哈尔滨），并在界面上说明。
+   */
+  tryLocate() {
+    return new Promise(function (resolve) {
+      wx.getLocation({
+        type: 'gcj02',
+        isHighAccuracy: true,
+        highAccuracyExpireTime: 4000,
+        success: function (res) {
+          resolve({ latitude: res.latitude, longitude: res.longitude })
+        },
+        fail: function () {
+          resolve(null)
+        },
+      })
+    })
   },
 
-  /** 勾选地点。勾选顺序即游览顺序 —— 界面上用序号体现 */
-  togglePlace(e) {
+  onKeyword(e) {
+    this.setData({ keyword: e.detail.value })
+  },
+
+  onEnrichChange(e) {
+    this.setData({ enrichWalk: e.detail.value })
+  },
+
+  doSearch() {
+    const that = this
+    const keyword = (this.data.keyword || '').trim()
+    if (!keyword) {
+      this.setData({ note: '请输入关键词，例如「教堂」「公园」「中央大街」' })
+      return
+    }
+
+    this.setData({ loading: true, error: '', note: '正在定位…' })
+
+    this.tryLocate().then(function (center) {
+      that.setData({ note: center ? '' : '未能获取当前位置，改用默认中心（哈尔滨）排序' })
+      api
+        .callApi('place.search', {
+          keyword: keyword,
+          center: center || undefined,
+          radius: 5000,
+          enrichWalk: that.data.enrichWalk,
+        })
+        .then(function (res) {
+          if (!res || res.ok !== true) {
+            that.setData({ loading: false, error: (res && res.error && res.error.message) || '搜索失败' })
+            return
+          }
+          const d = res.data
+          if (d.ok === false) {
+            // 上游失败（缺 Key、配额、范围）—— 如实展示，不用缓存或估算冒充
+            that.setData({
+              loading: false,
+              error: d.message || '检索失败',
+              note: d.hint || '',
+              candidates: [],
+            })
+            return
+          }
+
+          that.setCandidates(
+            (d.candidates || []).map(function (c) {
+              return {
+                placeId: c.placeId,
+                name: c.name,
+                category: c.category,
+                verified: c.verified,
+                tripNodeAllowed: c.placeId ? true : false,
+                meetingPointAllowed: false,
+                distanceText:
+                  typeof c.straightLineMeters === 'number' ? `直线 ${c.straightLineMeters} 米` : '',
+                durationText:
+                  typeof c.walkMinutes === 'number'
+                    ? `步行 ${c.walkMinutes} 分钟`
+                    : c.walkSource === 'unavailable'
+                      ? '步行时间未取到'
+                      : '',
+              }
+            }),
+            'search',
+            d.ranking ? d.ranking.note : ''
+          )
+          that.setData({ loading: false })
+        })
+        .catch(function (err) {
+          that.setData({ loading: false, error: (err && err.errMsg) || '搜索失败' })
+        })
+    })
+  },
+
+  /** 写入候选列表，并同步已选状态 */
+  setCandidates(list, mode, rankingNote) {
+    const selectedIds = this.data.selected.map((x) => x.placeId)
+    const marked = list.map((x) =>
+      Object.assign({}, x, { selected: selectedIds.indexOf(x.placeId) >= 0 })
+    )
+    this.setData({ candidates: marked, mode: mode, rankingNote: rankingNote || '' })
+  },
+
+  // ══════════ 选择 ══════════
+
+  /** 点候选项：加入 / 移出已选。**勾选顺序即游览顺序。** */
+  toggleCandidate(e) {
     const id = e.currentTarget.dataset.id
-    const places = this.data.places.map((p) => Object.assign({}, p))
-    const target = places.find((p) => p.placeId === id)
-    if (!target) return
+    const item = this.data.candidates.find((x) => x.placeId === id)
+    if (!item) return
 
-    target.selected = !target.selected
+    if (!item.tripNodeAllowed) {
+      this.setData({ note: '该地点缺少坐标，无法计算步行时间，不能安排进路线' })
+      return
+    }
 
-    // 重排序号
-    let order = 0
-    places.forEach((p) => {
-      p.order = p.selected ? ++order : 0
-    })
+    let selected = this.data.selected.slice()
+    const at = selected.findIndex((x) => x.placeId === id)
 
+    if (at >= 0) {
+      selected.splice(at, 1)
+    } else {
+      selected.push({
+        placeId: item.placeId,
+        name: item.name,
+        category: item.category,
+        verified: item.verified,
+      })
+    }
+
+    const selectedIds = selected.map((x) => x.placeId)
     this.setData({
-      places,
-      selectedIds: places.filter((p) => p.selected).map((p) => p.placeId),
+      selected: selected,
       note: '',
+      candidates: this.data.candidates.map((x) =>
+        Object.assign({}, x, { selected: selectedIds.indexOf(x.placeId) >= 0 })
+      ),
     })
   },
+
+  removeSelected(e) {
+    const id = e.currentTarget.dataset.id
+    const selected = this.data.selected.filter((x) => x.placeId !== id)
+    const selectedIds = selected.map((x) => x.placeId)
+    this.setData({
+      selected: selected,
+      candidates: this.data.candidates.map((x) =>
+        Object.assign({}, x, { selected: selectedIds.indexOf(x.placeId) >= 0 })
+      ),
+    })
+  },
+
+  // ══════════ 需求条件 ══════════
+
+  onStartTimeChange(e) {
+    this.setData({ startAtText: e.detail.value, startAt: todayAt(e.detail.value).toISOString() })
+  },
+
+  onEndTimeChange(e) {
+    this.setData({ endAtText: e.detail.value, endAt: todayAt(e.detail.value).toISOString() })
+  },
+
+  clearEndAt() {
+    this.setData({ endAtText: '', endAt: '' })
+  },
+
+  /**
+   * 组装约束。
+   *
+   * ⚠️ `confirmedAt` 必须给值 —— 服务端只把"已确认的硬约束"计入可行性判定
+   * （§6.2）。用户在界面上明确设了结束时间，就是一次确认。
+   * 少了这个字段，约束会被静默忽略，规划器永远返回"可行"。
+   */
+  buildConstraints() {
+    if (!this.data.endAt) return []
+    return [
+      {
+        key: 'endAt',
+        value: this.data.endAt,
+        hardness: 'hard',
+        confirmedAt: new Date().toISOString(),
+        confirmedBy: 'user',
+      },
+    ]
+  },
+
+  // ══════════ 行程 ══════════
 
   createTrip() {
     const that = this
-    const ids = this.data.selectedIds
+    const ids = this.data.selected.map((x) => x.placeId)
     if (!ids.length) return
 
-    this.setData({ loading: true, error: '', proposal: null, note: '' })
+    this.setData({ loading: true, error: '', note: '', proposal: null, planRejected: false })
 
     api
       .callApi('trip.plan', {
         placeIds: ids,
         startAt: this.data.startAt,
-        constraints: [],
+        constraints: this.buildConstraints(),
       })
       .then(function (res) {
         if (!res || res.ok !== true) {
@@ -165,16 +338,15 @@ Page({
         }
         const d = res.data
 
-        // 规划本身可能判定不可行 —— 这不是错误，要如实展示冲突
+        // 规划判定不可行 —— 这不是错误，要如实展示冲突（§5.2 最后一行）
         if (!d.saved) {
           that.setData({
             loading: false,
             trip: null,
             error: '',
-            note: '',
-            conflicts: d.conflicts || [],
             planRejected: true,
-            rejectReason: d.reason || '',
+            conflicts: (d.conflicts || []).map((c) => c.message),
+            note: '当前条件下无法生成路线',
           })
           return
         }
@@ -186,7 +358,7 @@ Page({
       })
   },
 
-  /** 用后端返回的行程数据刷新界面（生成与确认变更都走这里） */
+  /** 用后端返回的行程刷新界面（生成与确认变更都走这里） */
   applyTrip(d, note) {
     const nodes = d.nodes || []
     const currentIndex = Math.max(
@@ -216,14 +388,17 @@ Page({
       currentNodeIndex: currentIndex,
       summary: d.summary || null,
       unverifiedNotice: d.unverifiedNotice || null,
+      warnings: d.warnings || [],
       proposal: null,
       proposalMode: null,
-      candidates: [],
+      proposalCandidates: [],
       planRejected: false,
       note: note || '',
       error: '',
     })
   },
+
+  // ══════════ 调整 ══════════
 
   /** 快捷调整：生成候选（**不直接改行程** —— 生效必须走确认） */
   nodeAction(e) {
@@ -242,7 +417,11 @@ Page({
     this.setData({ busy: 'adjust', error: '' })
 
     api
-      .callApi('trip.adjust', { tripId: this.data.trip.tripId, trigger })
+      .callApi('trip.adjust', {
+        tripId: this.data.trip.tripId,
+        expectedVersion: this.data.trip.version,
+        trigger,
+      })
       .then(function (res) {
         if (!res || res.ok !== true) {
           that.setData({ busy: '', error: (res && res.error && res.error.message) || '调整失败' })
@@ -286,7 +465,7 @@ Page({
       proposal: { proposalId: d.proposalId, baseVersion: d.baseVersion },
       proposalMode: mode,
       proposalNote: note,
-      candidates: candidates.map((c) => ({
+      proposalCandidates: candidates.map((c) => ({
         candidateId: c.candidateId,
         label: c.strategyLabel,
         feasible: c.feasible,
@@ -304,7 +483,12 @@ Page({
   },
 
   discardProposal() {
-    this.setData({ proposal: null, proposalMode: null, candidates: [], note: '已放弃本次调整' })
+    this.setData({
+      proposal: null,
+      proposalMode: null,
+      proposalCandidates: [],
+      note: '已放弃本次调整',
+    })
   },
 
   confirmCandidate(e) {
@@ -316,7 +500,11 @@ Page({
     this.setData({ busy: 'confirm', error: '' })
 
     api
-      .callApi('trip.confirmChange', { proposalId: proposal.proposalId, candidateId })
+      .callApi('trip.confirmChange', {
+        proposalId: proposal.proposalId,
+        candidateId,
+        expectedVersion: proposal.baseVersion,
+      })
       .then(function (res) {
         if (!res || res.ok !== true) {
           const e2 = res && res.error
@@ -341,10 +529,12 @@ Page({
       timeline: [],
       summary: null,
       unverifiedNotice: null,
+      warnings: [],
       proposal: null,
       proposalMode: null,
-      candidates: [],
+      proposalCandidates: [],
       planRejected: false,
+      conflicts: [],
       note: '已返回地点选择',
     })
   },

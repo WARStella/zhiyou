@@ -26,6 +26,8 @@ module.exports = {
   // 地点
   'place.list': place.list,
   'place.detail': place.detail,
+  // 外部 POI 检索 → 候选池（一律未核验，只能作行程节点）
+  'place.search': place.search,
 
   // 小队与权限
   'crew.create': crew.create,

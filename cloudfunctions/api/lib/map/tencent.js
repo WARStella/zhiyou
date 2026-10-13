@@ -46,6 +46,12 @@
 const { HttpError, redact, maskSecret } = require('../http');
 
 const DEFAULT_BASE = 'https://apis.map.qq.com/ws/direction/v1/walking/';
+/** 地点检索端点（WebServiceAPI · 搜索服务） */
+const DEFAULT_SEARCH_BASE = 'https://apis.map.qq.com/ws/place/v1/search';
+/** 上游 page_size 上限 */
+const SEARCH_PAGE_SIZE_MAX = 20;
+/** nearby 半径上限（米） */
+const SEARCH_RADIUS_MAX = 10000;
 const DEFAULT_TIMEOUT_MS = 8000;
 
 /** 原始返回体的截断长度：够看清结构，又不至于把响应撑爆 */
@@ -150,6 +156,7 @@ function createTencentProvider(opts) {
   const key = normalized.key;
   const http = opts.http || require('../http').defaultTransport;
   const baseUrl = opts.baseUrl || DEFAULT_BASE;
+  const searchBaseUrl = opts.searchBaseUrl || DEFAULT_SEARCH_BASE;
   const timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT_MS;
 
   return {
@@ -254,6 +261,134 @@ function createTencentProvider(opts) {
         stepCount: steps.length,
         firstStep: steps[0] || null,
         // ── 原始返回头部，供人工核对结构与坐标系 ──
+        rawHead: String(res.rawBody || '').slice(0, RAW_HEAD_LIMIT),
+      });
+    },
+
+    /**
+     * 地点检索（WebServiceAPI · 搜索服务 `/ws/place/v1/search`）。
+     *
+     * 用途：**外部 POI 作为候选池**。检索回来的地点一律以
+     * `dataSource: 'tencent-poi'`、`verifiedAt: null` 入库 ——
+     * 可以安排进游览顺序，但不能作集合点（见 lib/authz.js 的分级）。
+     *
+     * ⚠️ **响应字段名未实测确认**：POI 主键在不同文档里写作 `id` 或 `_id`，
+     * 坐标写作 `lat`/`lng`。这里两种写法都接受，并把**实际命中的那个**
+     * 写进 `parsedVia` —— 与步行路线接口同一条纪律：不靠记忆定死，由原始返回核对。
+     */
+    async searchPlaces(input) {
+      input = input || {};
+      const keyword = input.keyword || '';
+      const pageSize = Math.min(Math.max(input.pageSize || SEARCH_PAGE_SIZE_MAX, 1), SEARCH_PAGE_SIZE_MAX);
+      const pageIndex = Math.max(input.pageIndex || 1, 1);
+
+      // boundary 三种写法：周边 / 城市 / 矩形。这里支持前两种（够用且不易写错）
+      let boundary;
+      if (input.center && typeof input.center.latitude === 'number') {
+        const radius = Math.min(Math.max(input.radius || 5000, 100), SEARCH_RADIUS_MAX);
+        boundary = `nearby(${input.center.latitude},${input.center.longitude},${radius})`;
+      } else if (input.region) {
+        // region(城市名, 0)：0 表示不限制结果类型
+        boundary = `region(${input.region},0)`;
+      } else {
+        return {
+          ok: false,
+          provider: 'tencent',
+          reason: 'SEARCH_BOUNDARY_REQUIRED',
+          message: '地点检索必须给出范围：center（周边）或 region（城市名）',
+          hint: 'center: {latitude, longitude} + radius（米）；或 region: "哈尔滨"',
+        };
+      }
+
+      const requestUrl =
+        `${searchBaseUrl}?keyword=${encodeURIComponent(keyword)}` +
+        `&boundary=${encodeURIComponent(boundary)}` +
+        `&page_size=${pageSize}&page_index=${pageIndex}` +
+        `&key=${encodeURIComponent(key)}`;
+
+      const base = {
+        provider: 'tencent',
+        // ⚠️ 请求 URL 已脱敏，Key 不会出现在结果里
+        requestUrl: redact(requestUrl),
+        keyword,
+        boundary,
+      };
+
+      if (!key) {
+        return Object.assign(base, {
+          ok: false,
+          reason: 'MAP_KEY_NOT_CONFIGURED',
+          message: '云函数环境变量 MAP_KEY 未配置，无法调用地图服务',
+          hint: '云开发控制台 → 云函数 → api → 配置 → 环境变量 → 新增 MAP_KEY',
+        });
+      }
+
+      const started = Date.now();
+      let res;
+      try {
+        res = await http(requestUrl, { timeoutMs });
+      } catch (e) {
+        return Object.assign(base, {
+          ok: false,
+          reason: e && e.code === 'UPSTREAM_MAP_FAILED' ? 'UPSTREAM_FAILED' : 'UNKNOWN',
+          message: (e && e.message) || String(e),
+          details: (e && e.details) || null,
+          timingMs: Date.now() - started,
+        });
+      }
+
+      const timingMs = Date.now() - started;
+      const body = res.json || {};
+      const status = body.status;
+      const message = body.message;
+      const list = Array.isArray(body.data) ? body.data : [];
+
+      let idVia = null;
+      const items = list.map((it) => {
+        const rawId = it.id !== undefined ? it.id : it._id;
+        if (idVia === null && rawId !== undefined && rawId !== null) {
+          idVia = it.id !== undefined ? 'data[].id' : 'data[]._id';
+        }
+        const loc = it.location || {};
+        const lat = loc.lat !== undefined ? loc.lat : loc.latitude;
+        const lng = loc.lng !== undefined ? loc.lng : loc.longitude;
+        return {
+          poiId: rawId === undefined ? null : rawId,
+          title: it.title || it.name || null,
+          address: it.address || null,
+          category: it.category || null,
+          location:
+            typeof lat === 'number' && typeof lng === 'number'
+              ? { latitude: lat, longitude: lng }
+              : null,
+          /** 仅 nearby 检索时上游返回 */
+          distanceMeters: typeof it.distance === 'number' ? it.distance : null,
+          adInfo: it.ad_info || null,
+          tel: it.tel || null,
+        };
+      });
+
+      const ok = status === 0;
+
+      return Object.assign(base, {
+        ok,
+        reason: ok ? null : 'UPSTREAM_STATUS_' + String(status),
+        status,
+        message,
+        hint: ok ? null : statusHint(status),
+        httpStatus: res.httpStatus,
+        timingMs,
+        /** 上游报告的总数（可能远大于本次返回条数） */
+        count: typeof body.count === 'number' ? body.count : items.length,
+        itemCount: items.length,
+        items,
+        parsedVia: {
+          list: 'data[]',
+          id: idVia || '未命中（id 与 _id 都缺失，需核对返回结构）',
+          title: 'data[].title',
+          location: 'data[].location.lat / .lng',
+          distance: 'data[].distance（仅 nearby 检索返回）',
+        },
         rawHead: String(res.rawBody || '').slice(0, RAW_HEAD_LIMIT),
       });
     },

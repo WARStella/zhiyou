@@ -9,58 +9,113 @@
   <view wx:if="{{error}}" class="err">{{error}}</view>
   <view wx:if="{{note}}" class="note">{{note}}</view>
 
-  <!-- ══════════ 未生成路线：地点选择 ══════════ -->
+  <!-- ══════════ 未生成路线：需求输入 + 候选选择 ══════════ -->
   <block wx:if="{{!trip}}">
 
+    <!-- 需求输入 -->
     <view class="card">
-      <view class="row">
+      <view class="search-row">
+        <input
+          class="search-input"
+          placeholder="搜索地点：教堂 / 公园 / 中央大街"
+          value="{{keyword}}"
+          confirm-type="search"
+          bindinput="onKeyword"
+          bindconfirm="doSearch"
+        />
+        <view class="search-btn" bindtap="doSearch">{{loading ? '…' : '搜索'}}</view>
+      </view>
+
+      <view class="row mt">
         <text class="k">出发时间</text>
         <picker mode="time" value="{{startAtText}}" bindchange="onStartTimeChange">
           <text class="v link">{{startAtText}} ›</text>
         </picker>
       </view>
-      <view class="sub">依次勾选想去的地点，**勾选顺序即游览顺序**</view>
+
+      <view class="row">
+        <text class="k">结束时间</text>
+        <view class="row-right">
+          <picker wx:if="{{!endAtText}}" mode="time" value="18:00" bindchange="onEndTimeChange">
+            <text class="v link">不限 ›</text>
+          </picker>
+          <block wx:else>
+            <picker mode="time" value="{{endAtText}}" bindchange="onEndTimeChange">
+              <text class="v link">{{endAtText}} ›</text>
+            </picker>
+            <text class="clear" bindtap="clearEndAt">清除</text>
+          </block>
+        </view>
+      </view>
+      <view class="sub">设了结束时间就是**硬约束**：系统宁可告诉你做不到，也不会默默超时</view>
+
+      <view class="row">
+        <text class="k">按真实步行时间排序</text>
+        <switch checked="{{enrichWalk}}" bindchange="onEnrichChange" />
+      </view>
+      <view class="sub">开启后每次搜索会多消耗若干次地图配额，换来"哪些地方现在去最方便"的准确顺序</view>
     </view>
 
     <!-- 规划被判定不可行：如实展示冲突，并指向可调整的条件 -->
     <view wx:if="{{planRejected}}" class="card bad">
       <view class="row"><text class="k">当前条件下无法生成路线</text></view>
-      <view wx:for="{{conflicts}}" wx:key="code" class="conflict">· {{item.message}}</view>
-      <view class="hint">请调整上面的地点选择或出发时间后重试；若已设置硬约束（如必须几点前结束），需要放宽其中一项。</view>
+      <view wx:for="{{conflicts}}" wx:key="*this" class="conflict">· {{item}}</view>
+      <view class="hint">
+        请调整地点选择、出发时间，或放宽结束时间要求。
+        **系统不会替你放宽自己设定的硬约束。**
+      </view>
     </view>
 
+    <!-- 候选地点 -->
     <view class="card">
       <view class="row">
-        <text class="k">选择地点</text>
-        <text class="v muted">已选 {{selectedIds.length}}</text>
+        <text class="k">{{mode === 'search' ? '搜索结果' : '已知地点'}}</text>
+        <text class="v muted">{{candidates.length}} 个</text>
       </view>
+      <view wx:if="{{rankingNote}}" class="hint">{{rankingNote}}</view>
 
-      <view wx:if="{{loading && !places.length}}" class="hint">正在加载地点…</view>
-      <view wx:if="{{!loading && !places.length}}" class="hint">
-        数据库里没有地点。先到「自检」页点「初始化数据库」灌入种子地点；
-        真实可信地点将在 10/16 踏勘后录入。
+      <view wx:if="{{loading && !candidates.length}}" class="hint">正在加载…</view>
+      <view wx:if="{{!loading && !candidates.length}}" class="hint">
+        没有可选地点。可以搜索外部地点（会以**未核验**状态入库），
+        或到「自检」页初始化数据库灌入种子地点。
       </view>
 
       <view
-        wx:for="{{places}}"
+        wx:for="{{candidates}}"
         wx:key="placeId"
         class="place {{item.selected ? 'on' : ''}}"
         data-id="{{item.placeId}}"
-        bindtap="togglePlace"
+        bindtap="toggleCandidate"
       >
         <view class="place-left">
-          <view class="order {{item.selected ? 'on' : ''}}">{{item.order || ''}}</view>
+          <view class="tick {{item.selected ? 'on' : ''}}">{{item.selected ? '✓' : ''}}</view>
           <view class="place-text">
             <text class="place-name">{{item.name}}</text>
-            <text class="place-meta">{{item.category}}{{item.verified ? '' : ' · 未核验（可游览·不可集合）'}}</text>
+            <text class="place-meta">
+              {{item.category}}{{item.verified ? '' : ' · 未核验（可游览·不可集合）'}}
+              <block wx:if="{{item.distanceText}}"> · {{item.distanceText}}</block>
+              <block wx:if="{{item.durationText}}"> · {{item.durationText}}</block>
+            </text>
           </view>
         </view>
-        <text class="check">{{item.selected ? '✓' : ''}}</text>
       </view>
     </view>
 
-    <button class="btn" bindtap="createTrip" disabled="{{loading || !selectedIds.length}}">
-      {{loading ? '生成中…' : '生成路线'}}
+    <!-- 已选（勾选顺序即游览顺序） -->
+    <view wx:if="{{selected.length}}" class="card">
+      <view class="row">
+        <text class="k">游览顺序</text>
+        <text class="v muted">勾选顺序即顺序</text>
+      </view>
+      <view wx:for="{{selected}}" wx:key="placeId" class="sel">
+        <text class="sel-seq">{{index + 1}}</text>
+        <text class="sel-name">{{item.name}}</text>
+        <text class="sel-del" data-id="{{item.placeId}}" bindtap="removeSelected">移除</text>
+      </view>
+    </view>
+
+    <button class="btn" bindtap="createTrip" disabled="{{loading || !selected.length}}">
+      {{loading ? '处理中…' : '生成路线（' + selected.length + ' 个地点）'}}
     </button>
   </block>
 
@@ -79,6 +134,11 @@
         <view class="sum-item"><text class="sum-v">{{summary.endAt}}</text><text class="sum-k">预计结束</text></view>
       </view>
       <button class="btn ghost" bindtap="resetTrip">重新选择地点</button>
+    </view>
+
+    <!-- 非阻断性提醒（未核验、时间紧张等） -->
+    <view wx:if="{{warnings.length}}" class="card warncard">
+      <view wx:for="{{warnings}}" wx:key="code" class="warn-item">· {{item.message}}</view>
     </view>
 
     <!-- 时间轴 -->
@@ -132,7 +192,7 @@
       <view wx:if="{{proposalMode === 'none'}}" class="card bad">
         <view class="row"><text class="k">没有可行的调整方案</text></view>
         <view class="hint">冲突所在：</view>
-        <view wx:for="{{candidates}}" wx:key="candidateId">
+        <view wx:for="{{proposalCandidates}}" wx:key="candidateId">
           <view wx:for="{{item.conflicts}}" wx:for-item="c" wx:key="*this" class="conflict">· {{c}}</view>
         </view>
         <view class="hint">
@@ -144,7 +204,7 @@
       <!-- 有可行方案：逐条展示差异与取舍 -->
       <block wx:else>
         <view
-          wx:for="{{candidates}}"
+          wx:for="{{proposalCandidates}}"
           wx:key="candidateId"
           class="card cand {{item.feasible ? '' : 'infeasible'}}"
         >

@@ -585,6 +585,55 @@ test('集合点推荐必须排除未核验地点，并说明它可作为游览�
   assert.match(why.message, /可安排为游览节点/, '要说清它还能用来做什么，而不是只说不合格');
 });
 
+test('行程页设的结束时间会成为硬约束：ISO 字符串 + confirmedAt 即生效', async () => {
+  const w = await makeWorld();
+
+  // 前端就是这么发的：value 是 ISO 字符串，confirmedAt 是用户确认的时刻
+  const tooEarly = new Date(NOW.getTime() + 30 * 60000).toISOString();
+  const res = expectOk(
+    await w.A('trip.plan', {
+      placeIds: VALID_PLACES,
+      startAt: NOW,
+      constraints: [
+        {
+          key: 'endAt',
+          value: tooEarly,
+          hardness: 'hard',
+          confirmedAt: new Date(NOW).toISOString(),
+          confirmedBy: 'user',
+        },
+      ],
+    })
+  );
+
+  assert.equal(res.saved, false, '结束时间太早必须判定不可行，而不是默默超时');
+  assert.ok(
+    res.conflicts.some((c) => c.hardConstraintKey === 'endAt'),
+    '冲突要指明是哪个硬约束造成的'
+  );
+});
+
+test('约束缺 confirmedAt 就不算硬约束 —— 界面漏传会被静默忽略，必须有测试守住', async () => {
+  const w = await makeWorld();
+  const tooEarly = new Date(NOW.getTime() + 30 * 60000).toISOString();
+
+  const res = expectOk(
+    await w.A('trip.plan', {
+      placeIds: VALID_PLACES,
+      startAt: NOW,
+      // 少了 confirmedAt —— 服务端按 §6.2 视为"未确认"，不参与可行性判定
+      constraints: [{ key: 'endAt', value: tooEarly, hardness: 'hard' }],
+    })
+  );
+
+  assert.equal(
+    res.saved,
+    true,
+    '未确认的约束不参与判定（§6.2）。这条测试存在的意义是：' +
+      '一旦它变成 false，说明服务端的判定规则变了，前端要跟着改。'
+  );
+});
+
 test('ops.selfTest：测量各类写入形态，并只写 selftest 集合', async () => {
   const w = await makeWorld();
   const res = expectOk(await w.A('ops.selfTest', {}));

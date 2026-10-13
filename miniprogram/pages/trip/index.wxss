@@ -358,3 +358,103 @@
   color: #b0b8c1;
   padding: 24rpx 10rpx 40rpx;
 }
+
+/* ── 搜索行 ───────────────────────────────── */
+.search-row {
+  display: flex;
+  align-items: center;
+}
+.search-input {
+  flex: 1;
+  height: 72rpx;
+  background: #f4f6f8;
+  border-radius: 10rpx;
+  padding: 0 20rpx;
+  font-size: 26rpx;
+  color: #1f2933;
+}
+.search-btn {
+  margin-left: 16rpx;
+  padding: 0 30rpx;
+  height: 72rpx;
+  line-height: 72rpx;
+  background: #0b3c6e;
+  color: #fff;
+  font-size: 26rpx;
+  border-radius: 10rpx;
+}
+.mt {
+  margin-top: 22rpx;
+}
+.row-right {
+  display: flex;
+  align-items: center;
+}
+.clear {
+  margin-left: 18rpx;
+  font-size: 22rpx;
+  color: #9aa5b1;
+}
+
+/* ── 候选项 ───────────────────────────────── */
+.tick {
+  width: 40rpx;
+  height: 40rpx;
+  line-height: 40rpx;
+  text-align: center;
+  border-radius: 8rpx;
+  border: 2rpx solid #cfd6dd;
+  color: #fff;
+  font-size: 24rpx;
+  margin-right: 18rpx;
+  flex: none;
+}
+.tick.on {
+  background: #0f9d58;
+  border-color: #0f9d58;
+}
+
+/* ── 已选顺序 ─────────────────────────────── */
+.sel {
+  display: flex;
+  align-items: center;
+  padding: 18rpx 0;
+  border-bottom: 1rpx solid #f0f2f4;
+}
+.sel:last-child {
+  border-bottom: none;
+}
+.sel-seq {
+  width: 40rpx;
+  height: 40rpx;
+  line-height: 40rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: #0b3c6e;
+  color: #fff;
+  font-size: 22rpx;
+  margin-right: 16rpx;
+  flex: none;
+}
+.sel-name {
+  flex: 1;
+  font-size: 27rpx;
+  color: #1f2933;
+}
+.sel-del {
+  font-size: 23rpx;
+  color: #d9642a;
+  padding: 6rpx 12rpx;
+}
+
+/* ── 提醒卡 ───────────────────────────────── */
+.warncard {
+  background: #fff8ed;
+  border-left: 8rpx solid #f5a623;
+}
+.warn-item {
+  font-size: 23rpx;
+  line-height: 1.7;
+  color: #8a5a00;
+}
+
