@@ -141,6 +141,15 @@ async function parse(ctx) {
     uncertainties: parsed.uncertainties || [],
     /** 建议的检索关键词，前端可以直接拿它去调 place.search */
     searchKeyword: parsed.searchKeyword || null,
+    /**
+     * **所有**提到的地方 —— 前端要逐个搜索，不能只搜第一个。
+     *
+     * ⚠️ 实测踩到的坑（2026-10-13）：用户说
+     * 「先去哈工大玩一小时再去冰雪大世界玩3小时」，
+     * 而当时只回传单个 searchKeyword，前端也只搜一个 ——
+     * 冰雪大世界根本没进候选，用户看到的全是哈工大的各种门。
+     */
+    searchKeywords: parsed.searchKeywords || (parsed.searchKeyword ? [parsed.searchKeyword] : []),
     matched: parsed.matched || [],
   });
 }

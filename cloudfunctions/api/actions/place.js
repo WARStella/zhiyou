@@ -134,44 +134,72 @@ function autoPick(candidates, req) {
   const pace = PACE_LIMITS[req.pace] ? req.pace : 'normal';
   const limit = PACE_LIMITS[pace];
   const mustTexts = Array.isArray(req.mustVisitTexts) ? req.mustVisitTexts : [];
+  /**
+   * 调用方用到的检索词。**每个词至少选一个** ——
+   * 用户说了「先去哈工大…再去冰雪大世界」，行程里就该有两个地方。
+   * 只靠"相关性前几名"，第一个词会把名额占满，第二个词永远选不上。
+   */
+  const keywords = Array.isArray(req.keywords) ? req.keywords.filter(Boolean) : [];
 
   const picked = [];
   const seen = new Set();
   const hitMust = (name) =>
     mustTexts.some((m) => m && name && (name.indexOf(m) >= 0 || m.indexOf(name) >= 0));
 
+  const take = (c, reason) => {
+    picked.push({ placeId: c.placeId, name: c.name, reason });
+    seen.add(c.placeId);
+  };
+
   /**
-   * ① 必去优先，不受数量限制 —— **但同样要过"可游览"这一关**。
+   * ⓪ **兜底：每个检索词各选一个最佳匹配。**
    *
-   * ⚠️ 真实事故（2026-10-13）：用户说「我想先去**哈工大**玩一小时」，
-   * 而「哈工大」是子串，于是匹配上了
-   * **「哈工大[地铁站]」「哈工大[公交站]」「哈工大-3口」**，
-   * 全部被标成"必去" —— 系统一本正经地把一个地铁站安排进了行程。
+   * ⚠️ 真实事故（2026-10-13）：用户说「先去哈工大玩一小时再去冰雪大世界玩3小时」，
+   * 而检索只发了「哈工大」一个词，候选里根本没有冰雪大世界；
+   * 修好多关键词检索之后，还有第二道坎 ——
+   * 若按相关性取前 N 个，第一个词的结果会把名额占满。
    *
-   * 教训：**"名字里有这几个字"不等于"这就是那个地方"**，
-   * 与之前"民宿名字里嵌了地标名"是同一类错误。
-   * 所以必去也必须过类目这一关：**交通设施再"必去"也不是游览地**。
+   * 所以这里**先保证覆盖**：用户提到的每个地方，行程里都要有它的一席。
    */
-  for (const c of candidates) {
-    if (!c.placeId || seen.has(c.placeId)) continue;
-    if (c.visitable === false) continue;
-    if (hitMust(c.name)) {
-      picked.push({ placeId: c.placeId, name: c.name, reason: '必去' });
-      seen.add(c.placeId);
-    }
+  for (const kw of keywords) {
+    const hit = candidates.find(
+      (c) =>
+        c.placeId &&
+        !seen.has(c.placeId) &&
+        c.visitable !== false &&
+        c.name &&
+        c.name.indexOf(kw) >= 0
+    );
+    if (hit) take(hit, `你提到的「${kw}」`);
   }
 
-  // ② 其余按相关性顺序补足，跳过不可游览的
+  // ① 必去优先，不受数量限制 —— **但同样要过"可游览"这一关**。
+  //
+  // ⚠️ 真实事故（2026-10-13）：用户说「我想先去**哈工大**玩一小时」，
+  // 而「哈工大」是子串，于是匹配上了
+  // **「哈工大[地铁站]」「哈工大[公交站]」「哈工大-3口」**，
+  // 全部被标成"必去" —— 系统一本正经地把一个地铁站安排进了行程。
+  //
+  // 教训：**"名字里有这几个字"不等于"这就是那个地方"**，
+  // 与之前"民宿名字里嵌了地标名"是同一类错误。
   for (const c of candidates) {
-    if (picked.length >= limit + mustTexts.length) break;
     if (!c.placeId || seen.has(c.placeId)) continue;
     if (c.visitable === false) continue;
-    picked.push({
-      placeId: c.placeId,
-      name: c.name,
-      reason: pace === 'relaxed' ? '按「少走路」少选几个' : '相关性靠前',
-    });
-    seen.add(c.placeId);
+    if (hitMust(c.name)) take(c, '必去');
+  }
+
+  /**
+   * ② 其余按相关性顺序补足，跳过不可游览的。
+   *
+   * 名额上限要**为"覆盖每个提到的地方"和"必去"留出空间** ——
+   * 否则它们会把这几个名额挤掉，用户明说要去的地方反而选不上。
+   */
+  const reserved = keywords.length + mustTexts.length;
+  for (const c of candidates) {
+    if (picked.length >= Math.max(limit, reserved)) break;
+    if (!c.placeId || seen.has(c.placeId)) continue;
+    if (c.visitable === false) continue;
+    take(c, pace === 'relaxed' ? '按「少走路」少选几个' : '相关性靠前');
   }
 
   return {
@@ -179,6 +207,13 @@ function autoPick(candidates, req) {
     items: picked,
     limit,
     pace,
+    /** 覆盖情况如实回传 —— 哪个检索词没选上，界面要说出来 */
+    keywordsCovered: keywords.filter((kw) =>
+      picked.some((x) => x.name && x.name.indexOf(kw) >= 0)
+    ),
+    keywordsMissing: keywords.filter(
+      (kw) => !picked.some((x) => x.name && x.name.indexOf(kw) >= 0)
+    ),
     note: picked.length
       ? `按「${pace === 'relaxed' ? '轻松' : pace === 'packed' ? '紧凑' : '正常'}」节奏预选 ` +
         `${picked.length} 个地点：` +
@@ -283,43 +318,113 @@ async function search(ctx) {
   const scope = p.scope === 'nearby' ? 'nearby' : 'city';
   const useNearby = scope === 'nearby' && Boolean(center);
 
-  const upstream = await provider.searchPlaces({
-    keyword,
-    center: useNearby ? center : undefined,
-    radius: p.radius,
-    region: useNearby ? undefined : p.region || DEFAULT_REGION,
-    pageSize: p.pageSize,
-  });
+  /**
+   * ── 多关键词检索 ─────────────────────────────────────────
+   *
+   * ⚠️ **实测踩到的坑（2026-10-13）**：用户说
+   * 「先去哈工大玩一小时再去冰雪大世界玩3小时」，
+   * 而 `searchKeyword` 是**单个字符串** —— 于是只搜了「哈工大」：
+   * 冰雪大世界根本没进候选，用户看到的全是哈工大的各种门。
+   *
+   * **用户说了几个地方，就要搜几次。**
+   *
+   * 兼容：仍接受 `keyword`（单数）；`keywords` 给定时以它为准。
+   * 上限 5 个 —— 一条需求里提到的地方不会太多，也防滥用。
+   */
+  const provided = (Array.isArray(p.keywords) && p.keywords.length ? p.keywords : [keyword])
+    .map((k) => String(k == null ? '' : k).trim())
+    .filter(Boolean)
+    .slice(0, 5);
 
-  let mapApiCalls = 1;
+  /**
+   * ⚠️ 空关键词是**合法**的：它表示"不带关键词，把范围内的都列出来"，
+   * 排序与预选的测试就是靠它构造场景的。
+   * 这里**不越权拦截** —— 真的搜不到东西由上游如实报错。
+   */
+  const keywordList = provided.length ? provided : [''];
 
-  if (!upstream.ok) {
+  const perKeyword = [];
+  let mapApiCalls = 0;
+  for (const kw of keywordList) {
+    // eslint-disable-next-line no-await-in-loop
+    const up = await provider.searchPlaces({
+      keyword: kw,
+      center: useNearby ? center : undefined,
+      radius: p.radius,
+      region: useNearby ? undefined : p.region || DEFAULT_REGION,
+      pageSize: p.pageSize,
+    });
+    mapApiCalls++;
+    perKeyword.push({ keyword: kw, upstream: up });
+  }
+
+  /** 部分关键词失败不算整体失败 —— 但要如实标注，不能让用户以为搜全了 */
+  const okOnes = perKeyword.filter((x) => x.upstream.ok);
+  const failedKeywords = perKeyword
+    .filter((x) => !x.upstream.ok)
+    .map((x) => ({ keyword: x.keyword, reason: x.upstream.reason, message: x.upstream.message }));
+
+  if (!okOnes.length) {
+    const first = perKeyword[0].upstream;
     await logEvent(repo, {
       ts: now,
       type: 'upstream_call',
       action: 'place.search',
       userId: openid,
       result: 'error',
-      errCode: upstream.reason || 'UPSTREAM_FAILED',
+      errCode: first.reason || 'UPSTREAM_FAILED',
       durationMs: Date.now() - started,
       mapApiCalls,
-      detail: { keyword, status: upstream.status || null },
+      detail: { keywords: keywordList, status: first.status || null },
     });
     return resp.ok({
       ok: false,
-      reason: upstream.reason,
-      status: upstream.status || null,
-      message: upstream.message,
-      hint: upstream.hint || null,
+      reason: first.reason,
+      status: first.status || null,
+      message: first.message,
+      hint: first.hint || null,
       upstream: {
-        parsedVia: upstream.parsedVia || null,
-        rawHead: upstream.rawHead || null,
-        timingMs: upstream.timingMs || null,
+        parsedVia: first.parsedVia || null,
+        rawHead: first.rawHead || null,
+        timingMs: first.timingMs || null,
       },
       candidates: [],
       mapApiCalls,
     });
   }
+
+  /**
+   * ── 轮转合并 ─────────────────────────────────────────────
+   *
+   * **不能按关键词顺序拼接**（先搜完哈工大再搜冰雪大世界）——
+   * 那样第一名的关键词会把整个列表占满，第二个地方永远排在后面，
+   * 正是用户看到"全是哈工大的各种门"的原因。
+   *
+   * 轮转取：各关键词的第 1 名、各关键词的第 2 名、……
+   * 这样"每个提到的地方"都能出现在靠前的位置。
+   */
+  const items = [];
+  const seenPoi = new Set();
+  const maxLen = Math.max(...okOnes.map((x) => x.upstream.items.length));
+  for (let rank = 0; rank < maxLen; rank++) {
+    for (const { keyword: kw, upstream: up } of okOnes) {
+      const item = up.items[rank];
+      if (!item) continue;
+      // 同一个 POI 可能被多个关键词命中 —— 只保留一次，并记下所有来源
+      const key = item.poiId || `${item.title}|${item.location && item.location.latitude}`;
+      if (seenPoi.has(key)) {
+        const prev = items.find(
+          (x) => (x.poiId || `${x.title}|${x.location && x.location.latitude}`) === key
+        );
+        if (prev && prev.foundBy.indexOf(kw) < 0) prev.foundBy.push(kw);
+        continue;
+      }
+      seenPoi.add(key);
+      items.push(Object.assign({}, item, { foundBy: [kw] }));
+    }
+  }
+
+  const upstream = Object.assign({}, okOnes[0].upstream, { items });
 
   // ── 去重：以 poiId 为键。集合规模在项目量级内，直接全量取回建映射，
   //    避免依赖不确定的查询操作符（这是今天反复踩过的坑）。
@@ -358,6 +463,8 @@ async function search(ctx) {
         address: item.address,
         location: item.location,
         saved: false,
+        /** 这个候选是被哪个检索词找到的 —— 多关键词时要能说清 */
+        foundBy: item.foundBy || [],
       });
       continue;
     }
@@ -366,6 +473,7 @@ async function search(ctx) {
       placeId: place._id,
       poiId: item.poiId,
       name: place.name,
+      foundBy: item.foundBy || [],
       category: place.category,
       address: place.address || item.address || null,
       location: place.location,
@@ -512,6 +620,13 @@ async function search(ctx) {
     parsedVia: upstream.parsedVia,
     rawHead: upstream.rawHead,
     mapApiCalls,
+    /** 实际用了哪些检索词 —— 用户说了几个地方就该有几个 */
+    keywordsUsed: provided,
+    /**
+     * 哪些检索词失败了。**必须如实回传** ——
+     * 否则用户会以为"提到的地方都搜过了"，而实际漏了一个。
+     */
+    failedKeywords,
     /** 非 null 表示调用方要求了自动预选（"AI 生成路线"的关键一步） */
     picked,
   });

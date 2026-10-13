@@ -282,6 +282,101 @@ test('解析说明：matched 有原文片段时优先用它', () => {
   assert.match(lines[0], /来自「五点前」/, '原文片段对用户理解最有价值');
 });
 
+test('一句话说了两个地方 → 两个检索词，不能只搜第一个', () => {
+  /**
+   * ⚠️ **真实事故的回归**（2026-10-13）。
+   *
+   * 用户说「先去哈工大玩一小时再去冰雪大世界玩3小时」，
+   * 而当时只产出**一个** searchKeyword，前端也只搜一个 ——
+   * 冰雪大世界根本没进候选，用户看到的全是哈工大的各种门。
+   *
+   * 首版连拆分都做不到：只按「和跟与、,，及」拆，**「再」不在其中**，
+   * 整句被当成一个地名，检索词成了
+   * 「哈工大玩一小时再去冰雪大世界玩3小时」。
+   */
+  const r = rb.parse('先去哈工大玩一小时再去冰雪大世界玩3小时');
+  assert.deepEqual(r.searchKeywords, ['哈工大', '冰雪大世界']);
+  assert.equal(r.searchKeyword, '哈工大', '主检索词仍是第一个');
+
+  // 顺接词都要能拆
+  for (const s of [
+    '先去中央大街然后再去防洪纪念塔',
+    '想去中央大街，然后去防洪纪念塔',
+    '要去中央大街和防洪纪念塔',
+  ]) {
+    assert.ok(
+      rb.parse(s).searchKeywords.length >= 2,
+      `「${s}」应当拆出多个检索词，实际 ${JSON.stringify(rb.parse(s).searchKeywords)}`
+    );
+  }
+});
+
+test('检索词里绝不能混进动词与时长', () => {
+  const r = rb.parse('去防洪纪念塔玩两个小时');
+  assert.equal(r.searchKeyword, '防洪纪念塔');
+  assert.equal(r.stayMinutes, 120);
+  assert.equal(
+    r.searchKeywords.some((k) => /玩|小时|分钟/.test(k)),
+    false,
+    `检索词里不能有动词或时长：${JSON.stringify(r.searchKeywords)}`
+  );
+});
+
+test('连接词可能是地名的一部分 —— 「和平路」不能被拆成「平路」', () => {
+  /**
+   * 拆分用的连接词表里有「和」，而**地名可能以它开头**。
+   *
+   *     '和平路'.split(/[和...]/)  →  ['', '平路']  →  「平路」 ❌
+   *
+   * 保护：地名不可能以连接词开头，所以"首段为空"就是"这不是连接词"。
+   */
+  for (const name of ['和平路', '和兴路', '与安街']) {
+    const r = rb.parse('我想去' + name);
+    assert.equal(r.searchKeyword, name, `「${name}」被拆坏了`);
+    assert.deepEqual(r.searchKeywords, [name]);
+  }
+});
+
+test('类目词不是地名 —— 「公园」不该被认成「兆麟公园」', () => {
+  /**
+   * ⚠️ **第三次踩到同一类错误**（2026-10-13）：
+   * 「名字里含这几个字」被当成了「就是那个地方」。
+   *
+   *     matchKnown('公园', [...'兆麟公园'...])  →  '兆麟公园'  ❌
+   *     长度比 2/4 = 0.5，恰好卡在简称阈值上
+   *
+   * 与「哈工大」→「哈工大[地铁站]」、「冰雪大世界」→「…龙川路地铁站」
+   * 完全同源。用户说"公园"是**类目**，不是要去兆麟公园。
+   */
+  const r = rb.parse('想去教堂和公园', { knownPlaceNames: KNOWN });
+  assert.deepEqual(r.mustVisitTexts, [], '类目词不能进必去');
+  assert.equal(r.searchKeyword, '教堂');
+  // 但仍然可以拿它们去**检索** —— 「公园」是个合法检索词
+  assert.deepEqual(r.searchKeywords, ['教堂', '公园']);
+});
+
+test('类目词表不能误伤真实地名 —— 「中央大街」必须能当必去项', () => {
+  /**
+   * ⚠️ 修上一个问题时踩的坑：`CATEGORY_WORDS` 里混着「中央大街」
+   * （它作为**检索兜底**是合适的），直接拿它做"是不是具体地点"的判断，
+   * 会把「一定要去中央大街」的必去项整个丢掉。
+   *
+   * 所以类目词分成两份表，用途不同（见 rulebased.js 的注释）。
+   */
+  const r = rb.parse('一定要去中央大街，别去兆麟公园', { knownPlaceNames: KNOWN });
+  assert.deepEqual(r.mustVisitTexts, ['中央大街'], '中央大街是真实地名，不能被当成类目词丢掉');
+  assert.deepEqual(r.avoidTexts, ['兆麟公园']);
+});
+
+test('并列的必去项要拆开，否则永远匹配不到任何地点', () => {
+  const r = rb.parse('我想去中央大街和索菲亚教堂', { knownPlaceNames: KNOWN });
+  assert.deepEqual(
+    r.mustVisitTexts,
+    ['中央大街', '圣索菲亚教堂'],
+    '整串「中央大街和索菲亚教堂」拿去做匹配，一个 POI 都匹配不上'
+  );
+});
+
 test('含糊表达绝不能被换算成数值（§6.2）', () => {
   const r = rb.parse('有点累，尽量少走');
 

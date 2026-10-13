@@ -284,7 +284,17 @@ Page({
         that.setData(patch)
 
         const kw = d.searchKeyword
-        if (!kw) {
+        /**
+         * ⚠️ **多关键词检索**（2026-10-13 实测修正）。
+         *
+         * 用户说「先去哈工大玩一小时再去冰雪大世界玩3小时」，
+         * 而首版只拿 `searchKeyword` 一个词去搜 —— 冰雪大世界根本没进候选，
+         * 用户看到的全是哈工大的各种门。
+         *
+         * **用户说了几个地方，就要搜几次。**
+         */
+        const kws = (d.searchKeywords || []).length ? d.searchKeywords : kw ? [kw] : []
+        if (!kws.length) {
           that.setData({
             loading: false,
             note: '没能从这句话里认出要去的地方，请补充一个地名，或直接输入地点名称',
@@ -292,7 +302,7 @@ Page({
           return null
         }
         // 传 d 进去 → 检索完会**自动预选**，用户可以直接生成路线
-        return that.runPlaceSearch(kw, d)
+        return that.runPlaceSearch(kws, d)
       })
       .catch(function (err) {
         that.setData({ note: '理解失败，已按地点名称直接搜索' })
@@ -339,14 +349,23 @@ Page({
   },
 
   /** 用关键词检索外部地点。`autoFrom` 给出解析结果时，检索完会**自动预选**。 */
-  runPlaceSearch(keyword, autoFrom) {
+  runPlaceSearch(keywordOrList, autoFrom) {
     const that = this
     this.setData({ loading: true, error: '' })
+
+    /**
+     * 支持**多个**检索词。用户一次说几个地方，就搜几次 ——
+     * 只发第一个词会让后面的地方完全搜不到（实测踩过）。
+     */
+    const keywords = (Array.isArray(keywordOrList) ? keywordOrList : [keywordOrList])
+      .map((x) => String(x == null ? '' : x).trim())
+      .filter(Boolean)
 
     return this.tryLocate().then(function (center) {
       return api
         .callApi('place.search', {
-          keyword: keyword,
+          keyword: keywords[0],
+          keywords: keywords,
           center: center || undefined,
           radius: 5000,
           enrichWalk: that.data.enrichWalk,
@@ -355,6 +374,8 @@ Page({
             ? {
                 pace: autoFrom.parsed && autoFrom.parsed.pace,
                 mustVisitTexts: (autoFrom.parsed && autoFrom.parsed.mustVisitTexts) || [],
+                // 每个检索词至少选一个 —— 用户提到的地方不该被名额挤掉
+                keywords: keywords,
               }
             : undefined,
         })

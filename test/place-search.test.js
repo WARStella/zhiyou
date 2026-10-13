@@ -54,6 +54,108 @@ test('地点检索：停留时长是估值，必须随结果说明', async () =>
   assert.match(res.ranking.timeEstimateCaveat, /default-untuned/);
 });
 
+// ── 多关键词检索 ──────────────────────────────────────────
+
+test('多关键词：用户说了几个地方就搜几次，并轮转合并', async () => {
+  /**
+   * ⚠️ **真实事故的回归**（2026-10-13）。
+   *
+   * 用户说「先去哈工大玩一小时再去冰雪大世界玩3小时」，
+   * 而 `searchKeyword` 是**单个字符串** —— 检索只发了「哈工大」，
+   * 冰雪大世界根本没进候选，用户看到的全是哈工大的各种门。
+   *
+   * 修好之后还有第二道坎：**合并顺序**。
+   * 若按关键词顺序拼接（先搜完 A 再搜 B），第一个词会把列表占满。
+   * 所以必须**轮转**：各词的第 1 名、各词的第 2 名……
+   */
+  const w = await makeWorld();
+  const res = expectOk(
+    await w.A(
+      'place.search',
+      Object.assign({ keywords: ['公园', '教堂'], center: CENTER }, FAKE)
+    )
+  );
+
+  assert.deepEqual(res.keywordsUsed, ['公园', '教堂'], '两个词都要真的发出去');
+
+  const byKw = (kw) => res.candidates.filter((c) => (c.foundBy || []).indexOf(kw) >= 0);
+  assert.ok(byKw('公园').length >= 2, '「公园」应当命中多条');
+  assert.ok(byKw('教堂').length >= 1, '「教堂」应当命中至少一条');
+
+  // 轮转：前两条必须来自不同的关键词，否则第一个词会占满列表
+  const firstTwo = res.candidates.slice(0, 2).map((c) => c.foundBy[0]);
+  assert.notEqual(firstTwo[0], firstTwo[1], `前两条不该来自同一个检索词：${firstTwo.join(' / ')}`);
+});
+
+test('多关键词：单个关键词时行为不变（向后兼容）', async () => {
+  const w = await makeWorld();
+  const one = expectOk(
+    await w.A('place.search', Object.assign({ keyword: '公园', center: CENTER }, FAKE))
+  );
+  const list = expectOk(
+    await w.A('place.search', Object.assign({ keywords: ['公园'], center: CENTER }, FAKE))
+  );
+
+  assert.deepEqual(list.keywordsUsed, ['公园']);
+  assert.deepEqual(
+    list.candidates.map((c) => c.name),
+    one.candidates.map((c) => c.name),
+    '同一个词，两种传法结果必须一致'
+  );
+});
+
+test('多关键词：每个检索词至少预选一个 —— 用户提到的地名不能被名额挤掉', async () => {
+  const w = await makeWorld();
+  const res = expectOk(
+    await w.A(
+      'place.search',
+      Object.assign(
+        {
+          keywords: ['公园', '教堂'],
+          center: CENTER,
+          // 轻松节奏只有 3 个名额；若不做覆盖兜底，第一个词可能全占了
+          autoPick: { pace: 'relaxed', keywords: ['公园', '教堂'] },
+        },
+        FAKE
+      )
+    )
+  );
+
+  assert.deepEqual(res.picked.keywordsMissing, [], '两个词都必须有代表');
+  assert.deepEqual(res.picked.keywordsCovered.sort(), ['公园', '教堂'].sort());
+
+  const reasons = res.picked.items.map((x) => x.reason);
+  assert.ok(
+    reasons.some((r) => /你提到的/.test(r)),
+    `覆盖兜底要说明理由，实际：${JSON.stringify(reasons)}`
+  );
+  assert.ok(res.picked.placeIds.length >= 2);
+});
+
+test('多关键词：某个词搜不到时，如实报告而不是假装搜全了', async () => {
+  const w = await makeWorld();
+  const res = expectOk(
+    await w.A(
+      'place.search',
+      Object.assign(
+        {
+          keywords: ['公园', '这个地名肯定不存在'],
+          center: CENTER,
+          autoPick: { pace: 'normal', keywords: ['公园', '这个地名肯定不存在'] },
+        },
+        FAKE
+      )
+    )
+  );
+
+  assert.deepEqual(
+    res.picked.keywordsMissing,
+    ['这个地名肯定不存在'],
+    '搜不到的词要如实列出来 —— 否则用户以为系统找过了'
+  );
+  assert.ok(res.picked.keywordsCovered.indexOf('公园') >= 0);
+});
+
 test('地点检索：默认全城检索，需要"附近的"时才用坐标', async () => {
   const w = await makeWorld();
 

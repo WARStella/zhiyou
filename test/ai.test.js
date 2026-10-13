@@ -108,7 +108,7 @@ test('模型解析：正常返回能解析出结构化需求', async () => {
   assert.equal(r.ok, true);
   assert.equal(r.parsed.anchorText, '中央大街');
   assert.equal(r.usage.total_tokens, 42, 'token 用量要带出来，供成本核算');
-  assert.equal(r.promptVersion, 'intent-v2', '提示词版本要随结果回传，否则评测无法归因');
+  assert.equal(r.promptVersion, 'intent-v3', '提示词版本要随结果回传，否则评测无法归因');
 
   // 请求要带上 Key 与 Key 不能出现在结果里
   assert.match(http.calls[0].url, /chat\/completions/);
@@ -151,6 +151,7 @@ test('提示词 schema 必须覆盖解析器实际读取的每一个字段', asy
     'rawText',
     'anchorText',
     'searchKeyword',
+    'searchKeywords',
     'startClock',
     'endClock',
     'pace',

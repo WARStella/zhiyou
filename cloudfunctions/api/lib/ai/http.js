@@ -51,7 +51,8 @@ const SYSTEM_PROMPT = `你是一个城市徒步游览的需求解析器。把用
 {
   "rawText": "用户原话，一字不改",
   "anchorText": "提到的主要区域或地点，没有则 null",
-  "searchKeyword": "用于搜索地点的关键词，没有则 null",
+  "searchKeyword": "用于搜索地点的主关键词，没有则 null",
+  "searchKeywords": ["所有要用去搜索的地点关键词"],
   "startClock": {"hour": 0-23, "minute": 0-59} 或 null,
   "endClock": {"hour": 0-23, "minute": 0-59} 或 null,
   "pace": "relaxed" | "normal" | "packed",
@@ -73,12 +74,19 @@ const SYSTEM_PROMPT = `你是一个城市徒步游览的需求解析器。把用
 - "多待 20 分钟"（对已有行程的调整）→ extendStayMin。
   两者语义不同，**不要混用**。
 
+关于检索词：
+- 用户一次可能说了**好几个**地方，例如「先去哈工大玩一小时再去冰雪大世界玩3小时」。
+  **每一个都要进 searchKeywords**（["哈工大", "冰雪大世界"]），
+  系统会逐个搜索 —— 只给一个会导致另一个地方完全搜不到。
+- searchKeywords 里**不要**放动词、时间、数量（不要"哈工大玩一小时"，只要"哈工大"）。
+- 用户明确不想去的地方**不要**放进 searchKeywords。
+
 关于 matched：
 - 把**每一个**解析出来的字段都记一条，text 是原文里对应的片段。
 - 这个数组会直接显示给用户看"我理解到了什么"，**留空会让用户以为什么都没听懂**。`;
 
 /** 提示词版本 —— 改了提示词就必须改它，否则评测结果无法归因 */
-const PROMPT_VERSION = 'intent-v2';
+const PROMPT_VERSION = 'intent-v3';
 
 function createHttpParser(opts) {
   opts = opts || {};

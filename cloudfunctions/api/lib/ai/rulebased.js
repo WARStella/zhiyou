@@ -133,9 +133,19 @@ const ANCHOR_RES = [
 const PHRASE_PREFIX_RE =
   /^(?:我|我们|咱们|你|他|她|想|要|打算|准备|计划|去|到|在|逛|逛一逛|看看|看|游玩|游|今天|明天|后天|上午|中午|下午|午后|傍晚|晚上|早上|早晨|然后|再|顺便|附近|周边|一带)+/;
 
-/** 尾部同理：「冰雪大世界附近逛逛」→「冰雪大世界」 */
+/**
+ * 尾部同理：「冰雪大世界附近逛逛」→「冰雪大世界」。
+ *
+ * ⚠️ **实测踩到的坑（2026-10-13）**：用户说
+ * 「先去哈工大**玩一小时**再去冰雪大世界玩3小时」，拆开之后得到
+ * 「哈工大玩一小时」—— 因为首版的尾巴清单里只有「玩一玩」「玩」，
+ * **没有"玩 + 时长"这种组合**。
+ *
+ * 所以这里补上「动词 + 数量 + 时间单位」这一类尾巴：
+ * 玩一小时 / 逛两小时 / 待 40 分钟 / 游览 3 个小时 …
+ */
 const PHRASE_SUFFIX_RE =
-  /(?:附近|周边|一带|左近|逛逛|逛一逛|转转|走走|看看|玩一玩|玩|参观|游览|游玩|一下|吧|呢)+$/;
+  /(?:附近|周边|一带|左近|逛逛|逛一逛|转转|走走|看看|玩一玩|参观|游览|游玩|一下|吧|呢|(?:玩|逛|待|呆|看|游|耍|停留)(?:上|个)?(?:半|\d+|[一二两三四五六七八九十]{1,2})?(?:个)?(?:小时|钟头|分钟|分)?|(?:半|\d+|[一二两三四五六七八九十]{1,2})(?:个)?(?:小时|钟头|分钟|分))+$/;
 
 function cleanPlacePhrase(s) {
   let out = String(s || '').trim();
@@ -146,6 +156,40 @@ function cleanPlacePhrase(s) {
     out = next;
   }
   return out.trim();
+}
+
+/** 并列 / 顺接的连接词 —— 两端都可能是地名 */
+const PLACE_SPLIT_RE = /[和跟与、,，及]|然后再|然后|接着|之后|再去|再|又去|又/;
+
+/**
+ * 把可能并列的地名串拆成多个，并逐个清洗。
+ *
+ * 「先去哈工大玩一小时再去冰雪大世界玩3小时」→ ['哈工大', '冰雪大世界']
+ *
+ * ⚠️ **一个必须有的保护：拆出空片段就不拆。**
+ *
+ * 连接词本身可能是地名的一部分 —— 「**和平**路」「**和**兴路」。
+ * 若不加保护：
+ *
+ *     '和平路'.split(/[和...]/)  →  ['', '平路']  →  「平路」 ❌
+ *
+ * 而地名**不可能以连接词开头**，所以"首段为空"就是"这个词不是连接词"的信号。
+ * 同理末段为空（「中央大街和」）也不拆。
+ */
+function splitPlaces(s) {
+  const str = String(s == null ? '' : s).trim();
+  if (!str) return [];
+
+  const rawParts = str.split(PLACE_SPLIT_RE);
+  // 首段或末段为空 → 连接词紧贴边界，说明它是名字的一部分，整体不拆
+  if (!rawParts[0] || !rawParts[rawParts.length - 1]) {
+    const whole = cleanPlacePhrase(str);
+    return whole.length >= 2 ? [whole] : [];
+  }
+
+  return rawParts
+    .map((x) => cleanPlacePhrase(x))
+    .filter((x) => x && x.length >= 2);
 }
 
 /**
@@ -270,6 +314,24 @@ const CATEGORY_WORDS = [
   '寺庙', '美术馆', '剧院', '音乐厅', '观景台', '地标',
 ];
 
+/**
+ * **纯类目词** —— 这些是"什么类型的场所"，不是"哪个地方"。
+ *
+ * ⚠️ 为什么不直接用 `CATEGORY_WORDS`：
+ * 那份表是给**检索兜底**用的，里面混进了「中央大街」这类**真实地名**
+ * （它确实是个好检索词）。用它来判断"这是不是具体地点"会误伤 ——
+ * 「一定要去中央大街」的必去项会被整个丢掉。
+ *
+ * 两份表的用途不同，所以必须分开：
+ *   · `CATEGORY_WORDS`         检索兜底 —— "没认出地名时拿什么去搜"
+ *   · `GENERIC_CATEGORY_WORDS` 语义判断 —— "这几个字是不是具体地点"
+ */
+const GENERIC_CATEGORY_WORDS = [
+  '教堂', '公园', '博物馆', '纪念馆', '广场', '步行街', '老街',
+  '美食', '小吃', '咖啡', '茶馆', '书店', '市场', '夜市', '江边', '湿地',
+  '寺庙', '美术馆', '剧院', '音乐厅', '观景台', '地标',
+];
+
 /** 停留延长：「多待一会儿」只在调整场景用，这里先给出意图 */
 const STAY_RES = /多(?:待|停|逛|玩)\s*(\d+|[一二两三四五六七八九十]{1,2})?\s*(分钟|小时|钟头)?/;
 
@@ -296,7 +358,16 @@ const STAY_DURATION_RE =
  * 抽出来的 X 直接当检索词用。注意要接 `cleanPlacePhrase`，
  * 否则「去中央大街附近逛逛」会抽出「中央大街附近逛逛」。
  */
-const GOAL_RE = /(?:想|要|打算|准备|计划|愿意)?\s*去\s*([\u4e00-\u9fa5A-Za-z0-9·]{2,20})/;
+/**
+ * 「去 X」目标。
+ *
+ * `g` 标志是必须的：用户可能说了好几个「去」——
+ * 「想去中央大街，然后去防洪纪念塔」。只取第一个会丢掉后半句。
+ *
+ * ⚠️ 拆分与清洗由 `splitPlaces` 负责（见那里的说明：
+ * 「再」也是分隔符，且「和平路」不能被拆坏）。
+ */
+const GOAL_RE = /(?:想|要|打算|准备|计划|愿意)?\s*去\s*([\u4e00-\u9fa5A-Za-z0-9·]{2,20})/g;
 
 // ── 主解析 ────────────────────────────────────────────────
 
@@ -321,6 +392,8 @@ function parse(text, opts) {
     goalText: null,
     /** 并列表达里的其余目标：「想去教堂和公园」→ ['公园'] */
     goalAlternatives: [],
+    /** 锚点的并列项：「中央大街和索菲亚教堂」→ ['索菲亚教堂'] */
+    anchorAlternatives: [],
     /** **规划时**的每站停留分钟数（「逛一小时」→ 60）；null 表示没说 */
     stayMinutes: null,
     startClock: null,
@@ -395,10 +468,21 @@ function parse(text, opts) {
   for (const re of ANCHOR_RES) {
     const m = raw.match(re);
     if (!m) continue;
-    const cleaned = cleanPlacePhrase(m[1]);
-    if (cleaned && cleaned.length >= 2) {
-      out.anchorText = cleaned;
-      out.matched.push({ field: 'anchor', text: m[0].trim(), value: cleaned, rule: 'anchor' });
+    /**
+     * ⚠️ 锚点也可能是并列的：「我想去**中央大街和索菲亚教堂**」——
+     * 首版整串当成一个地名，检索词成了「中央大街和索菲亚教堂」。
+     * 这里用与 goal 相同的拆分（含"连接词可能是地名的一部分"的保护）。
+     */
+    const parts = splitPlaces(m[1]);
+    if (parts.length) {
+      out.anchorText = parts[0];
+      if (parts.length > 1) out.anchorAlternatives = parts.slice(1);
+      out.matched.push({
+        field: 'anchor',
+        text: m[0].trim(),
+        value: parts.join(' / '),
+        rule: 'anchor',
+      });
     }
     break;
   }
@@ -411,30 +495,55 @@ function parse(text, opts) {
     let m;
     re.lastIndex = 0;
     while ((m = re.exec(raw)) !== null) {
-      const cleaned = cleanPlacePhrase(m[1]);
-      if (!cleaned || cleaned.length < 2) continue;
-      const canonical = matchKnown(cleaned, known);
-
       /**
-       * 采信规则：
-       *   · 给了已知地点名 → **必须命中**，否则「一定要去看看」「多去几个地方」
-       *     都会被当地名收进来；
-       *   · 没给已知地点名 → 只收强信号（一定要/必须/想去…），
-       *     光一个"去 XX"太容易误判。
+       * ⚠️ **捕获到的可能是并列的几个地方**：「我想去**中央大街和索菲亚教堂**」，
+       * `MUST_WEAK_RE` 会把整串当必须去的地点 —— 那它的 value 是
+       * 「中央大街和索菲亚教堂」，`autoPick` 拿它去匹配，**永远匹配不到任何 POI**。
+       *
+       * 所以这里逐个拆开，每个都当一条独立记录（原文位置相同，顺序不变）。
        */
-      if (known) {
-        if (!canonical) continue;
-      } else if (!strong) {
-        continue;
-      }
+      const parts = splitPlaces(m[1]);
+      for (const cleaned of parts) {
+        /**
+         * ⚠️ **类目词不是地名**（2026-10-13 第三次踩到同一类错误）。
+         *
+         * 用户说「想去**公园**」时，「公园」是个**类目**，不是某个具体的公园。
+         * 但简称匹配会把它认成「兆麟公园」：
+         *
+         *     matchKnown('公园', [...'兆麟公园'...])  →  '兆麟公园'  ❌
+         *     长度比 2/4 = 0.5，恰好卡在简称阈值上
+         *
+         * 后果与「哈工大」匹配到「哈工大[地铁站]」、「冰雪大世界」匹配到
+         * 「…龙川路地铁站」完全同源：**名字里含这几个字 ≠ 就是那个地方**。
+         *
+         * 类目词仍可用于**检索**（「想去公园」→ 搜"公园"是对的），
+         * 只是不能当成"用户点名要去某处"。
+         */
+        if (GENERIC_CATEGORY_WORDS.indexOf(cleaned) >= 0) continue;
 
-      hits.push({
-        index: m.index,
-        field,
-        value: canonical || cleaned,
-        text: m[0].trim(),
-        rule: strong ? (field === 'avoid' ? 'avoid' : 'must-strong') : 'must-known',
-      });
+        const canonical = matchKnown(cleaned, known);
+
+        /**
+         * 采信规则：
+         *   · 给了已知地点名 → **必须命中**，否则「一定要去看看」「多去几个地方」
+         *     都会被当地名收进来；
+         *   · 没给已知地点名 → 只收强信号（一定要/必须/想去…），
+         *     光一个"去 XX"太容易误判。
+         */
+        if (known) {
+          if (!canonical) continue;
+        } else if (!strong) {
+          continue;
+        }
+
+        hits.push({
+          index: m.index,
+          field,
+          value: canonical || cleaned,
+          text: m[0].trim(),
+          rule: strong ? (field === 'avoid' ? 'avoid' : 'must-strong') : 'must-known',
+        });
+      }
     }
   };
 
@@ -539,28 +648,35 @@ function parse(text, opts) {
    * 再清楚不过：他要去 X。所以单独抽出来，作为检索词的兜底。
    * 不加这一步，「我想去冰雪大世界」会什么都搜不到。
    */
-  const goal = raw.match(GOAL_RE);
-  if (goal) {
-    /**
-     * 并列结构要拆开：「想去教堂和公园」的目标不是一个叫"教堂和公园"的地方。
-     * 取第一段当检索词，其余的记进 `goalAlternatives` ——
-     * 前端可以据此再搜一次，也让用户知道系统没有忽略后半句。
-     */
-    const parts = String(goal[1])
-      .split(/[和跟与、,，及]/)
-      .map((x) => cleanPlacePhrase(x))
-      .filter((x) => x && x.length >= 2);
-
-    if (parts.length) {
-      out.goalText = parts[0];
-      if (parts.length > 1) out.goalAlternatives = parts.slice(1);
-      out.matched.push({
-        field: 'goal',
-        text: goal[0].trim(),
-        value: parts[0],
-        rule: 'goal',
-      });
+  /**
+   * 「去 X」目标。
+   *
+   * ⚠️ **必须全局匹配**（2026-10-13 修正）：首版只取第一个「去」，
+   * 于是「想去中央大街，**然后去**防洪纪念塔」只得到「中央大街」，
+   * 后半句整个丢掉 —— 与"只搜一个关键词"是同一个毛病。
+   */
+  const goalParts = [];
+  const goalTexts = [];
+  GOAL_RE.lastIndex = 0;
+  let gm;
+  while ((gm = GOAL_RE.exec(raw)) !== null) {
+    for (const p of splitPlaces(gm[1])) {
+      if (goalParts.indexOf(p) < 0) goalParts.push(p);
     }
+    goalTexts.push(gm[0].trim());
+    // 零长度匹配保护：正则若匹配到空串会死循环
+    if (GOAL_RE.lastIndex === gm.index) GOAL_RE.lastIndex++;
+  }
+
+  if (goalParts.length) {
+    out.goalText = goalParts[0];
+    if (goalParts.length > 1) out.goalAlternatives = goalParts.slice(1);
+    out.matched.push({
+      field: 'goal',
+      text: goalTexts.join(' / '),
+      value: goalParts.join(' / '),
+      rule: 'goal',
+    });
   }
 
   // ⑧ 检索关键词：**宁可不给，也不给垃圾**
@@ -618,6 +734,34 @@ function parse(text, opts) {
       }
     }
   }
+
+  /**
+   * ⑨ **多个检索词** —— 用户一次可能说了好几个地方。
+   *
+   * ⚠️ **实测踩到的坑（2026-10-13）**：用户说
+   * 「先去哈工大玩一小时再去冰雪大世界玩3小时」，
+   * 而 `searchKeyword` 是**单个字符串** —— 检索只发了「哈工大」，
+   * 冰雪大世界根本没进候选，用户看到的全是哈工大的各种门。
+   *
+   * **用户说了几个地方，就要搜几次。**
+   * 这里把所有提到的地方收集起来（主检索词排第一），供检索层逐个调用。
+   */
+  const kws = [];
+  const addKw = (v) => {
+    const s = String(v == null ? '' : v).trim();
+    if (s && kws.indexOf(s) < 0 && out.avoidTexts.indexOf(s) < 0) kws.push(s);
+  };
+  addKw(out.searchKeyword);
+  for (const t of out.mustVisitTexts) addKw(t);
+  addKw(out.goalText);
+  for (const t of out.goalAlternatives) addKw(t);
+  for (const t of out.anchorAlternatives) addKw(t);
+  // 文中出现的已知地点（排除避开的）—— 用户可能顺口提了一个没被规则捕获的地方
+  for (const n of known || []) {
+    if (n && raw.indexOf(n) >= 0 && out.avoidTexts.indexOf(n) < 0) addKw(n);
+  }
+  /** 上限 5：一条需求里提到的地方不会太多 */
+  out.searchKeywords = kws.slice(0, 5);
 
   return out;
 }
