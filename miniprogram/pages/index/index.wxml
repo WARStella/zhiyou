@@ -133,7 +133,7 @@
       <block wx:if="{{result.data.kind === 'initDb'}}">
         <view class="kv"><text class="k2">集合总数</text><text class="v2">{{result.data.collectionsEnsured}}</text></view>
         <view class="kv"><text class="k2">本次新建</text><text class="v2">{{result.data.collectionsCreated.length}}</text></view>
-        <view class="kv"><text class="k2">灌入地点</text><text class="v2">{{result.data.seededPlaces}}</text></view>
+        <view class="kv"><text class="k2">库内地点数</text><text class="v2">{{result.data.totalPlaces}}</text></view>
         <view class="kv"><text class="k2">地点总数</text><text class="v2">{{result.data.totalPlaces}}</text></view>
       </block>
 

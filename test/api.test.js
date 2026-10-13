@@ -440,21 +440,93 @@ test('集合任务：获得分享卡片不等于获得权限', async () => {
   expectFail(await outsider('meet.get', { meetTaskId: created.meetTaskId }), 'FORBIDDEN_NOT_MEMBER');
 });
 
-test('ops.initDb：显式创建全部集合、灌种子、并拒绝非 dev 环境', async () => {
+test('ops.initDb：显式创建全部集合，**不灌任何地点**，并拒绝非 dev 环境', async () => {
   const w = await makeWorld();
+  const before = await w.repo.count(C.PLACES, {});
 
   const res = expectOk(await w.A('ops.initDb', { confirm: true }));
   assert.equal(res.collectionsEnsured, 14, '必须把 14 个集合都显式建出来');
   assert.ok(Array.isArray(res.collectionsCreated));
   assert.ok(res.manualIndexes.length >= 10, '必须返回需要手工创建的索引清单');
-  assert.match(res.note, /未核验/, '必须说明种子数据不可用于规划');
+
+  /**
+   * ⚠️ **2026-10-13 起不再灌占位地点**。
+   *
+   * 原先灌的那 6 条名字带「（占位）」、坐标是编的，却会被当成
+   * "已知地点"喂给需求解析器 —— 用户从名字上看不出那是假的。
+   *
+   * 地点只来自两处，都是真的：上游检索、10/16 踏勘录入。
+   * **库一开始就是空的，这是正确状态。**
+   */
+  assert.equal(res.seededPlaces, undefined, '不该再有"灌入地点"这个字段');
+  assert.match(res.note, /不含任何地点数据/);
+
+  /**
+   * `totalPlaces` 与初始化前**一致** —— 不能多出任何地点。
+   *
+   * ⚠️ 这里不能断言"等于 0"：测试世界本身用夹具灌了地点
+   * （`helpers.js` 的 `__seed`）。要验的是"initDb 没有新增"，
+   * 而不是"库是空的" —— 后者是测试环境的事，与 initDb 无关。
+   */
+  assert.equal(res.totalPlaces, before, 'initDb 不得新增任何地点');
+  assert.equal(
+    /PLACEHOLDER|占位/.test(JSON.stringify(res)),
+    false,
+    '响应里不该再出现占位数据的痕迹'
+  );
 
   // 未显式 confirm → 拒绝
   expectFail(await w.A('ops.initDb', {}), 'INVALID_PARAM');
 
-  // 非 dev 环境 → 拒绝（避免在生产环境灌测试数据）
+  // 非 dev 环境 → 拒绝（避免在生产环境执行破坏性操作）
   const prod = await makeWorld({ env: 'prod' });
   expectFail(await prod.A('ops.initDb', { confirm: true }), 'FORBIDDEN_ENV');
+});
+
+test('代码库里不该再有占位地点 —— 它们看起来像真数据', () => {
+  /**
+   * 占位地点的三种害处（都是真的发生过）：
+   *   · 名字上只差一个「（占位）」后缀，界面里看着就是真地点；
+   *   · 会被 `pickKnownPlaceNames` 当成"已知地点"，让「我想去中央大街」
+   *     命中一个**坐标是猜的**地点；
+   *   · 踏勘时容易误以为"库里已经有这些地方了"。
+   *
+   * ⚠️ 检查范围是**数据文件与 require 语句**，不扫注释 ——
+   * 记录"我们删掉了什么"的注释本身必须能写出那两个词，
+   * 否则注释就说不清这件事（首版扫全文，被自己的注释绊倒了）。
+   */
+  const fs = require('node:fs');
+  const path = require('node:path');
+
+  const seedDir = path.join(__dirname, '../cloudfunctions/api/seed');
+  assert.equal(fs.existsSync(seedDir), false, '地点种子目录必须已经删掉');
+
+  const hits = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith('.json')) {
+        // 数据文件：任何占位数据都不该存在
+        if (/PLACEHOLDER_|（占位）/.test(fs.readFileSync(full, 'utf8'))) {
+          hits.push(path.relative(path.join(__dirname, '..'), full));
+        }
+      } else if (e.name.endsWith('.js')) {
+        // 代码文件：只查"是否还在加载某份地点种子"
+        const code = fs
+          .readFileSync(full, 'utf8')
+          .split('\n')
+          .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+          .join('\n');
+        if (/require\([^)]*seed[^)]*\)/i.test(code)) {
+          hits.push(path.relative(path.join(__dirname, '..'), full));
+        }
+      }
+    }
+  };
+  walk(path.join(__dirname, '../cloudfunctions/api'));
+
+  assert.deepEqual(hits, [], `生产代码里不该再有占位地点：${hits.join('、')}`);
 });
 
 test('非预期错误：开发环境暴露定位信息，生产环境一律隐藏', async () => {

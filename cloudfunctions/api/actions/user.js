@@ -6,8 +6,6 @@ const { resolveParams, ALGO_VERSION } = require('../lib/params');
 const C = require('../lib/repo/collections');
 const { MANUAL_UNIQUE_INDEXES } = require('../lib/repo/indexes');
 
-const seedPlaces = require('../seed/places.seed.json');
-
 /** 首次调用自动建档；之后只更新 lastSeenAt。 */
 async function login(ctx) {
   const { repo, openid } = ctx;
@@ -81,12 +79,24 @@ async function health(ctx) {
 }
 
 /**
- * 初始化集合与种子地点。
+ * 初始化集合。
  * **仅允许在 dev 环境执行**，且必须显式 confirm。
  *
- * 云数据库的集合在首次写入时自动创建，因此这里的工作是：
- *   1. 灌入地点种子（全部标记为未核验，见 seed/places.seed.json）
- *   2. 返回需要在控制台手工创建的索引清单（云开发无法通过 SDK 建索引）
+ * ── 2026-10-13：**不再灌入占位地点** ──────────────────────
+ *
+ * 原先会灌 6 条"占位"地点（名字带「（占位）」、`dataSource` 为
+ * `PLACEHOLDER_待10/16踏勘核实`）。它们带来的问题比价值大：
+ *
+ *   · **看起来像真数据** —— 界面、检索、规划里都当真地点在用，
+ *     而用户从名字上看不出坐标是编的；
+ *   · 会被当成"**已知地点**"喂给需求解析器（`pickKnownPlaceNames`），
+ *     于是「我想去中央大街」会命中一个**坐标是猜的**地点；
+ *   · 干扰踏勘判断：容易以为"库里已经有这些地方了"。
+ *
+ * 现在地点的来源只有两个，**都是真的**：
+ *   ① `place.search` 检索回来的上游 POI；
+ *   ② 10/16 踏勘后录入的核验信息。
+ * **库一开始就是空的，这是正确状态，不是缺陷。**
  */
 async function initDb(ctx) {
   const { repo, env } = ctx;
@@ -108,17 +118,6 @@ async function initDb(ctx) {
     else if (r.existed) existed.push(name);
     // 建集合失败必须上报，不得吞掉 —— 否则"为什么没建成"无从查起
     if (r.error) createErrors.push({ collection: name, error: r.error });
-  }
-
-  let inserted = 0;
-  if (p.seed !== false) {
-    for (const place of seedPlaces) {
-      const exists = await repo.findOne(C.PLACES, { name: place.name });
-      if (!exists) {
-        await repo.insert(C.PLACES, place);
-        inserted += 1;
-      }
-    }
   }
 
   const ok = createErrors.length === 0;
@@ -145,11 +144,10 @@ async function initDb(ctx) {
     collectionsEnsured: Object.values(C).length,
     collectionsCreated: created,
     collectionsExisted: existed,
-    seededPlaces: inserted,
     totalPlaces: await repo.count(C.PLACES, {}),
     note:
-      '种子地点全部为未核验占位数据（verifiedAt 为空），不会进入规划。' +
-      '请于 10/16 踏勘后由 C 录入真实核验信息。',
+      '集合已就绪，**不含任何地点数据**。地点来自两处，都是真的：' +
+      '① 行程页检索回来的上游 POI；② 10/16 踏勘后录入的核验信息。',
     // 手工索引清单由 lib/repo/indexes.js 的登记表生成 —— 不在这里重复硬编码，
     // 避免"代码里改了索引、清单里没改"的漂移。
     manualIndexes: MANUAL_UNIQUE_INDEXES.concat([
