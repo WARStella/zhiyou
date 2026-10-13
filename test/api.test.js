@@ -445,7 +445,7 @@ test('ops.initDb：显式创建全部集合，**不灌任何地点**，并拒绝
   const before = await w.repo.count(C.PLACES, {});
 
   const res = expectOk(await w.A('ops.initDb', { confirm: true }));
-  assert.equal(res.collectionsEnsured, 14, '必须把 14 个集合都显式建出来');
+  assert.equal(res.collectionsEnsured, 15, '必须把 15 个集合都显式建出来');
   assert.ok(Array.isArray(res.collectionsCreated));
   assert.ok(res.manualIndexes.length >= 10, '必须返回需要手工创建的索引清单');
 

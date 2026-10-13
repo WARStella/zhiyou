@@ -24,6 +24,8 @@ module.exports = {
   'ops.initDb': user.initDb,
   'ops.selfTest': user.selfTest,
   'ops.verifyIndexes': user.verifyIndexes,
+  /** 步行估算的校准报告 —— 也是"绕路系数"模型的训练数据现状 */
+  'ops.walkStats': user.walkStats,
 
   // 地点
   'place.list': place.list,

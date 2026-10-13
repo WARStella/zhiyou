@@ -5,6 +5,8 @@ const { CODES, fail, assert } = require('../lib/errors');
 const { resolveParams, ALGO_VERSION } = require('../lib/params');
 const C = require('../lib/repo/collections');
 const { MANUAL_UNIQUE_INDEXES } = require('../lib/repo/indexes');
+/** `ops.walkStats` 要在报告里对照"现在产品用的那个常数" */
+const geo = require('../lib/geo');
 
 /** 首次调用自动建档；之后只更新 lastSeenAt。 */
 async function login(ctx) {
@@ -484,4 +486,104 @@ async function verifyIndexes(ctx) {
   });
 }
 
-module.exports = { login, health, initDb, selfTest, verifyIndexes };
+/**
+ * 步行估算的**校准报告**（2026-10-13 新增）。
+ *
+ * ── 它解决的什么 ──────────────────────────────────────────
+ *
+ * `geo.js` 用一个**常数** `DETOUR_FACTOR = 1.3` 把直线距离换算成步行距离。
+ * 而实测它并不是常数：
+ *
+ *     直线 605 米 → 实际 815 米   倍率 1.35
+ *     直线  10 米 → 实际  76 米   倍率 7.6     ← 差了 7 倍
+ *
+ * 每次调地图接口都会往 `walk_samples` 记一条「直线 vs 实际」。
+ * 这个接口按**距离区间**汇总它们，回答两个问题：
+ *
+ *   ① 我们的估算到底差多少？（现状评估）
+ *   ② 每个区间该用什么系数？（**比常数 1.3 立刻更准**）
+ *
+ * ── 与后续模型的关系 ────────────────────────────────────
+ *
+ * 这里是**描述统计**，不是模型 —— 但它产出的正是模型的输入与基线。
+ * 任何回归模型都必须先打败"分段常数"这个基线，否则不值得上。
+ * **先有基线，再谈模型。**
+ */
+const DISTANCE_BUCKETS = [
+  { label: '0–100 米', min: 0, max: 100 },
+  { label: '100–300 米', min: 100, max: 300 },
+  { label: '300–600 米', min: 300, max: 600 },
+  { label: '600–1000 米', min: 600, max: 1000 },
+  { label: '1000–2000 米', min: 1000, max: 2000 },
+  { label: '2000 米以上', min: 2000, max: Infinity },
+];
+
+/** 中位数 —— 比均值抗离群（同一条路偶尔会有异常返回值） */
+function median(nums) {
+  if (!nums.length) return null;
+  const s = nums.slice().sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : Number(((s[m - 1] + s[m]) / 2).toFixed(3));
+}
+
+async function walkStats(ctx) {
+  const { repo } = ctx;
+  const CONST_FACTOR = geo.DETOUR_FACTOR;
+
+  const samples = await repo.find(C.WALK_SAMPLES, {}, { limit: 5000 });
+  const usable = samples.filter(
+    (s) => typeof s.straightMeters === 'number' && typeof s.actualMeters === 'number' && s.straightMeters > 0
+  );
+
+  const buckets = DISTANCE_BUCKETS.map((b) => {
+    const inBucket = usable.filter((s) => s.straightMeters >= b.min && s.straightMeters < b.max);
+    const ratios = inBucket.map((s) => s.actualMeters / s.straightMeters);
+    const med = median(ratios);
+    /**
+     * 用这个区间该用的系数去预测，会差多少？
+     * 报**中位绝对百分比误差**（MAPE）—— 它直观：25% 就是"平均差四分之一"。
+     */
+    let mape = null;
+    if (ratios.length) {
+      const errs = inBucket.map((s, i) => Math.abs(ratios[i] - med) / ratios[i]);
+      mape = Number((median(errs) * 100).toFixed(1));
+    }
+    return {
+      label: b.label,
+      count: inBucket.length,
+      /** 这条区间数据不够时**不给建议系数** —— 别用 3 条样本定一个系数 */
+      suggestedFactor: inBucket.length >= 5 ? med : null,
+      medianRatio: med,
+      minRatio: ratios.length ? Number(Math.min(...ratios).toFixed(2)) : null,
+      maxRatio: ratios.length ? Number(Math.max(...ratios).toFixed(2)) : null,
+      /** 用「区间建议系数」预测时，相对误差的中位数（%） */
+      mapePercent: mape,
+      /** 样本不足 5 条时如实标注，别让人以为这个数可信 */
+      insufficient: inBucket.length < 5,
+    };
+  });
+
+  const allRatios = usable.map((s) => s.actualMeters / s.straightMeters);
+  const overallMedian = median(allRatios);
+
+  return resp.ok({
+    kind: 'walkStats',
+    totalSamples: samples.length,
+    usableSamples: usable.length,
+    /** 当前产品用的常数 —— 报告要能看出"它在哪些区间高估/低估" */
+    currentConstant: CONST_FACTOR,
+    overallMedianRatio: overallMedian,
+    buckets,
+    /** 一句话结论，界面可直接展示 */
+    verdict:
+      usable.length < 20
+        ? `样本只有 ${usable.length} 条，还不足以判断 —— 继续积累（每次规划都会自动记录）`
+        : `全距中位倍率 ${overallMedian}（当前用常数 ${CONST_FACTOR}）；` +
+          `各区间差异见 buckets —— **区间系数比单常数更准**，模型必须打败它才有价值`,
+    note:
+      '这是**描述统计**，不是模型。任何回归模型都要先打败"分段常数"这个基线，' +
+      '否则不值得把它导出成 JSON 塞进小程序。',
+  });
+}
+
+module.exports = { login, health, initDb, selfTest, verifyIndexes, walkStats };

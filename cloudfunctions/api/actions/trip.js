@@ -82,6 +82,43 @@ async function fillMissingWalkTimes(ctx) {
     leg.from.walkableTo = geo.withWalkRecord(leg.from, leg.to._id, rec);
 
     /**
+     * ── 记一条**训练样本**（2026-10-13 新增）──────────────────
+     *
+     * 这里同时拿得到「直线距离」与「实际步行距离」——
+     * 而 `geo.js` 用一个**常数** `DETOUR_FACTOR = 1.3` 从前者推后者。
+     * 实测它并不是常数：
+     *
+     *     直线 605 米 → 实际 815 米   倍率 1.35
+     *     直线  10 米 → 实际  76 米   倍率 7.6
+     *
+     * 这条记录**现在就有用**（能算分段经验系数、能说清估算偏差），
+     * 攒够之后就是回归模型的训练数据。
+     *
+     * ⚠️ 写失败不能影响规划 —— 它只是攒数据，不是功能的一部分。
+     */
+    try {
+      const straight = geo.haversineMeters(leg.from.location, leg.to.location);
+      await repo.insert(C.WALK_SAMPLES, {
+        straightMeters: Math.round(straight),
+        actualMeters: r.distanceMeters,
+        actualMinutes: r.durationMinutes,
+        /** 实际 ÷ 直线。**模型要预测的就是它** */
+        detourRatio:
+          straight > 0 && typeof r.distanceMeters === 'number'
+            ? Number((r.distanceMeters / straight).toFixed(3))
+            : null,
+        fromName: leg.from.name,
+        toName: leg.to.name,
+        /** 同一段反复规划会产生多条 —— 保留，用来看稳定性 */
+        sampledAt: now,
+      });
+      out.samplesRecorded = (out.samplesRecorded || 0) + 1;
+    } catch (e) {
+      // 攒数据失败不该让整次规划失败
+      out.sampleWriteFailed = (out.sampleWriteFailed || 0) + 1;
+    }
+
+    /**
      * ⚠️ **只给库里的地点写缓存**（2026-10-13 加）。
      *
      * 检索来的地点不入库（用户决定：全从腾讯地图实时搜），
@@ -563,6 +600,19 @@ async function plan(ctx) {
     upstreamFailed: walkFill.failed,
     failures: walkFill.failures,
     mapApiCalls: walkFill.mapApiCalls,
+    /**
+     * ⚠️ **训练样本的记账**（2026-10-13 加）。
+     *
+     * 这个对象是**显式挑字段拼出来的** —— 新字段不写在这里就会被**静默丢掉**。
+     * 加这两个字段时正是踩了这个坑：地图调用发生了、样本没记上，
+     * 而响应里什么都看不出来。（工作日志里那条
+     * 「数据在某一层被截断，且不报错」，今天第二次。）
+     *
+     * 为什么必须暴露：样本管道最大的风险不是算法，是**静默地什么都没记** ——
+     * 规划照常成功，样本表却是空的，等到要训练时才发现白攒了一个月。
+     */
+    samplesRecorded: walkFill.samplesRecorded || 0,
+    sampleWriteFailed: walkFill.sampleWriteFailed || 0,
     note:
       walkFill.failed > 0
         ? `有 ${walkFill.failed} 段没能从地图服务取到路线，已回落为**直线估算**（时间可能明显偏小）`

@@ -1,0 +1,224 @@
+{
+  "meta": {
+    "name": "需求解析样例集（开发集）",
+    "version": "v0.1",
+    "createdAt": "2026-10-13",
+    "purpose": "让'解析得更准'这件事可测量 —— 没有它，调超参、加 few-shot、换模型都只是感觉。",
+    "disciplines": [
+      "§11.2：开发样例与**冻结测试样例**必须分开。本文件是**开发集**，可以随时改；冻结集另存，改一次就要说明。",
+      "expected 只写**必须正确**的字段，不写'最好也有'的 —— 否则指标会惩罚合理的不同表达。",
+      "来源标注 source：real-* 是真实遇到过的（含缺陷复现），synthetic 是补充的常见说法。"
+    ]
+  },
+  "samples": [
+    {
+      "id": "s01",
+      "text": "我下午想去中央大街附近逛逛，五点前结束",
+      "source": "real-demo",
+      "expected": {
+        "endClock": { "hour": 17, "minute": 0 },
+        "anchorText": "中央大街",
+        "searchKeywordsContain": ["中央大街"]
+      }
+    },
+    {
+      "id": "s02",
+      "text": "先去哈工大玩一小时再去冰雪大世界玩3小时",
+      "source": "real-bug",
+      "note": "真实缺陷：首版只搜第一个关键词，第二个地方完全搜不到（commit 0dd97d4）",
+      "expected": {
+        "searchKeywordsContain": ["哈工大", "冰雪大世界"],
+        "stayMinutesByTextContains": { "哈工大": 60 }
+      }
+    },
+    {
+      "id": "s03",
+      "text": "先去哈工大玩一小时再去冰雪大世界玩两小时再去哈学院玩一小时",
+      "source": "real-bug",
+      "note": "真实缺陷：schema 只有一个 stayMinutes，装不下三个不同时长（commit 022c761）",
+      "expected": {
+        "searchKeywordsContain": ["哈工大", "冰雪大世界", "哈学院"],
+        "stayMinutesByTextContains": { "哈工大": 60, "冰雪大世界": 120, "哈学院": 60 }
+      }
+    },
+    {
+      "id": "s04",
+      "text": "我想去冰雪大世界，逛一小时",
+      "source": "real-bug",
+      "note": "真实缺陷：规则只认「多逛一小时」，没有「多」就认不出（commit 30fe1b9）",
+      "expected": {
+        "searchKeywordsContain": ["冰雪大世界"],
+        "stayMinutes": 60
+      }
+    },
+    {
+      "id": "s05",
+      "text": "一定要去中央大街，别去兆麟公园",
+      "source": "real-bug",
+      "note": "真实缺陷：检索词曾被取自'明确不想去的地方'",
+      "expected": {
+        "mustVisitTextsContain": ["中央大街"],
+        "mustVisitTextsNotContain": ["兆麟公园"],
+        "avoidTextsContain": ["兆麟公园"],
+        "searchKeywordsNotContain": ["兆麟公园"]
+      }
+    },
+    {
+      "id": "s06",
+      "text": "想去教堂和公园",
+      "source": "real-bug",
+      "note": "真实缺陷：「公园」是类目词，却被简称匹配认成「兆麟公园」（commit 0dd97d4）",
+      "expected": {
+        "searchKeywordsContain": ["教堂"],
+        "mustVisitTextsNotContain": ["兆麟公园"]
+      }
+    },
+    {
+      "id": "s07",
+      "text": "我想去和平路",
+      "source": "real-bug",
+      "note": "真实缺陷：按「和」拆分会把「和平路」拆成「平路」",
+      "expected": {
+        "searchKeywordsContain": ["和平路"],
+        "searchKeywordsNotContain": ["平路"]
+      }
+    },
+    {
+      "id": "s08",
+      "text": "我有点累，尽量少走路",
+      "source": "synthetic-vague",
+      "note": "§6.2：含糊表达**不得换算成数值**，必须进 uncertainties",
+      "expected": {
+        "uncertaintiesContainField": ["maxWalkMinutes", "pace"],
+        "mustNotGuessMaxWalkMinutes": true
+      }
+    },
+    {
+      "id": "s09",
+      "text": "随便逛逛，你安排就行",
+      "source": "synthetic-vague",
+      "expected": { "uncertaintiesAtLeast": 1 }
+    },
+    {
+      "id": "s10",
+      "text": "五点前结束",
+      "source": "synthetic-ambiguous",
+      "note": "§6.2：没说上午还是下午 —— 不得自行假定",
+      "expected": { "uncertaintiesAtLeast": 1 }
+    },
+    {
+      "id": "s11",
+      "text": "上午十点出发，六点前结束",
+      "source": "synthetic-clear",
+      "expected": {
+        "startClock": { "hour": 10, "minute": 0 },
+        "endClock": { "hour": 18, "minute": 0 }
+      }
+    },
+    {
+      "id": "s12",
+      "text": "安排得轻松一点，别太赶",
+      "source": "synthetic-pace",
+      "expected": { "pace": "relaxed" }
+    },
+    {
+      "id": "s13",
+      "text": "一天多逛几个地方",
+      "source": "synthetic-pace",
+      "expected": { "pace": "packed" }
+    },
+    {
+      "id": "s14",
+      "text": "今天下雨，尽量少走路",
+      "source": "synthetic-weather",
+      "note": "天气影响出行方式偏好 —— 但**偏好由用户说**，系统不猜天气",
+      "expected": { "uncertaintiesAtLeast": 0 }
+    },
+    {
+      "id": "s15",
+      "text": "去防洪纪念塔玩两个小时",
+      "source": "synthetic-duration",
+      "expected": {
+        "searchKeywordsContain": ["防洪纪念塔"],
+        "stayMinutes": 120
+      }
+    },
+    {
+      "id": "s16",
+      "text": "多待 20 分钟",
+      "source": "real-adjust",
+      "note": "调整语义，与'规划时长'必须分开（两条规则会同时匹配到它）",
+      "expected": {
+        "extendStayMin": 20,
+        "stayMinutesIsNull": true
+      }
+    },
+    {
+      "id": "s17",
+      "text": "最后一站别去了",
+      "source": "synthetic-adjust",
+      "expected": { "uncertaintiesAtLeast": 0 }
+    },
+    {
+      "id": "s18",
+      "text": "我想去索菲亚教堂",
+      "source": "synthetic-abbrev",
+      "note": "简称 → 全称「圣索菲亚教堂」",
+      "expected": { "searchKeywordsContain": ["索菲亚"] }
+    },
+    {
+      "id": "s19",
+      "text": "中央大街、防洪纪念塔、索菲亚教堂都想去",
+      "source": "synthetic-multi",
+      "expected": {
+        "searchKeywordsAtLeast": 3
+      }
+    },
+    {
+      "id": "s20",
+      "text": "我想去中央大街和索菲亚教堂",
+      "source": "real-bug",
+      "note": "真实缺陷：必去项整串「中央大街和索菲亚教堂」拿去做匹配，一个 POI 都匹配不上",
+      "expected": {
+        "mustVisitTextsContain": ["中央大街"],
+        "mustVisitTextsNotContain": ["中央大街和索菲亚教堂"]
+      }
+    },
+    {
+      "id": "s21",
+      "text": "从哈尔滨站出发去中央大街",
+      "source": "synthetic-origin",
+      "expected": { "searchKeywordsContain": ["中央大街"] }
+    },
+    {
+      "id": "s22",
+      "text": "帮我安排一条两小时的路线",
+      "source": "synthetic-duration-total",
+      "note": "总时长 ≠ 每站时长 —— 不得当成 stayMinutes",
+      "expected": { "uncertaintiesAtLeast": 0 }
+    },
+    {
+      "id": "s23",
+      "text": "不想走太多路，最好都在附近",
+      "source": "synthetic-vague",
+      "expected": { "uncertaintiesAtLeast": 1 }
+    },
+    {
+      "id": "s24",
+      "text": "早上八点出发去太阳岛，中午十二点回来",
+      "source": "synthetic-clear",
+      "expected": {
+        "startClock": { "hour": 8, "minute": 0 },
+        "endClock": { "hour": 12, "minute": 0 },
+        "searchKeywordsContain": ["太阳岛"]
+      }
+    },
+    {
+      "id": "s25",
+      "text": "我要去的地方",
+      "source": "synthetic-nonsense",
+      "note": "认不出任何地点 —— 应当如实说，**不能编一个检索词**",
+      "expected": { "searchKeywordsEmpty": true }
+    }
+  ]
+}
