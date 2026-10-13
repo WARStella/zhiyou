@@ -1,6 +1,7 @@
 'use strict';
 
 const resp = require('../lib/resp');
+const { randomUUID } = require('node:crypto');
 const { CODES, require_fields, assert, fail } = require('../lib/errors');
 const { requireCrewMember, getMembership, canBeTripNode, canBeMeetingPoint } = require('../lib/authz');
 const { resolveParams } = require('../lib/params');
@@ -117,6 +118,7 @@ async function fillMissingWalkTimes(ctx) {
     try {
       const straight = geo.haversineMeters(leg.from.location, leg.to.location);
       await repo.insert(C.WALK_SAMPLES, {
+        planRunId: ctx.planRunId,
         // ── 情境：用户提醒后补上的维度 ──
         /** 出行方式。首版恒为 walking；接上骑行/驾车后就是分类特征 */
         mode: 'walking',
@@ -239,7 +241,9 @@ function resolveItemOrder(spec, placesById) {
  *   · 不因为"这条例外"就丢掉整条样本 —— 只跳过标注
  */
 async function backfillTravelActual(ctx) {
-  const { repo, nodes, nodeId, status, now } = ctx;
+  const { repo, trip, nodes, nodeId, status, now } = ctx;
+  const planRunId = trip.generatedBy && trip.generatedBy.planRunId;
+  if (!planRunId) return { updated: 0, reason: 'UNBOUND_LEGACY_SAMPLE' };
   if (status !== 'arrived' && status !== 'done') return { updated: 0 };
 
   const idx = (nodes || []).findIndex((n) => n.nodeId === nodeId);
@@ -278,7 +282,7 @@ async function backfillTravelActual(ctx) {
   try {
     const pending = await repo.find(
       C.WALK_SAMPLES,
-      { fromId: prev.placeId, toId: node.placeId, actualMinutes: null },
+      { planRunId, fromId: prev.placeId, toId: node.placeId, actualMinutes: null },
       { limit: 20 }
     );
     for (const s of pending) {
@@ -568,7 +572,9 @@ async function plan(ctx) {
     : null;
 
   // ★ 先把缺失的步行时间从地图接口取回来，再交给同步的时间线计算
+  const planRunId = randomUUID();
   const walkFill = await fillMissingWalkTimes({
+    planRunId,
     repo,
     placesById,
     placeIds: itemIds,
@@ -781,7 +787,7 @@ async function plan(ctx) {
     generatedBy: {
       algoVersion: params.algoVersion,
       candidateId: 'c_plan',
-      planRunId: `plan_${now.getTime()}`,
+      planRunId,
     },
     conflicts: feasibility.conflicts, // 不可行但被显式保存时，冲突必须留在记录里
     createdAt: now,
@@ -1273,14 +1279,7 @@ async function progress(ctx) {
    *
    * 它同时把"用户说要去"变成"用户真的走了"，是**外部效度**的证据。
    */
-  await backfillTravelActual({
-    repo,
-    trip,
-    nodes,
-    nodeId: ctx.payload.nodeId,
-    status: ctx.payload.status,
-    now,
-  });
+  // Label only after the versioned progress write succeeds.
 
   /**
    * ⚠️ **必须显式给版本号，不提供"没给就用当前版本"的兜底。**
@@ -1306,6 +1305,15 @@ async function progress(ctx) {
   if (!res.updated) {
     throw fail(CODES.VERSION_CONFLICT, '行程已被更新，请刷新后重试', { currentVersion: trip.version });
   }
+
+  await backfillTravelActual({
+    repo,
+    trip,
+    nodes,
+    nodeId: ctx.payload.nodeId,
+    status: ctx.payload.status,
+    now,
+  });
 
   return resp.ok({ tripId: trip._id, version: res.doc.version, nodes: res.doc.nodes }, { version: res.doc.version });
 }
