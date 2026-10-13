@@ -555,7 +555,42 @@ Page({
       planRejected: false,
       note: note || '',
       error: '',
+    }, () => {
+      /**
+       * setData 的回调在**渲染完成之后**触发 —— 此时地图组件才真正存在，
+       * 才能对它调用 includePoints（见 fitRouteMap 的说明）。
+       */
+      this.fitRouteMap()
     })
+  },
+
+  /**
+   * 把地图视野缩放到能容纳整条路线。
+   *
+   * ⚠️ 为什么要显式调用，而不是只靠 `include-points` 属性：
+   *   微信 `map` 组件的 `include-points` **在首次渲染时经常不生效** ——
+   *   地图会先按 `latitude`/`longitude`/`scale` 初始化，把 include-points 吃掉。
+   *   属性仍然保留（它是声明式的，在部分路径下有效），
+   *   但真正可靠的路径是渲染完成后调 `MapContext.includePoints()`。
+   *
+   * 顺带解决了 padding：属性形式没法控制留白，导致标记贴着边缘；
+   * 显式调用可以给四边留出空间，序号气泡才不会被裁掉。
+   */
+  fitRouteMap() {
+    const pts = this.data.routeMap && this.data.routeMap.includePoints
+    if (!pts || !pts.length) return
+
+    try {
+      const ctx = wx.createMapContext('routeMap', this)
+      ctx.includePoints({
+        points: pts,
+        // 上边留得更多：marker 的序号气泡画在图标上方，贴边会被裁掉
+        padding: [64, 48, 48, 48],
+      })
+    } catch (e) {
+      // 地图还没渲染出来就跳过 —— include-points 属性会兜住
+      console.warn('[trip] includePoints 失败，回落到 include-points 属性', e)
+    }
   },
 
   /**
@@ -572,7 +607,8 @@ Page({
     const nodePts = nodes
       .map((n) => n.location)
       .filter((p) => p && typeof p.latitude === 'number' && typeof p.longitude === 'number')
-    if (nodePts.length < 2) return null
+    // 只有一个目的地时也画地图 —— 让用户先看清它在哪，而不是只给个名字
+    if (nodePts.length < 1) return null
 
     const startPt = startPoint && typeof startPoint.latitude === 'number' ? startPoint : null
 
@@ -627,18 +663,25 @@ Page({
     return {
       center: points[0],
       includePoints: points,
-      polyline: [
-        {
-          points: points,
-          color: '#0B3C6E',
-          width: 4,
-          arrowLine: true,
-          borderColor: '#FFFFFF',
-          borderWidth: 2,
-        },
-      ],
+      // 只有一个点时不画折线（两端重合的线没有意义，部分机型还会告警）
+      polyline:
+        points.length >= 2
+          ? [
+              {
+                points: points,
+                color: '#0B3C6E',
+                width: 4,
+                arrowLine: true,
+                borderColor: '#FFFFFF',
+                borderWidth: 2,
+              },
+            ]
+          : [],
       markers: markers,
-      note: '连线为游览顺序示意，不是逐段真实步行路径',
+      note:
+        points.length >= 2
+          ? '连线为游览顺序示意，不是逐段真实步行路径'
+          : '只有一个目的地，暂无可连的路线',
     }
   },
 
