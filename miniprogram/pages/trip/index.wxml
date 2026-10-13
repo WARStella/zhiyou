@@ -12,18 +12,50 @@
   <!-- ══════════ 未生成路线：需求输入 + 候选选择 ══════════ -->
   <block wx:if="{{!trip}}">
 
-    <!-- 需求输入 -->
+    <!-- 需求输入：一句话，而不是一个个搜地点 -->
     <view class="card">
       <view class="search-row">
         <input
           class="search-input"
-          placeholder="搜索地点：教堂 / 公园 / 中央大街"
+          placeholder="说一句话，例如：我下午想去中央大街附近逛逛，五点前结束"
           value="{{keyword}}"
           confirm-type="search"
           bindinput="onKeyword"
           bindconfirm="doSearch"
         />
-        <view class="search-btn" bindtap="doSearch">{{loading ? '…' : '搜索'}}</view>
+        <view class="search-btn" bindtap="doSearch">{{loading ? '…' : '理解'}}</view>
+      </view>
+
+      <!-- 系统理解成了什么 —— 依据与来源全部摊开，不藏 -->
+      <view wx:if="{{intent}}" class="intent">
+        <view class="row">
+          <text class="intent-hd">我理解到的</text>
+          <text class="v muted">{{intent.parserLabel}}</text>
+        </view>
+
+        <view wx:if="{{intent.degradationNote}}" class="degraded">⚠️ {{intent.degradationNote}}</view>
+
+        <view wx:if="{{!intent.explanation.length}}" class="hint">没有能确定的项</view>
+        <view wx:for="{{intent.explanation}}" wx:key="*this" class="change">· {{item}}</view>
+
+        <!-- §6.2：含糊表达不自动换算，给选项让用户定 -->
+        <view wx:if="{{intent.uncertainties.length}}" class="uncertain">
+          <view class="uncertain-hd">需要你确认（系统不替你决定）</view>
+          <view wx:for="{{intent.uncertainties}}" wx:key="why" class="uncertain-item">
+            <text>· {{item.why}}</text>
+            <view wx:if="{{item.candidates}}" class="cands">
+              <text
+                wx:for="{{item.candidates}}"
+                wx:for-item="c"
+                wx:key="*this"
+                class="cand"
+                data-field="{{item.field}}"
+                data-value="{{c}}"
+                bindtap="pickUncertainty"
+              >选 {{c}}</text>
+            </view>
+          </view>
+        </view>
       </view>
 
       <view class="row mt">
@@ -40,6 +72,7 @@
             <text class="v link">不限 ›</text>
           </picker>
           <block wx:else>
+            <text wx:if="{{endAtFromParse}}" class="from-parse">解析</text>
             <picker mode="time" value="{{endAtText}}" bindchange="onEndTimeChange">
               <text class="v link">{{endAtText}} ›</text>
             </picker>

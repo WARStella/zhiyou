@@ -51,10 +51,14 @@ Page({
   data: {
     // ── 需求输入 ──
     keyword: '',
+    /** 意图解析结果（解释 + 待确认项）—— 界面要让人看见"系统理解成了什么" */
+    intent: null,
     startAtText: '',
     startAt: '',
     endAtText: '',
     endAt: '', // 空字符串 = 不限
+    /** 结束时间是从解析结果填进来的（不是用户手选的）—— 要标明 */
+    endAtFromParse: false,
     enrichWalk: false,
 
     // ── 候选（搜索结果或已知地点）──
@@ -154,6 +158,8 @@ Page({
     })
   },
 
+  // ══════════ 需求输入 ══════════
+
   onKeyword(e) {
     this.setData({ keyword: e.detail.value })
   },
@@ -162,19 +168,90 @@ Page({
     this.setData({ enrichWalk: e.detail.value })
   },
 
+  /**
+   * 统一的输入入口：**先理解意图，再检索地点**。
+   *
+   * 这样用户既可以输入一句话（"我下午想去中央大街附近逛逛，五点前结束"），
+   * 也可以只输入一个词（"教堂"）—— 后者会被识别成类别词，效果与普通搜索一致。
+   *
+   * 解析出来的约束**不会自动生效**：明确的才填进表单，含糊的进 uncertainties
+   * 让用户选（§6.2）。
+   */
   doSearch() {
     const that = this
-    const keyword = (this.data.keyword || '').trim()
-    if (!keyword) {
-      this.setData({ note: '请输入关键词，例如「教堂」「公园」「中央大街」' })
+    const text = (this.data.keyword || '').trim()
+    if (!text) {
+      this.setData({ note: '请输入一句话，或一个地点名称' })
       return
     }
 
-    this.setData({ loading: true, error: '', note: '正在定位…' })
+    this.setData({ loading: true, error: '', note: '正在理解你的需求…', intent: null })
 
-    this.tryLocate().then(function (center) {
-      that.setData({ note: center ? '' : '未能获取当前位置，改用默认中心（哈尔滨）排序' })
-      api
+    api
+      .callApi('intent.parse', { text: text })
+      .then(function (res) {
+        const d = res && res.ok === true ? res.data : null
+
+        // 解析失败不阻断：退化成"直接当地点搜"，并说明发生了什么
+        if (!d || d.ok !== true) {
+          that.setData({
+            intent: null,
+            note: '需求理解不可用（' + ((d && d.message) || '未知原因') + '），已按地点名称直接搜索',
+          })
+          return that.runPlaceSearch(text)
+        }
+
+        const patch = {
+          intent: {
+            parserLabel:
+              d.parser === 'http'
+                ? '模型理解' + (d.model ? '（' + d.model + '）' : '')
+                : '规则理解',
+            degraded: d.degraded === true,
+            degradationNote:
+              d.degraded === true && d.attempts && d.attempts.length
+                ? '模型不可用（' + (d.attempts[0].reason || '未知') + '），已用规则解析'
+                : '',
+            explanation: d.explanation || [],
+            uncertainties: d.uncertainties || [],
+            searchKeyword: d.searchKeyword || null,
+          },
+        }
+
+        // 解析出的结束时间填进表单 —— 但要让用户看得见它是解析来的
+        if (d.structured && d.structured.endAt) {
+          const end = new Date(d.structured.endAt)
+          patch.endAtText = timeText(end)
+          patch.endAt = end.toISOString()
+          patch.endAtFromParse = true
+        }
+
+        that.setData(patch)
+
+        const kw = d.searchKeyword
+        if (!kw) {
+          that.setData({
+            loading: false,
+            note: '没能从这句话里认出要去的地方，请补充一个地名，或直接输入地点名称',
+          })
+          return null
+        }
+        return that.runPlaceSearch(kw)
+      })
+      .catch(function (err) {
+        that.setData({ note: '理解失败，已按地点名称直接搜索' })
+        that.runPlaceSearch(text)
+        if (err && err.errMsg) console.warn(err)
+      })
+  },
+
+  /** 用关键词检索外部地点（原来的搜索逻辑） */
+  runPlaceSearch(keyword) {
+    const that = this
+    this.setData({ loading: true, error: '' })
+
+    return this.tryLocate().then(function (center) {
+      return api
         .callApi('place.search', {
           keyword: keyword,
           center: center || undefined,
@@ -220,11 +297,30 @@ Page({
             'search',
             d.ranking ? d.ranking.note : ''
           )
-          that.setData({ loading: false })
+          that.setData({
+            loading: false,
+            note:
+              center || that.data.intent
+                ? ''
+                : '未取得当前位置，按默认中心（哈尔滨）排序',
+          })
         })
         .catch(function (err) {
           that.setData({ loading: false, error: (err && err.errMsg) || '搜索失败' })
         })
+    })
+  },
+
+  /** 用户点了待确认项的某个候选（§6.2：提供选项，而不是替他决定） */
+  pickUncertainty(e) {
+    const { field, value } = e.currentTarget.dataset
+    if (field !== 'endAt') return
+    const d = todayAt(value)
+    this.setData({
+      endAtText: value,
+      endAt: d.toISOString(),
+      endAtFromParse: false,
+      note: '已按你的选择设定结束时间 ' + value,
     })
   },
 

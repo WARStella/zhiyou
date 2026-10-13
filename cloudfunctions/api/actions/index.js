@@ -14,6 +14,7 @@ const loc = require('./loc');
 const trip = require('./trip');
 const meet = require('./meet');
 const map = require('./map');
+const intent = require('./intent');
 
 module.exports = {
   // 用户与运维
@@ -58,4 +59,7 @@ module.exports = {
 
   // 地图服务（10/14 验证）
   'map.probe': map.probe,
+
+  // 需求解析（AI 层与算法层的接缝）
+  'intent.parse': intent.parse,
 };

@@ -458,6 +458,62 @@
   color: #8a5a00;
 }
 
+/* ── 意图解析 ─────────────────────────────── */
+.intent {
+  margin-top: 18rpx;
+  background: #f7f9fb;
+  border-radius: 10rpx;
+  padding: 18rpx;
+}
+.intent-hd {
+  font-size: 25rpx;
+  font-weight: 600;
+  color: #0b3c6e;
+}
+.degraded {
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+  color: #d9642a;
+}
+.uncertain {
+  margin-top: 16rpx;
+  border-top: 1rpx solid #e6eaee;
+  padding-top: 14rpx;
+}
+.uncertain-hd {
+  font-size: 22rpx;
+  color: #d9642a;
+  margin-bottom: 8rpx;
+}
+.uncertain-item {
+  font-size: 22rpx;
+  line-height: 1.6;
+  color: #52606d;
+  margin-bottom: 10rpx;
+}
+.cands {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 8rpx;
+}
+.cand {
+  font-size: 22rpx;
+  color: #0b6bcb;
+  border: 2rpx solid #0b6bcb;
+  border-radius: 8rpx;
+  padding: 4rpx 16rpx;
+  margin: 0 12rpx 8rpx 0;
+}
+.from-parse {
+  font-size: 20rpx;
+  color: #0f9d58;
+  background: #e8f5ee;
+  border-radius: 6rpx;
+  padding: 2rpx 10rpx;
+  margin-right: 10rpx;
+}
+
 /* ── 出发段 ───────────────────────────────── */
 .start-leg {
   border-left: 8rpx solid #ff7a45;

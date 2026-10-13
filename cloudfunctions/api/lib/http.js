@@ -17,19 +17,28 @@ const { URL } = require('url');
 const DEFAULT_TIMEOUT_MS = 8000;
 
 class HttpError extends Error {
-  constructor(message, info) {
+  constructor(message, info, code) {
     super(message);
     this.name = 'HttpError';
-    this.code = 'UPSTREAM_MAP_FAILED'; // 与 docs/01 §3 错误码对齐
+    // 默认与 docs/01 §3 错误码对齐；调用方可覆盖（如大模型上游用 AI_UPSTREAM_FAILED）
+    this.code = code || 'UPSTREAM_MAP_FAILED';
     this.details = info || null;
     this.expected = true;
   }
 }
 
-/** 真实传输：GET 一个 JSON 接口。 */
+/**
+ * 真实传输。支持 GET 与 POST（带请求头与请求体）。
+ *
+ * 为什么需要 POST：大模型的 chat/completions 是 POST + JSON body。
+ * 但地图接口只需要 GET —— 所以这里做成通用的，两边共用一份超时与错误处理。
+ */
 function defaultTransport(url, opts) {
   opts = opts || {};
   const timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const method = (opts.method || 'GET').toUpperCase();
+  const errorCode = opts.errorCode;
+  const payload = opts.body != null ? String(opts.body) : null;
 
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -43,29 +52,40 @@ function defaultTransport(url, opts) {
     try {
       target = new URL(url);
     } catch (e) {
-      return done(reject, new HttpError(`URL 非法：${url}`, { url }));
+      return done(reject, new HttpError(`URL 非法：${url}`, { url }, errorCode));
+    }
+
+    const headers = Object.assign({ Accept: 'application/json' }, opts.headers || {});
+    if (payload != null) {
+      headers['Content-Length'] = Buffer.byteLength(payload);
     }
 
     const req = https.request(
       {
         hostname: target.hostname,
         path: target.pathname + target.search,
-        method: 'GET',
+        method,
         timeout: timeoutMs,
-        headers: { Accept: 'application/json' },
+        headers,
       },
       (res) => {
         const chunks = [];
         res.on('data', (c) => chunks.push(c));
         res.on('end', () => {
           const body = Buffer.concat(chunks).toString('utf8');
+          /**
+           * 非 2xx 一律按传输失败处理 —— **保持地图接口原有的严格语义**。
+           * 上游把业务错误放在 HTTP 200 的 body 里（地图接口就是 status: 104）
+           * 是另一回事，那种情况这里不会拦，交给调用方判断。
+           */
           if (res.statusCode < 200 || res.statusCode >= 300) {
             return done(
               reject,
-              new HttpError(`上游返回 HTTP ${res.statusCode}`, {
-                httpStatus: res.statusCode,
-                bodyHead: body.slice(0, 300),
-              })
+              new HttpError(
+                `上游返回 HTTP ${res.statusCode}`,
+                { httpStatus: res.statusCode, bodyHead: body.slice(0, 300) },
+                errorCode
+              )
             );
           }
           try {
@@ -73,10 +93,11 @@ function defaultTransport(url, opts) {
           } catch (e) {
             done(
               reject,
-              new HttpError('上游返回的不是合法 JSON', {
-                httpStatus: res.statusCode,
-                bodyHead: body.slice(0, 300),
-              })
+              new HttpError(
+                '上游返回的不是合法 JSON',
+                { httpStatus: res.statusCode, bodyHead: body.slice(0, 300) },
+                errorCode
+              )
             );
           }
         });
@@ -85,12 +106,16 @@ function defaultTransport(url, opts) {
 
     req.on('timeout', () => {
       req.destroy();
-      done(reject, new HttpError(`上游请求超时（${timeoutMs}ms）`, { url: redact(url), timeoutMs }));
+      done(
+        reject,
+        new HttpError(`上游请求超时（${timeoutMs}ms）`, { url: redact(url), timeoutMs }, errorCode)
+      );
     });
     req.on('error', (e) => {
-      done(reject, new HttpError(`上游请求失败：${e.message}`, { url: redact(url) }));
+      done(reject, new HttpError(`上游请求失败：${e.message}`, { url: redact(url) }, errorCode));
     });
 
+    if (payload != null) req.write(payload);
     req.end();
   });
 }
