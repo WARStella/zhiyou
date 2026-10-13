@@ -730,45 +730,59 @@
   margin-right: 8rpx;
 }
 
-/* ── 当前路线（概览与地图之间的顺序链）───────── */
+/* ── 当前路线（这一段怎么走）───────────────── */
 /*
-  概览给的是数字，地图给的是"在哪"，中间缺一条"按什么顺序走"。
-  这条链补上它；走到的站变绿，当前站变橙 —— 与地图、时间轴三处一致。
+  这块**不是**"站的顺序"，而是"这一段怎么走、多远、多久"。
+  顺序是计划，出行方式与距离才是行走时真正要看的东西。
+  也是将来接导航的落点。
 */
-.chain {
+.leg-headline {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  padding: 8rpx 0 4rpx;
+  flex-wrap: wrap;
+  padding: 10rpx 0 4rpx;
 }
-.chain-node {
+.leg-from-name {
+  font-size: 28rpx;
+  color: #6b7785;
+}
+.leg-to-name {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #0b3c6e;
+}
+.leg-arrow {
+  font-size: 26rpx;
+  color: #c3cad3;
+  margin: 0 14rpx;
+}
+.leg-figures {
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+  padding: 6rpx 0 2rpx;
+}
+.fig-mode {
   font-size: 24rpx;
   color: #0b3c6e;
   background: #eef4fb;
-  border-radius: 999rpx;
-  padding: 6rpx 18rpx;
-  margin: 6rpx 0;
-  max-width: 100%;
+  border-radius: 6rpx;
+  padding: 2rpx 12rpx;
 }
-.chain-origin {
-  color: #ffffff;
-  background: #ff7a45;
+.fig-strong {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #0b3c6e;
 }
-.chain-node.on {
-  color: #ffffff;
-  background: #0f9d58;
+.fig {
+  font-size: 26rpx;
+  color: #6b7785;
 }
-.chain-node.cur {
-  color: #ffffff;
-  background: #ff7a45;
+.leg-actions {
+  padding: 12rpx 0 0;
 }
-.chain-node.skip {
-  color: #9aa5b1;
-  background: #f0f2f4;
-  text-decoration: line-through;
-}
-.chain-arrow {
-  font-size: 22rpx;
-  color: #c3cad3;
-  margin: 0 8rpx;
+.btn.small {
+  font-size: 26rpx;
+  padding: 12rpx 0;
+  margin: 0;
 }

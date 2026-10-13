@@ -201,30 +201,30 @@
     -->
 
     <!--
-      当前路线：概览给的是数字，地图给的是"在哪"，
-      中间缺一条"**按什么顺序走**"。这条链补上它，走到哪了一目了然。
-      点某一站可以跳到下面时间轴的对应位置。
+      当前路线 = **这一段怎么走**（出行方式 + 距离 + 时长），不是"站的顺序"。
+      顺序是计划，出行方式与距离才是行走时真正要看的东西。
+      也是将来接导航的落点 —— 点「导航」交给微信内置地图。
     -->
-    <view wx:if="{{timeline.length}}" class="card route-card">
+    <view wx:if="{{currentLeg}}" class="card route-card">
       <view class="row">
         <text class="k">当前路线</text>
-        <text class="v muted">{{timeline.length}} 站</text>
+        <text class="v muted">第 {{currentLeg.legIndex}} / {{currentLeg.totalLegs}} 段</text>
       </view>
-      <view class="chain">
-        <block wx:if="{{startLeg}}">
-          <text class="chain-node chain-origin">{{startLeg.label}}</text>
-          <text class="chain-arrow">→</text>
-        </block>
-        <block wx:for="{{timeline}}" wx:key="nodeId">
-          <text
-            class="chain-node {{item.visited ? 'on' : ''}} {{item.isCurrent ? 'cur' : ''}} {{item.skipped ? 'skip' : ''}}"
-            data-nodeid="{{item.nodeId}}"
-            bindtap="jumpToNode"
-          >{{item.seq}} {{item.placeName}}</text>
-          <text wx:if="{{!item.isLast}}" class="chain-arrow">→</text>
-        </block>
+      <view class="leg-headline">
+        <text class="leg-from-name">{{currentLeg.from}}</text>
+        <text class="leg-arrow">→</text>
+        <text class="leg-to-name">{{currentLeg.to}}</text>
       </view>
-      <view class="sub">绿色是已走过，橙色是当前站；点某一站可跳到它的详情</view>
+      <view class="leg-figures">
+        <text class="fig-mode">{{currentLeg.mode}}</text>
+        <text wx:if="{{currentLeg.minutes}}" class="fig-strong">{{currentLeg.minutes}} 分钟</text>
+        <text wx:if="{{currentLeg.meters}}" class="fig">{{currentLeg.meters}} 米</text>
+        <text wx:if="{{currentLeg.estimated}}" class="leg-warn">估算</text>
+      </view>
+      <view class="leg-actions">
+        <button class="btn ghost small" bindtap="openNavigation">导航到这一站</button>
+      </view>
+      <view class="sub">导航交给微信内置地图；应用内逐步导航是后续计划</view>
     </view>
 
     <!-- 路线地图：走到哪了一眼看得出 -->
@@ -293,8 +293,7 @@
       </view>
 
       <block wx:for="{{timeline}}" wx:key="nodeId">
-        <view class="node {{item.isCurrent ? 'current' : ''}} {{item.status}} {{item.visited ? 'visited' : ''}} {{item.skipped ? 'skip' : ''}}"
-              id="node-{{item.nodeId}}">
+        <view class="node {{item.isCurrent ? 'current' : ''}} {{item.status}} {{item.visited ? 'visited' : ''}} {{item.skipped ? 'skip' : ''}}">
           <view class="node-rail">
             <view class="dot"></view>
             <view wx:if="{{!item.isLast}}" class="line"></view>

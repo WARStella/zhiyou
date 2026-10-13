@@ -197,57 +197,121 @@ test('到了下一站，上一段才显示"已走过"', async () => {
   assert.equal(page.data.timeline[0].legToNext.visited, true, '到了第二站，1→2 这段才算走过');
 });
 
-// ── 当前路线（概览与地图之间的顺序链）─────────────────────
+// ── 当前路线 = 这一段怎么走 ───────────────────────────────
 
-test('当前路线链的数据来自 timeline + startLeg，且要能反映进度', async () => {
+test('当前路线显示的是**出行方式与距离**，不是"站的顺序"', () => {
   /**
-   * 用户要求（2026-10-13）："在路线概览和路线地图中间显示当前路线"。
+   * 用户澄清（2026-10-13）："当前路线应该是当前的出行方式和距离"。
    *
-   * 概览给的是数字，地图给的是"在哪"，中间缺一条"按什么顺序走"。
-   * 这条链**不新增数据源** —— 直接渲染 timeline 与 startLeg，
-   * 所以它天然与时间轴、地图三处一致。
+   * 首版做成了"站点顺序链" —— 那是**计划**；
+   * 行走时真正要看的是"**这一段怎么走、多远、多久**"，
+   * 也正是导航需要的全部输入。
    */
+  const page = pageWithTrip();
+  const leg = page.data.currentLeg;
+
+  assert.ok(leg, '还没出发时也应当有当前段（我的位置 → 第 1 站）');
+  assert.equal(leg.from, '我的位置');
+  assert.equal(leg.to, '哈尔滨工业大学');
+  assert.equal(leg.mode, '步行', '出行方式');
+  assert.equal(leg.minutes, 12, '时长');
+  assert.equal(leg.meters, 900, '距离');
+  assert.equal(leg.isStart, true);
+  assert.equal(leg.legIndex, 1);
+  assert.equal(leg.totalLegs, 2);
+});
+
+test('当前段必须带目的地坐标 —— 导航要用', () => {
+  const page = pageWithTrip();
+  const leg = page.data.currentLeg;
+  assert.ok(leg.toLocation, '没有坐标就没法导航');
+  assert.equal(typeof leg.toLocation.latitude, 'number');
+  assert.equal(typeof leg.toLocation.longitude, 'number');
+  assert.ok(leg.toPlaceId, '也要能对应回地点');
+});
+
+test('走完一站后，当前段换成"从这一站去下一站"', async () => {
   const page = pageWithTrip({
     api: {
       'trip.progress': () => {
         const next = JSON.parse(JSON.stringify(PLAN_NODES));
         next[0].status = 'done';
-        next[1].status = 'arrived';
         return { ok: true, data: { tripId: 't1', version: 2, nodes: next } };
       },
     },
   });
 
-  // 链需要的字段一个都不能少
-  for (const t of page.data.timeline) {
-    assert.equal(typeof t.seq, 'number', '链上要显示序号');
-    assert.equal(typeof t.placeName, 'string');
-    assert.equal(typeof t.visited, 'boolean', '链的颜色靠它');
-    assert.equal(typeof t.isCurrent, 'boolean', '当前站的橙色靠它');
-    assert.equal(typeof t.isLast, 'boolean', '末站后面不加箭头');
-  }
-  assert.ok(page.data.startLeg.label, '链的起点要用 startLeg.label');
-  assert.equal(page.data.timeline[0].visited, false);
+  assert.equal(page.data.currentLeg.from, '我的位置', '出发前是"我的位置"');
 
   page.nodeProgress({ currentTarget: { dataset: { nodeid: 'n0', status: 'done' } } });
   await new Promise((r) => setImmediate(r));
 
-  assert.equal(page.data.timeline[0].visited, true, '第一站变绿');
-  assert.equal(page.data.timeline[1].isCurrent, true, '第二站变当前站');
-  assert.equal(page.data.timeline[1].visited, true, '到了也算走过');
+  const leg = page.data.currentLeg;
+  assert.equal(leg.from, '哈尔滨工业大学', '走完第 1 站后，从这一站算起');
+  assert.equal(leg.to, '哈尔滨冰雪大世界');
+  assert.equal(leg.minutes, 8, '用这一段的真实数据（第二站的 travelFromPrev*）');
+  assert.equal(leg.meters, 620);
+  assert.equal(leg.isStart, false);
+  assert.equal(leg.legIndex, 2);
 });
 
-test('点链上的某一站要能跳到它 —— 跳转方法必须存在', () => {
-  const page = pageWithTrip();
-  assert.equal(typeof page.jumpToNode, 'function', 'wxml 里绑了 jumpToNode，缺了会静默不响应');
+test('全部走完后当前段为空，不瞎指一段', async () => {
+  const page = pageWithTrip({
+    api: {
+      'trip.progress': () => {
+        const next = JSON.parse(JSON.stringify(PLAN_NODES));
+        next[0].status = 'done';
+        next[1].status = 'done';
+        return { ok: true, data: { tripId: 't1', version: 2, nodes: next } };
+      },
+    },
+  });
 
-  const scrolls = [];
-  global.wx = { pageScrollTo: (a) => scrolls.push(a) };
-  page.jumpToNode({ currentTarget: { dataset: { nodeid: 'n1' } } });
+  page.nodeProgress({ currentTarget: { dataset: { nodeid: 'n1', status: 'done' } } });
+  await new Promise((r) => setImmediate(r));
+
+  assert.equal(page.data.currentLeg, null, '走完了就没有"当前段"了');
+});
+
+test('直线估算出来的段要标出来 —— 它与真实路线能差 7 倍', async () => {
+  const estimates = JSON.parse(JSON.stringify(PLAN_NODES));
+  estimates[1].travelSource = 'estimated';
+
+  const page = pageWithTrip({ api: {} });
+  page.setData({ rawNodes: estimates });
+  page.rebuildFromNodes();
+  // 还没走过任何站，当前段是出发段；手动走到第 1 站来检查第二段
+  estimates[0].status = 'done';
+  page.setData({ rawNodes: estimates });
+  page.rebuildFromNodes();
+
+  assert.equal(page.data.currentLeg.estimated, true, '估算必须标出来');
+});
+
+test('导航按钮要把目的地交给 wx.openLocation', () => {
+  const page = pageWithTrip();
+
+  const opened = [];
+  global.wx = { openLocation: (a) => opened.push(a), showToast: () => {} };
+  page.openNavigation();
   delete global.wx;
 
-  assert.equal(scrolls.length, 1);
-  assert.match(scrolls[0].selector, /n1/, '要滚到对应节点');
+  assert.equal(opened.length, 1, '应当调用一次');
+  assert.equal(opened[0].name, '哈尔滨工业大学');
+  assert.equal(typeof opened[0].latitude, 'number');
+});
+
+test('没有坐标时提示而不是静默失败', () => {
+  const page = pageWithTrip();
+  page.setData({ currentLeg: { to: '某地', toLocation: null } });
+
+  const toasts = [];
+  global.wx = { openLocation: () => {}, showToast: (a) => toasts.push(a) };
+  page.openNavigation();
+  delete global.wx;
+
+  assert.equal(toasts.length, 1, '要说清为什么打不开');
+  assert.match(toasts[0].title, /坐标/);
 });
 
 // ── 预选理由 ──────────────────────────────────────────────

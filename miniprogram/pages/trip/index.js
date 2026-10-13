@@ -96,6 +96,11 @@ Page({
     stayMin: null,
     /** 每个地点时长不同时按地点给：{"哈工大": 60, "冰雪大世界": 120} */
     stayByText: null,
+    /**
+     * **当前出行段**：从已经走到的地方，到下一站 —— 出行方式、时长、距离、目的地坐标。
+     * 不是"站的顺序"，而是行走时真正要看的东西，也是导航需要的全部输入。
+     */
+    currentLeg: null,
     endAtText: '',
     endAt: '', // 空字符串 = 不限
     /** 结束时间是从解析结果填进来的（不是用户手选的）—— 要标明 */
@@ -705,6 +710,8 @@ Page({
         timeline: this.buildTimelineView(nodes),
         currentNodeIndex: this.currentIndexOf(nodes),
         routeMap: this.buildRouteMap(nodes, this.data.startPoint),
+        // 当前出行段随进度变化：走完一站，这一段就换成"从这一站去下一站"
+        currentLeg: this.buildCurrentLeg(nodes, this.data.startLeg),
       },
       () => this.fitRouteMap()
     )
@@ -730,6 +737,21 @@ Page({
      */
     const timeline = this.buildTimelineView(nodes)
 
+    /**
+     * 出发段先算出来 —— 同一个 `setData` 里读不到新写入的 `this.data.startLeg`，
+     * 而 `currentLeg`（当前出行段）要用它。
+     */
+    const startLegView = d.startLeg
+      ? {
+          label: (d.startPoint && d.startPoint.label) || '我的位置',
+          minutes: d.startLeg.minutes,
+          meters: d.startLeg.meters,
+          warn: d.startLeg.source === 'estimated' ? '（估算）' : '',
+          source: d.startLeg.source,
+          toName: d.startLeg.toPlaceName,
+        }
+      : null
+
     this.setData({
       loading: false,
       trip: d.tripId ? { tripId: d.tripId, version: d.version } : this.data.trip,
@@ -751,15 +773,9 @@ Page({
       routeMap: this.buildRouteMap(nodes, d.startPoint),
       walkTimes: d.walkTimes || null,
       startPoint: d.startPoint || null,
-      startLeg: d.startLeg
-        ? {
-            label: (d.startPoint && d.startPoint.label) || '我的位置',
-            minutes: d.startLeg.minutes,
-            meters: d.startLeg.meters,
-            warn: d.startLeg.source === 'estimated' ? '（估算）' : '',
-            toName: d.startLeg.toPlaceName,
-          }
-        : null,
+      startLeg: startLegView,
+      /** 当前这一段怎么走、多远 —— 也是将来接导航的输入 */
+      currentLeg: this.buildCurrentLeg(nodes, startLegView),
       unverifiedNotice: d.unverifiedNotice || null,
       warnings: d.warnings || [],
       proposal: null,
@@ -938,12 +954,105 @@ Page({
 
   // ══════════ 进度 ══════════
 
-  /** 点"当前路线"里的某一站 → 滚到时间轴上它的详情 */
-  jumpToNode(e) {
-    const nodeId = e.currentTarget.dataset.nodeid
-    if (!nodeId) return
-    // 用选择器滚动最稳：时间轴可能很长，算像素位置容易偏
-    wx.pageScrollTo({ selector: `#node-${nodeId}`, duration: 300, offsetTop: -20 })
+  /**
+   * **当前出行段** —— 从"已经走到的地方"到"下一站"。
+   *
+   *     · 还没出发     → 我的位置 → 第 1 站（出发段）
+   *     · 走到第 k 站  → 第 k 站  → 第 k+1 站
+   *     · 全部走完     → null
+   *
+   * ⚠️ 这块**不是**"站的顺序"，而是"**这一段怎么走、多远、多久**"。
+   * 顺序是计划，出行方式与距离才是行走时真正要看的东西 ——
+   * 也**正是导航需要的全部输入**（我在哪、下一步去哪、怎么走、多远）。
+   *
+   * 所以这里刻意把 `to` 的坐标一起带出来：将来接导航时
+   * `wx.openLocation` / 步行路线规划直接用得上，不必再回查一遍。
+   */
+  buildCurrentLeg(nodes, startLeg) {
+    const located = (nodes || []).filter(
+      (n) =>
+        n.location &&
+        typeof n.location.latitude === 'number' &&
+        typeof n.location.longitude === 'number'
+    )
+    if (!located.length) return null
+
+    let lastReached = -1
+    located.forEach((n, i) => {
+      if (isReached(n.status)) lastReached = i
+    })
+
+    const totalLegs = located.length
+
+    // ① 还没出发：我的位置 → 第 1 站
+    if (lastReached < 0) {
+      const first = located[0]
+      return {
+        from: (startLeg && startLeg.label) || '我的位置',
+        to: first.placeName,
+        mode: '步行',
+        minutes: startLeg ? startLeg.minutes : null,
+        meters: startLeg ? startLeg.meters : null,
+        source: startLeg ? startLeg.source : null,
+        // 导航要用：目的地的坐标
+        toLocation: first.location,
+        toPlaceId: first.placeId,
+        legIndex: 1,
+        totalLegs: totalLegs,
+        isStart: true,
+      }
+    }
+
+    // ② 全部走完
+    if (lastReached >= located.length - 1) return null
+
+    // ③ 从刚走到的这一站，去下一站
+    const fromNode = located[lastReached]
+    const next = located[lastReached + 1]
+    return {
+      from: fromNode.placeName,
+      to: next.placeName,
+      mode: next.travelMode === 'walking' ? '步行' : next.travelMode === 'none' ? '' : '步行',
+      minutes: next.travelFromPrevMin,
+      meters: next.travelFromPrevMeters,
+      source: next.travelSource,
+      /**
+       * 「直线估算」与真实路线在短距离下能差 7 倍（实测 10 米 → 76 米），
+       * 必须标出来 —— 否则用户会以为所有时间一样可信。
+       */
+      estimated: next.travelSource === 'estimated',
+      toLocation: next.location,
+      toPlaceId: next.placeId,
+      legIndex: lastReached + 2,
+      totalLegs: totalLegs,
+      isStart: false,
+    }
+  },
+
+  /**
+   * 打开导航 —— 交给微信内置地图。
+   *
+   * 小程序里**没有**内嵌的逐向导航，`wx.openLocation` 是标准做法：
+   * 打开内置地图并标出目的地，用户在那里点「导航」。
+   *
+   * 后续要做「应用内导航」（显示当前段路线、偏航提醒）的话，
+   * 数据已经齐了：`currentLeg.toLocation` + 地图 provider 的步行路线接口。
+   */
+  openNavigation() {
+    const leg = this.data.currentLeg
+    if (!leg || !leg.toLocation) {
+      wx.showToast({ title: '这一段还没有目的地坐标', icon: 'none' })
+      return
+    }
+    wx.openLocation({
+      latitude: leg.toLocation.latitude,
+      longitude: leg.toLocation.longitude,
+      name: leg.to,
+      scale: 16,
+      fail(err) {
+        wx.showToast({ title: (err && err.errMsg) || '打开地图失败', icon: 'none' })
+      },
+    })
   },
 
   /**
