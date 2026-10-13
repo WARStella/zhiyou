@@ -83,6 +83,229 @@ test('取不到路线时**不记样本** —— 失败不能变成训练数据',
   assert.ok(res.ok === true || res.error, '规划本身不该因此崩掉');
 });
 
+test('样本必须带上**多维情境** —— 用户提醒后补的这一块', async () => {
+  /**
+   * 用户原话："不应该是结合出行方式、天气、时间段、路途距离、出行时间
+   * 这样多维的数据集吗？" —— 首版只记了两个数值，确实窄了。
+   */
+  const w = await makeWorld();
+  await planOnce(w, ['p_zhongyang', 'p_fanghong', 'p_sofia']);
+
+  const rows = await w.repo.find(C.WALK_SAMPLES, {});
+  assert.ok(rows.length >= 1);
+  const s = rows[0];
+
+  assert.equal(s.mode, 'walking', '出行方式是分类特征，首版恒为步行');
+  assert.equal(s.weather, null, '**天气只能由用户说，系统不猜** —— 现在如实是 null');
+  /**
+   * ⚠️ 时段取自**行程出发时刻**，不是"规划发生的时刻"。
+   * 用 `now` 的话所有样本都会落在同一小时，这个维度就**看起来有值、
+   * 其实没有信息量**。
+   */
+  assert.ok(
+    ['night', 'morning', 'noon', 'afternoon', 'evening'].includes(s.timeBucket),
+    `timeBucket 不合法：${s.timeBucket}`
+  );
+  assert.equal(typeof s.weekday, 'number');
+  assert.ok(s.weekday >= 0 && s.weekday <= 6);
+  assert.ok(s.fromId && s.toId, '要能按地点对回填标签');
+});
+
+test('预测与真实必须分开存 —— 拿预测当标签是循环论证', async () => {
+  /**
+   * 腾讯返回的 `duration` 是**预测值**。用它当训练标签，
+   * 等于用地图的预测去训练模型预测地图的预测 —— 永远学不到真实世界。
+   * 所以两个字段必须分开，且 `actualMinutes` **一开始是空的**。
+   */
+  const w = await makeWorld();
+  await planOnce(w, ['p_zhongyang', 'p_fanghong', 'p_sofia']);
+
+  const s = (await w.repo.find(C.WALK_SAMPLES, {}))[0];
+  assert.ok(s.predictedMinutes > 0, '地图的预测值作为**特征**存下来');
+  assert.equal(s.actualMinutes, null, '**真实用时一开始必须是空的** —— 用户还没走');
+  assert.equal(s.labeledAt, null);
+  assert.notEqual(s.predictedMinutes, undefined);
+});
+
+test('时段函数：按北京时间分档，夜里归到 night', () => {
+  const { bucketOf } = require('../cloudfunctions/api/lib/time');
+  const at = (h) => new Date(Date.UTC(2026, 9, 13, h - 8, 0, 0)); // 北京 h 点
+  assert.equal(bucketOf(at(0)), 'night');
+  assert.equal(bucketOf(at(5)), 'night');
+  assert.equal(bucketOf(at(8)), 'morning');
+  assert.equal(bucketOf(at(13)), 'noon');
+  assert.equal(bucketOf(at(15)), 'afternoon');
+  assert.equal(bucketOf(at(19)), 'evening');
+  assert.equal(bucketOf(at(23)), 'night');
+  assert.equal(bucketOf(null), 'unknown', '无效时间不能抛异常');
+  assert.equal(bucketOf('乱七八糟'), 'unknown');
+});
+
+// ── 标签回填：真实用时的唯一来源 ──────────────────────────
+
+test('走完一段之后，样本被回填真实用时', async () => {
+  const w = await makeWorld();
+  const plan = expectOk(await planOnce(w, ['p_zhongyang', 'p_fanghong', 'p_sofia']));
+
+  /**
+   * ⚠️ 用**真有样本的那一段**，不是第一段。
+   *
+   * 原因：样本只在**真的调了地图接口**时记录。中央大街→防洪纪念塔
+   * 在夹具里有 `walkableTo` 缓存，不走接口，**也就没有样本可标**。
+   * 这是当前设计的真实边界 —— 首版测试用了第一段，
+   * 于是"必须被回填"必然失败，**而失败原因不在实现上**。
+   */
+  const samples = await w.repo.find(C.WALK_SAMPLES, {});
+  assert.ok(samples.length >= 1, '这次规划应当至少产生一条样本');
+  const pairs = samples.map((s) => `${s.fromId}->${s.toId}`);
+  const segIdx = plan.nodes.findIndex(
+    (n, i) => i > 0 && pairs.includes(`${plan.nodes[i - 1].placeId}->${n.placeId}`)
+  );
+  assert.ok(segIdx > 0, `找不到有样本的段；样本在 ${pairs.join(', ')}`);
+
+  /**
+   * ⚠️ 两个坑，都是实测撞出来的：
+   *
+   * ① 不能连点两次 progress —— 相隔几毫秒，`diffMin` 得 **0**，
+   *    实现按"非正数不标注"跳过。**那是正确行为**（0 分钟的标签没信息量）。
+   * ② **`progress` 会用 `now` 覆盖 `actualArriveAt`** ——
+   *    所以不能往节点里注入一个"未来的到达时刻"，那会造成时间倒挂，
+   *    同样被跳过。只能把**上一站的离开时刻**设成过去。
+   */
+  const leaveAt = new Date(Date.now() - 20 * 60 * 1000); // 20 分钟前
+
+  const trip = await w.repo.get(C.TRIPS, plan.tripId);
+  const patched = trip.nodes.map((n, i) =>
+    i === segIdx - 1
+      ? Object.assign({}, n, { status: 'done', actualArriveAt: leaveAt, actualLeaveAt: leaveAt })
+      : n
+  );
+  const newVer = (trip.version || 1) + 1;
+  await w.repo.update(C.TRIPS, plan.tripId, { nodes: patched, version: newVer });
+
+  expectOk(
+    await w.A(
+      'trip.progress',
+      { tripId: plan.tripId, nodeId: plan.nodes[segIdx].nodeId, status: 'arrived' },
+      { expectedVersion: newVer }
+    )
+  );
+
+  const target = samples.find(
+    (s) =>
+      s.fromId === plan.nodes[segIdx - 1].placeId && s.toId === plan.nodes[segIdx].placeId
+  );
+  const after = await w.repo.get(C.WALK_SAMPLES, target._id);
+
+  /**
+   * ⚠️ 断言**关系**，不写死数字。
+   *
+   * `trip.progress` 用的 `now` 来自测试世界的时钟（**不是**真实墙上时间），
+   * 所以"20 分钟"这种写死的期望必然对不上 —— 而失败原因又不在实现上。
+   * 要验的是那个定义：`到达 − 上一站实际离开`。
+   */
+  const t2 = await w.repo.get(C.TRIPS, plan.tripId);
+  const arriveAt = new Date(t2.nodes[segIdx].actualArriveAt);
+  const expectedMin = Math.round((arriveAt.getTime() - leaveAt.getTime()) / 60000);
+
+  assert.ok(expectedMin > 0, '造出来的时间间隔必须是正的，否则这条测试是空的');
+  assert.equal(after.actualMinutes, expectedMin, '真实用时 = 到达 − 上一站实际离开');
+  assert.equal(
+    Number.isInteger(after.actualMinutes),
+    true,
+    '**标签必须是整数分钟** —— diffMin 返回小数，存进去既没意义又撑大 JSON'
+  );
+  assert.ok(after.labeledAt, '要记下什么时候标的，便于排查');
+  assert.equal(after.predictedMinutes != null, true, '预测值保留不动 —— 它是特征，不是标签');
+});
+
+test('首段没有"上一节点的实际离开"→ **保持未标注**，不用计划时间冒充', async () => {
+  /**
+   * 第一个节点的样本没有可信的起点。用 `plannedStartAt` 冒充实际出发时刻，
+   * 会往训练集里灌一批"看起来有值、其实是计划"的脏标签。
+   * **宁可少一条，不要脏一条。**
+   */
+  const w = await makeWorld();
+  const plan = expectOk(await planOnce(w, ['p_zhongyang', 'p_fanghong', 'p_sofia']));
+
+  expectOk(
+    await w.A(
+      'trip.progress',
+      { tripId: plan.tripId, nodeId: plan.nodes[0].nodeId, status: 'arrived' },
+      { expectedVersion: plan.version }
+    )
+  );
+
+  const rows = await w.repo.find(C.WALK_SAMPLES, {});
+  assert.equal(
+    rows.every((r) => r.actualMinutes == null),
+    true,
+    '首段到达不该回填任何标签 —— 没有可信的起始时刻'
+  );
+});
+
+test('时间倒挂（到达早于离开）→ 不标注', async () => {
+  const w = await makeWorld();
+  const plan = expectOk(await planOnce(w, ['p_zhongyang', 'p_fanghong', 'p_sofia']));
+
+  // 手工造一个"离开时刻在将来"的节点，制造倒挂
+  const trip = await w.repo.get(C.TRIPS, plan.tripId);
+  const nodes = trip.nodes.map((n, i) =>
+    i === 0
+      ? Object.assign({}, n, {
+          status: 'done',
+          actualArriveAt: new Date('2026-10-20T05:00:00Z'),
+          actualLeaveAt: new Date('2099-01-01T00:00:00Z'), // 未来
+        })
+      : n
+  );
+  await w.repo.update(C.TRIPS, plan.tripId, { nodes, version: (trip.version || 1) + 1 });
+
+  expectOk(
+    await w.A(
+      'trip.progress',
+      { tripId: plan.tripId, nodeId: plan.nodes[1].nodeId, status: 'arrived' },
+      { expectedVersion: (trip.version || 1) + 1 }
+    )
+  );
+
+  const rows = await w.repo.find(C.WALK_SAMPLES, {});
+  assert.equal(
+    rows.every((r) => r.actualMinutes == null),
+    true,
+    '倒挂时硬算会得到一个负标签，那比没有标签坏得多'
+  );
+});
+
+test('回填失败不该让记录进度失败', async () => {
+  const w = await makeWorld();
+  const plan = expectOk(await planOnce(w, ['p_zhongyang', 'p_fanghong', 'p_sofia']));
+
+  const doneRes = expectOk(
+    await w.A(
+      'trip.progress',
+      { tripId: plan.tripId, nodeId: plan.nodes[0].nodeId, status: 'done' },
+      { expectedVersion: plan.version }
+    )
+  );
+  const verAfterDone = doneRes.version;
+
+  const realFind = w.repo.find.bind(w.repo);
+  w.repo.find = (coll, q, o) => {
+    if (coll === C.WALK_SAMPLES) return Promise.reject(new Error('模拟查询失败'));
+    return realFind(coll, q, o);
+  };
+
+  const res = await w.A(
+    'trip.progress',
+    { tripId: plan.tripId, nodeId: plan.nodes[1].nodeId, status: 'arrived' },
+    { expectedVersion: verAfterDone }
+  );
+  assert.equal(res.ok, true, '攒数据出问题不能影响用户记录进度');
+});
+
+// ── 校准报告 ──────────────────────────────────────────────
+
 test('ops.walkStats：样本少时如实说"不足以判断"，不给建议系数', async () => {
   const w = await makeWorld();
   await planOnce(w, ['p_zhongyang', 'p_fanghong', 'p_sofia']);

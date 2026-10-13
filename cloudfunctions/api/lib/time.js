@@ -50,6 +50,35 @@ function freshness(reportedAt, ctx, thresholdSec) {
 /** 两个时刻相差的分钟数，向上取整（用于路线时间），最小 1 分钟。 */
 const ceilMin = (later, earlier) => Math.max(1, Math.ceil(diffMin(later, earlier)));
 
+/**
+ * 把时刻归到**时段**。
+ *
+ * 用途：出行样本的一个维度 —— 早晚高峰影响驾车与公交，
+ * 雨雪也常集中在某些时段。
+ *
+ * ⚠️ **维度越多，需要的样本越多。** 所以首版只分四段，不再细 ——
+ * 一个维度分十档，就意味着每档都要攒够样本才能用。
+ *
+ * 时区：项目统一按**北京时间**（docs/01 的时间约定）。
+ */
+function bucketOf(date) {
+  /**
+   * ⚠️ `null` / `undefined` 要**先拦掉**。
+   * `new Date(null)` 是 1970-01-01 —— **合法时间**，于是会静默返回 'morning'，
+   * 看起来有值、其实没有信息量。（写测试时正是这么被抓到的。）
+   */
+  if (date == null) return 'unknown';
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return 'unknown';
+  const h = (d.getUTCHours() + 8) % 24;
+  if (h < 6) return 'night';
+  if (h < 11) return 'morning';
+  if (h < 14) return 'noon';
+  if (h < 18) return 'afternoon';
+  if (h < 22) return 'evening';
+  return 'night';
+}
+
 module.exports = {
   MIN,
   HOUR,
@@ -62,4 +91,5 @@ module.exports = {
   toISO,
   freshness,
   ceilMin,
+  bucketOf,
 };

@@ -29,8 +29,16 @@ const C = require('../lib/repo/collections');
  * 但一律标记 `source: 'upstream'` —— **它不是踏勘实测**，可信度不同，不能混为一谈。
  */
 async function fillMissingWalkTimes(ctx) {
-  const { repo, placesById, placeIds, now, makeProvider } = ctx;
+  const { repo, placesById, placeIds, now, startAt, makeProvider } = ctx;
   const out = { fetched: 0, fromCache: 0, failed: 0, skipped: 0, mapApiCalls: 0, failures: [] };
+  /**
+   * 样本里的"时段"取自**行程出发时刻**，不是 `now`。
+   *
+   * 理由：用户是在规划"下午的行程"，而不是"此刻" ——
+   * 用 `now` 会让所有样本都落在规划发生的那一小时里，
+   * 于是「时段」这个维度**看起来有值，其实没有信息量**。
+   */
+  const bucketAt = startAt || now;
 
   const legs = [];
   for (let i = 1; i < placeIds.length; i++) {
@@ -82,33 +90,65 @@ async function fillMissingWalkTimes(ctx) {
     leg.from.walkableTo = geo.withWalkRecord(leg.from, leg.to._id, rec);
 
     /**
-     * ── 记一条**训练样本**（2026-10-13 新增）──────────────────
+     * ── 记一条**出行样本**（2026-10-13 新增；维度经用户提醒后扩过）───
      *
-     * 这里同时拿得到「直线距离」与「实际步行距离」——
-     * 而 `geo.js` 用一个**常数** `DETOUR_FACTOR = 1.3` 从前者推后者。
-     * 实测它并不是常数：
+     * 用户问："不应该是结合出行方式、天气、时间段、路途距离、出行时间
+     * 这样多维的数据集吗？" —— **对，首版记窄了。**
      *
-     *     直线 605 米 → 实际 815 米   倍率 1.35
-     *     直线  10 米 → 实际  76 米   倍率 7.6
+     * ── 但要把两件事分开 ─────────────────────────────────
      *
-     * 这条记录**现在就有用**（能算分段经验系数、能说清估算偏差），
-     * 攒够之后就是回归模型的训练数据。
+     *   ① **选哪种方式** —— 拿到各方式耗时后取最小，**确定性的，不用学**
+     *   ② **每种方式要多久** —— (方式, 距离, 天气, 时段) → 耗时，**这才要学**
+     *
+     * 用户列的维度全都落在 ② 上。
+     *
+     * ── ⚠️ 一个必须避开的陷阱：不能拿预测当标签 ──────────────
+     *
+     * 腾讯返回的 `duration` 是**预测值**。拿它当训练标签是**循环论证** ——
+     * 用地图的预测去训练一个模型来预测地图的预测，永远学不到真实世界。
+     *
+     * 所以：
+     *   · `detourRatio` **可以直接用**（直线与路径都是真实几何量，不是预测）
+     *   · `actualMinutes` 必须等**用户真的走完**才有值 —— 一开始是 `null`，
+     *     由 `trip.progress` 标记到达时**回填**（见 backfillTravelActual）
      *
      * ⚠️ 写失败不能影响规划 —— 它只是攒数据，不是功能的一部分。
      */
     try {
       const straight = geo.haversineMeters(leg.from.location, leg.to.location);
       await repo.insert(C.WALK_SAMPLES, {
+        // ── 情境：用户提醒后补上的维度 ──
+        /** 出行方式。首版恒为 walking；接上骑行/驾车后就是分类特征 */
+        mode: 'walking',
+        /**
+         * 天气。**只能由用户说，系统不猜**（见 lib/mode-choice.js）。
+         * 现在是 null —— 界面加开关后由请求带进来。
+         */
+        weather: null,
+        /** 时段：早晚高峰影响驾车与公交，雨雪也常集中在某些时段 */
+        timeBucket: time.bucketOf(bucketAt),
+        /** 星期几：工作日与周末的人流、班次都不同 */
+        weekday: new Date(bucketAt).getDay(),
+        // ── 距离（真实几何量，可以直接当特征/标签）──
         straightMeters: Math.round(straight),
+        /** ⚠️ 名字保留 `actualMeters` 是历史原因，它其实是**路径距离** */
         actualMeters: r.distanceMeters,
-        actualMinutes: r.durationMinutes,
-        /** 实际 ÷ 直线。**模型要预测的就是它** */
+        /** 路径 ÷ 直线。**这是个可以直接学的量**（两端都是真实几何量） */
         detourRatio:
           straight > 0 && typeof r.distanceMeters === 'number'
             ? Number((r.distanceMeters / straight).toFixed(3))
             : null,
+        // ── 时间 ──
+        /** 地图**预测**的耗时 —— 是**特征**，不是标签 */
+        predictedMinutes: r.durationMinutes,
+        /** ⚠️ 用户**真实**用时 —— 一开始必然是 null，走完才回填 */
+        actualMinutes: null,
+        labeledAt: null,
+        // ── 追溯 ──
         fromName: leg.from.name,
         toName: leg.to.name,
+        fromId: leg.from._id,
+        toId: leg.to._id,
         /** 同一段反复规划会产生多条 —— 保留，用来看稳定性 */
         sampledAt: now,
       });
@@ -183,6 +223,73 @@ function resolveItemOrder(spec, placesById) {
   for (const item of Array.isArray(spec.places) ? spec.places : []) push(inlinePlaceId(item));
   for (const id of spec.placeIds || []) push(id);
   return out;
+}
+
+/**
+ * 回填一条出行样本的**真实用时**。
+ *
+ * 标签定义：`到达本节点的时刻 − 离开上一节点的时刻`。
+ * 第一个节点没有"上一节点"，用 `trip.plannedStartAt` 也不行 ——
+ * 那是**计划**出发时刻，不是实际。所以首段样本在用户没有
+ * 真正记录出发时**保持未标注**。
+ *
+ * ⚠️ 三条不做的事：
+ *   · 不用计划时间冒充实际时间
+ *   · 不在时间倒挂（到达早于离开）时硬算一个负数
+ *   · 不因为"这条例外"就丢掉整条样本 —— 只跳过标注
+ */
+async function backfillTravelActual(ctx) {
+  const { repo, nodes, nodeId, status, now } = ctx;
+  if (status !== 'arrived' && status !== 'done') return { updated: 0 };
+
+  const idx = (nodes || []).findIndex((n) => n.nodeId === nodeId);
+  if (idx < 0) return { updated: 0 };
+  const node = nodes[idx];
+  if (!node.actualArriveAt) return { updated: 0 };
+
+  // 上一节点的**实际**离开时刻；首段没有，就不标
+  const prev = idx > 0 ? nodes[idx - 1] : null;
+  if (!prev || !prev.actualLeaveAt) return { updated: 0, reason: 'NO_PREV_ACTUAL_LEAVE' };
+
+  /**
+   * ⚠️ **参数顺序**：`time.diffMin(a, b)` 返回 `a − b`。
+   * 首版写成 `diffMin(离开, 到达)`，得到的是**负数**，
+   * 于是被下面的"非正数不标注"全部拦掉 —— 功能静默失效，
+   * 而日志里只有一句"没有标注"。（实测抓到的。）
+   */
+  /**
+   * ⚠️ **必须取整**。`time.diffMin` 返回的是小数
+   * （实测拿到 `9303.803916666666`）—— 一个训练标签是
+   * "9303.803916666666 分钟"既没有意义，也会让导出的 JSON 体积翻倍。
+   *
+   * 在**记录处**取整，不动 `diffMin` 本身：时间线计算依赖它的精度。
+   */
+  const minutes = Math.round(
+    time.diffMin(new Date(node.actualArriveAt), new Date(prev.actualLeaveAt))
+  );
+  /**
+   * 时间倒挂或为零 → **不标注**。
+   * 一个负的训练标签比少一条样本坏得多：它会让模型学到错的东西，
+   * 而且不会有任何报错。
+   */
+  if (!(minutes > 0)) return { updated: 0, reason: 'NON_POSITIVE_DURATION' };
+
+  let updated = 0;
+  try {
+    const pending = await repo.find(
+      C.WALK_SAMPLES,
+      { fromId: prev.placeId, toId: node.placeId, actualMinutes: null },
+      { limit: 20 }
+    );
+    for (const s of pending) {
+      // eslint-disable-next-line no-await-in-loop
+      await repo.update(C.WALK_SAMPLES, s._id, { actualMinutes: minutes, labeledAt: now });
+      updated++;
+    }
+  } catch (e) {
+    return { updated, failed: true };
+  }
+  return { updated, minutes };
 }
 
 /**
@@ -466,6 +573,8 @@ async function plan(ctx) {
     placesById,
     placeIds: itemIds,
     now,
+    /** 出行样本要记"时段"这一维 —— 缺了它会抛异常，而异常会被 catch 吞成"写失败" */
+    startAt: spec.startAt,
     makeProvider,
   });
 
@@ -1149,6 +1258,29 @@ async function progress(ctx) {
     return next;
   });
   assert(found, CODES.NOT_FOUND, '节点不存在');
+
+  /**
+   * ── 回填"用户真实用时"（2026-10-13 新增）──────────────────
+   *
+   * ⚠️ **这是训练标签的唯一来源。**
+   *
+   * 地图接口返回的 `duration` 是**预测值** —— 拿它当标签是循环论证：
+   * 用地图的预测去训练模型预测地图的预测，永远学不到真实世界。
+   *
+   * 真实用时的定义：**到达本节点的时刻 − 离开上一节点的时刻**
+   * （第一个节点则从行程实际开始算）。任一环节缺失就**不猜**，
+   * 让这条样本保持未标注 —— 宁可少一条，不要脏一条。
+   *
+   * 它同时把"用户说要去"变成"用户真的走了"，是**外部效度**的证据。
+   */
+  await backfillTravelActual({
+    repo,
+    trip,
+    nodes,
+    nodeId: ctx.payload.nodeId,
+    status: ctx.payload.status,
+    now,
+  });
 
   /**
    * ⚠️ **必须显式给版本号，不提供"没给就用当前版本"的兜底。**
