@@ -149,6 +149,7 @@ async function plan(ctx) {
       rawText: req.rawText,
       paramsInput: req.structured && req.structured.params,
       startPoint: (req.structured && req.structured.startPoint) || p.startPoint || null,
+      stayMin: (req.structured && req.structured.stayMin) != null ? req.structured.stayMin : p.stayMin,
     };
   } else {
     require_fields(p, ['placeIds', 'startAt']);
@@ -167,6 +168,11 @@ async function plan(ctx) {
        * 前端默认传当前位置（用户要求：行程默认起始位置是自己的当前位置）。
        */
       startPoint: p.startPoint || null,
+      /**
+       * 每站停留分钟数（可选）。用户说「逛一小时」时由解析层给出 ——
+       * 不给就用地点自带的 `visitDurationMin.default`。
+       */
+      stayMin: p.stayMin,
     };
   }
 
@@ -333,7 +339,18 @@ async function plan(ctx) {
     }
   }
 
-  const items = spec.placeIds.map((placeId, i) => ({ nodeId: `n_${i}_${placeId}`, placeId }));
+  /**
+   * 每站停留：`stayMin` 给定时**覆盖地点自带的默认值**。
+   *
+   * 「我想去冰雪大世界，逛一小时」→ 每站 60 分钟。
+   * 不给时传 `undefined`，`buildTimeline` 会回落到 `visitDurationMin.default`
+   * —— 注意不能用 `null`，那会被当成"停留 0 分钟"。
+   */
+  const items = spec.placeIds.map((placeId, i) => ({
+    nodeId: `n_${i}_${placeId}`,
+    placeId,
+    stayMin: typeof spec.stayMin === 'number' && spec.stayMin > 0 ? spec.stayMin : undefined,
+  }));
   const tl = timelineMod.buildTimeline({
     startAt: spec.startAt,
     items,

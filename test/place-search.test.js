@@ -54,24 +54,34 @@ test('地点检索：停留时长是估值，必须随结果说明', async () =>
   assert.match(res.ranking.timeEstimateCaveat, /default-untuned/);
 });
 
-test('地点检索：不给范围时退回默认中心，且必须回传用了哪个中心', async () => {
+test('地点检索：默认全城检索，需要"附近的"时才用坐标', async () => {
   const w = await makeWorld();
 
-  // 本项目定位是"单城"（哈尔滨），不给范围时退回市中心是合理默认 ——
-  // 但调用方必须能看见，否则会误以为结果来自自己指定的位置。
-  const fallback = expectOk(await w.A('place.search', Object.assign({ keyword: '' }, FAKE)));
-  assert.equal(fallback.ok, true);
-  assert.ok(fallback.centerUsed, '必须回传实际使用的中心');
-  assert.equal(typeof fallback.centerUsed.latitude, 'number');
-  assert.equal(fallback.regionUsed, null);
+  /**
+   * ⚠️ 真实事故：用户说「我想去冰雪大世界」，而真正的冰雪大世界在松北区、
+   * 离他十几公里，被 `nearby(center, 5000)` 的半径**排除在外** ——
+   * 系统于是在附近找了家同名的 VR 游戏店推荐给他。
+   *
+   * **"找那个地方"（相关性）与"找附近的地方"（距离）是两种检索。**
+   */
+  const city = expectOk(await w.A('place.search', Object.assign({ keyword: '', center: CENTER }, FAKE)));
+  assert.equal(city.scopeUsed, 'city', '默认必须全城检索');
+  assert.equal(city.regionUsed, '哈尔滨');
+  assert.equal(city.centerUsed, CENTER, '仍然回传中心，用于算距离');
 
-  // 给了 region 就不该再套一个中心
-  const byRegion = expectOk(
-    await w.A('place.search', Object.assign({ keyword: '公园', region: '哈尔滨' }, FAKE))
+  // 显式要"附近的"时才用坐标
+  const near = expectOk(
+    await w.A('place.search', Object.assign({ keyword: '', center: CENTER, scope: 'nearby' }, FAKE))
   );
-  assert.equal(byRegion.ok, true);
+  assert.equal(near.scopeUsed, 'nearby');
+  assert.equal(near.regionUsed, null);
+
+  // 给了 region 就用它
+  const byRegion = expectOk(
+    await w.A('place.search', Object.assign({ keyword: '公园', region: '齐齐哈尔' }, FAKE))
+  );
+  assert.equal(byRegion.regionUsed, '齐齐哈尔');
   assert.equal(byRegion.centerUsed, null, '用城市范围检索时不该凭空造一个中心');
-  assert.equal(byRegion.regionUsed, '哈尔滨');
 });
 
 test('地点检索：provider 层缺检索范围必须失败，不猜也不放行', async () => {

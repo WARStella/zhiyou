@@ -184,6 +184,52 @@ test('匹配时要去掉名字里的门店后缀', () => {
 
 // ── 不能解析的（§6.2 的核心） ─────────────────────────────
 
+test('规划时的停留时长：「逛一小时」必须被听见', () => {
+  /**
+   * 实测踩到的坑：用户说「我想去冰雪大世界，逛一小时」，
+   * 首版规则只认「**多**逛一小时」，没有「多」就认不出，
+   * 于是停留用了默认的 45 分钟 —— 用户明确说了时长，系统却当没听见。
+   */
+  const r = rb.parse('我想去冰雪大世界，逛一小时');
+  assert.equal(r.stayMinutes, 60);
+  assert.equal(r.searchKeyword, '冰雪大世界', '时长不该污染检索词');
+  assert.equal(r.goalText, '冰雪大世界');
+
+  assert.equal(rb.parse('待 40 分钟').stayMinutes, 40);
+  assert.equal(rb.parse('玩两个小时').stayMinutes, 120);
+  assert.equal(rb.parse('逛半小时').stayMinutes, 30, '「半小时」要认');
+  assert.equal(rb.parse('参观 90 分钟').stayMinutes, 90);
+
+  // 没说时长就不该有值 —— 用地点自带的默认值
+  assert.equal(rb.parse('我想去中央大街').stayMinutes, null);
+});
+
+test('规划时的停留时长：明显不合理的时长要问，不能照单全收', () => {
+  const r = rb.parse('去中央大街，逛 20 小时');
+  assert.equal(r.stayMinutes, null, '20 小时显然不对，不该直接采用');
+  const u = r.uncertainties.find((x) => x.field === 'stayMinutes');
+  assert.ok(u, '必须让用户确认');
+  assert.match(u.why, /太长/);
+});
+
+test('停留时长进了 structured，能直接下发给规划器', () => {
+  const st = rb.toStructured(rb.parse('去中央大街，逛一小时'));
+  assert.equal(st.structured.stayMin, 60);
+
+  const none = rb.toStructured(rb.parse('去中央大街'));
+  assert.equal(none.structured.stayMin, null);
+});
+
+test('两条停留规则不会互相干扰：「多待一会儿」是调整，「逛一小时」是规划', () => {
+  // 调整场景：extendStayMin
+  assert.equal(rb.parse('多待 20 分钟').extendStayMin, 20);
+  assert.equal(rb.parse('多待 20 分钟').stayMinutes, null);
+
+  // 规划场景：stayMinutes
+  assert.equal(rb.parse('逛 20 分钟').stayMinutes, 20);
+  assert.equal(rb.parse('逛 20 分钟').extendStayMin, null);
+});
+
 test('含糊表达绝不能被换算成数值（§6.2）', () => {
   const r = rb.parse('有点累，尽量少走');
 

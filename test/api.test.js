@@ -911,6 +911,42 @@ test('版本一致性：写操作漏传 expectedVersion 必须被拒绝，不能
   );
 });
 
+test('规划：stayMin 覆盖地点自带的停留时长', async () => {
+  const w = await makeWorld();
+
+  // 不给 → 用地点自带的默认值（夹具里 p_zhongyang 是 45 分钟）
+  const byDefault = expectOk(
+    await w.A('trip.plan', { placeIds: ['p_zhongyang'], startAt: NOW, constraints: [], startPoint: null })
+  );
+  assert.equal(byDefault.nodes[0].plannedStayMin, 45, '默认用地点自带值');
+
+  // 「逛一小时」→ 60
+  const custom = expectOk(
+    await w.A('trip.plan', {
+      placeIds: ['p_zhongyang'],
+      startAt: NOW,
+      constraints: [],
+      stayMin: 60,
+    })
+  );
+  assert.equal(custom.nodes[0].plannedStayMin, 60, 'stayMin 必须覆盖默认值');
+  assert.ok(
+    new Date(custom.summary.endAt).getTime() > new Date(byDefault.summary.endAt).getTime(),
+    '停留变长，结束时间必须推后'
+  );
+
+  // 非法值不该被当成"停留 0 分钟"
+  const bad = expectOk(
+    await w.A('trip.plan', {
+      placeIds: ['p_zhongyang'],
+      startAt: NOW,
+      constraints: [],
+      stayMin: 0,
+    })
+  );
+  assert.equal(bad.nodes[0].plannedStayMin, 45, '0 或负数应回落到默认值，不能变成不停留');
+});
+
 test('ops.selfTest：测量各类写入形态，并只写 selftest 集合', async () => {
   const w = await makeWorld();
   const res = expectOk(await w.A('ops.selfTest', {}));

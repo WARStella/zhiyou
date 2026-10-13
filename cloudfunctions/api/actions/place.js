@@ -23,6 +23,18 @@ const C = require('../lib/repo/collections');
 const DEFAULT_CENTER = { latitude: 45.7756, longitude: 126.6175 };
 
 /**
+ * 默认检索城市 —— 本项目**单城**（哈尔滨）。多城时改为从参数或地点库推断。
+ *
+ * ⚠️ 这个常量的存在是因为踩过一个坑（2026-10-13）：
+ * 用户说「我想去冰雪大世界」，而真正的冰雪大世界在松北区、离他十几公里，
+ * 被 `nearby(center, 5000)` 的半径**排除在外** ——
+ * 于是系统在附近找了个同名的「穿越冰雪大世界(哈尔滨印象城C座店)」（一个 VR 游戏店）。
+ *
+ * **"找那个地方"和"找附近的地方"是两种检索**，不能用同一个半径糊过去。
+ */
+const DEFAULT_REGION = '哈尔滨';
+
+/**
  * 外部检索回来的地点默认停留时长。
  *
  * ⚠️ **这是估值，不是踏勘结论**。规划器需要它才能算时间线，但任何基于它的
@@ -243,11 +255,27 @@ async function search(ctx) {
     key: env === 'dev' ? p.overrideKey : undefined,
     timeoutMs: p.timeoutMs,
   });
+  /**
+   * ── 检索范围：**默认全城**，不是"我附近" ──────────────────
+   *
+   * ⚠️ 2026-10-13 修正。首版一律用 `nearby(用户位置, 5000)`，后果是：
+   * 用户说「我想去冰雪大世界」，而真正的冰雪大世界在松北区、离他十几公里，
+   * **被半径排除在外** —— 系统于是在附近找了家同名的 VR 游戏店
+   * 「穿越冰雪大世界(哈尔滨印象城C座店)」推荐给他。
+   *
+   * **"找那个地方"（相关性）与"找附近的地方"（距离）是两种检索。**
+   * 用户指名道姓说要去哪时，半径只会帮倒忙。需要"附近的"时显式传 `scope: 'nearby'`。
+   *
+   * 距离仍然照常计算并返回，只是不再拿它当筛选条件。
+   */
+  const scope = p.scope === 'nearby' ? 'nearby' : 'city';
+  const useNearby = scope === 'nearby' && Boolean(center);
+
   const upstream = await provider.searchPlaces({
     keyword,
-    center: center || undefined,
+    center: useNearby ? center : undefined,
     radius: p.radius,
-    region: p.region,
+    region: useNearby ? undefined : p.region || DEFAULT_REGION,
     pageSize: p.pageSize,
   });
 
@@ -442,7 +470,9 @@ async function search(ctx) {
     upstreamCount: upstream.count,
     /** 实际使用的检索范围 —— 调用方必须能看到，避免误以为用了自己给的位置 */
     centerUsed,
-    regionUsed: p.region || null,
+    regionUsed: useNearby ? null : p.region || DEFAULT_REGION,
+    /** 本次是"找那个地方"还是"找附近的" */
+    scopeUsed: useNearby ? 'nearby' : 'city',
     saved: { created, reused, skipped: upstream.items.length - created - reused },
     ranking: {
       basis,

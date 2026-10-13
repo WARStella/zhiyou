@@ -83,6 +83,15 @@
       <view class="sub">设了结束时间就是**硬约束**：系统宁可告诉你做不到，也不会默默超时</view>
 
       <view class="row">
+        <text class="k">每站停留</text>
+        <view class="row-right">
+          <text wx:if="{{stayMin}}" class="from-parse">解析</text>
+          <text class="v link">{{stayMin ? stayMin + ' 分钟' : '地点默认'}}</text>
+        </view>
+      </view>
+      <view class="sub">说「逛一小时」会填在这里；不填就用地点自带的建议停留时间</view>
+
+      <view class="row">
         <text class="k">按真实步行时间排序</text>
         <switch checked="{{enrichWalk}}" bindchange="onEnrichChange" />
       </view>

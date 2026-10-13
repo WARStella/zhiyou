@@ -83,6 +83,17 @@ Page({
     intent: null,
     startAtText: '',
     startAt: '',
+    /**
+     * 出发时间是否是用户（或解析结果）明确指定的。
+     *
+     * ⚠️ 实测踩到的坑：`onLoad` 把出发时间设成"页面打开的那一刻"，
+     * 用户如果在页面上停留了十几分钟再生成路线，**行程会从过去开始算** ——
+     * 到达时间比当前时间还早。
+     * 所以：没人手动指定时，生成路线的那一刻重新取"现在"。
+     */
+    startAtManual: false,
+    /** 「逛一小时」→ 60；null 表示用地点自带默认值 */
+    stayMin: null,
     endAtText: '',
     endAt: '', // 空字符串 = 不限
     /** 结束时间是从解析结果填进来的（不是用户手选的）—— 要标明 */
@@ -254,10 +265,12 @@ Page({
         }
 
         // 解析出的时间填进表单 —— 但要让用户看得见它是解析来的
+        patch.startAtManual = false
         if (d.structured && d.structured.startAt) {
           const st = new Date(d.structured.startAt)
           patch.startAtText = timeText(st)
           patch.startAt = st.toISOString()
+          patch.startAtManual = true
         }
         if (d.structured && d.structured.endAt) {
           const end = new Date(d.structured.endAt)
@@ -265,6 +278,8 @@ Page({
           patch.endAt = end.toISOString()
           patch.endAtFromParse = true
         }
+        // 「逛一小时」→ 每站停留 60 分钟（不给则用地点自带默认值）
+        patch.stayMin = (d.structured && d.structured.stayMin) || null
 
         that.setData(patch)
 
@@ -470,7 +485,11 @@ Page({
   // ══════════ 需求条件 ══════════
 
   onStartTimeChange(e) {
-    this.setData({ startAtText: e.detail.value, startAt: todayAt(e.detail.value).toISOString() })
+    this.setData({
+      startAtText: e.detail.value,
+      startAt: todayAt(e.detail.value).toISOString(),
+      startAtManual: true,
+    })
   },
 
   onEndTimeChange(e) {
@@ -514,16 +533,26 @@ Page({
     // 不给起点的话，行程会假装人已经在第一个景点门口 ——
     // 计划出发时间、总步行量与"能不能赶上结束时间"都会偏乐观。
     this.tryLocate().then(function (startPoint) {
+      /**
+       * 出发时间：用户（或解析结果）指定过就用它；否则用**此刻**。
+       * 不能用 onLoad 时的那个"现在" —— 页面开着十分钟，行程就从十分钟前开始了。
+       */
+      const startAt = that.data.startAtManual ? that.data.startAt : new Date().toISOString()
+
       that.setData({
+        startAt: startAt,
+        startAtText: timeText(new Date(startAt)),
         note: startPoint ? '' : '未取得当前位置，行程将从第一个地点开始计时（总时间会偏乐观）',
       })
 
       api
         .callApi('trip.plan', {
           placeIds: ids,
-          startAt: that.data.startAt,
+          startAt: startAt,
           constraints: that.buildConstraints(),
           startPoint: startPoint || undefined,
+          // 「逛一小时」→ 每站 60 分钟；null 时后端用地点自带默认值
+          stayMin: that.data.stayMin || undefined,
         })
         .then(function (res) {
           if (!res || res.ok !== true) {

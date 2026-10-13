@@ -274,6 +274,20 @@ const CATEGORY_WORDS = [
 const STAY_RES = /多(?:待|停|逛|玩)\s*(\d+|[一二两三四五六七八九十]{1,2})?\s*(分钟|小时|钟头)?/;
 
 /**
+ * 规划时就指定停留时长：「逛一小时」「待 40 分钟」「玩两个小时」。
+ *
+ * ⚠️ 与上面的 `STAY_RES`（调整场景的「**多**待一会儿」）是两回事：
+ *   · 这里回答"每个地方待多久"——影响**生成路线**时的停留时间；
+ *   · `STAY_RES` 回答"多待一会儿"——影响对**已有行程**的调整。
+ *
+ * **实测踩到的坑**：用户说「我想去冰雪大世界，逛一小时」，
+ * 首版规则只认「**多**逛一小时」，没有「多」就认不出，
+ * 于是停留用了默认的 45 分钟 —— 用户明确说了时长，系统却当没听见。
+ */
+const STAY_DURATION_RE =
+  /(?:逛|待|呆|玩|看|游览|参观|停留)\s*(?:上|大概|大约|差不多|近)?\s*(半|\d+|[一二两三四五六七八九十]{1,2})\s*(?:个)?\s*(小时|钟头|分钟|分)/;
+
+/**
  * 「去 X」的目标 —— **最常见的表达方式，必须兜住**。
  *
  * 实测踩到的坑：用户说「我想去冰雪大世界」，而"冰雪大世界"不在已知地点库里，
@@ -307,6 +321,8 @@ function parse(text, opts) {
     goalText: null,
     /** 并列表达里的其余目标：「想去教堂和公园」→ ['公园'] */
     goalAlternatives: [],
+    /** **规划时**的每站停留分钟数（「逛一小时」→ 60）；null 表示没说 */
+    stayMinutes: null,
     startClock: null,
     endClock: null,
     pace: 'normal',
@@ -458,7 +474,7 @@ function parse(text, opts) {
     });
   }
 
-  // ⑦ 停留延长
+  // ⑦ 停留延长（调整场景：「多待一会儿」）
   const stay = raw.match(STAY_RES);
   if (stay) {
     const n = toNumber(stay[1]);
@@ -471,6 +487,48 @@ function parse(text, opts) {
         field: 'extendStayMin',
         why: `「${stay[0]}」没说要多久，请确认具体时长`,
       });
+    }
+  }
+
+  /**
+   * ⑦.2 规划时的停留时长（「逛一小时」）。
+   *
+   * 放在 ⑦ 之后、用独立的匹配：两者语义不同（见 STAY_DURATION_RE 的说明），
+   * 但同现时以"规划时长"为准 —— 那是用户对这次游览的直接描述。
+   */
+  const stayDurMatch = raw.match(STAY_DURATION_RE);
+  /**
+   * ⚠️ 「**多**待 20 分钟」是**调整**语义（在已有行程上多待一会儿），
+   * 不是"每个地方待 20 分钟"。两条规则会同时匹配到它，所以这里要看**前一个字**。
+   *
+   * 用显式判断而不是 lookbehind：后者的运行时可移植性没必要赌。
+   */
+  const stayDur =
+    stayDurMatch && raw.charAt(stayDurMatch.index - 1) !== '多' ? stayDurMatch : null;
+  if (stayDur) {
+    // 「半小时」→ 30 分钟；其余走中文/阿拉伯数字转换
+    const n = stayDur[1] === '半' ? 0.5 : toNumber(stayDur[1]);
+    if (n != null && n > 0) {
+      // ⚠️ 单位是**第 2 个捕获组**（`(?:个)` 是非捕获组）—— 数错组号会让
+      //    「一小时」被当成 1 分钟，而且不报错。
+      const unit = stayDur[2];
+      const minutes = unit === '小时' || unit === '钟头' ? Math.round(n * 60) : n;
+      // 明显不合理的时长要求确认，而不是照单全收（也不可能逛 20 小时）
+      if (minutes > 8 * 60) {
+        out.uncertainties.push({
+          field: 'stayMinutes',
+          why: `「${stayDur[0]}」看上去太长（${minutes} 分钟），请确认`,
+          text: stayDur[0],
+        });
+      } else {
+        out.stayMinutes = minutes;
+        out.matched.push({
+          field: 'stayMinutes',
+          text: stayDur[0].trim(),
+          value: minutes,
+          rule: 'stay-duration',
+        });
+      }
     }
   }
 
@@ -583,6 +641,8 @@ function toStructured(parsed, opts) {
     mustVisitTexts: parsed.mustVisitTexts,
     avoidTexts: parsed.avoidTexts,
     pace: parsed.pace,
+    /** 「逛一小时」→ 60：**每站**停留分钟数，未说则为 null */
+    stayMin: parsed.stayMinutes == null ? null : parsed.stayMinutes,
     maxWalkMinutes: null, // 含糊表达**不换算**（§6.2）
     preferences: [],
   };
@@ -614,8 +674,13 @@ function explain(parsed) {
       avoid: '排除',
       extendStay: '延长停留',
       searchKeyword: '检索词',
+      stayMinutes: '每站停留',
+      goal: '目标地点',
     }[m.field];
-    if (label) lines.push(`${label}：${m.value}（来自「${m.text}」）`);
+    if (!label) continue;
+    // 带单位的字段要写清单位，否则「每站停留：60」看不出是分钟还是秒
+    const unit = m.field === 'stayMinutes' || m.field === 'extendStay' ? ' 分钟' : '';
+    lines.push(`${label}：${m.value}${unit}（来自「${m.text}」）`);
   }
   return lines;
 }
