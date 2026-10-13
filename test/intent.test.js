@@ -377,6 +377,55 @@ test('并列的必去项要拆开，否则永远匹配不到任何地点', () =>
   );
 });
 
+test('解析说明要把**所有**检索词列出来，不能只显示一个', () => {
+  /**
+   * ⚠️ **真实困惑的回归**（2026-10-13）：用户看到界面写「检索词：哈工大」，
+   * 问"为什么是一个而不是三个"—— 而实际三个都搜了。
+   *
+   * `explain()` 打印的是单数 `searchKeyword`（"主检索词"），
+   * 复数 `searchKeywords` 没显示。**数据是对的，显示漏了** ——
+   * 但显示漏了，用户就会以为系统漏搜了，等同于是错的。
+   */
+  const lines = rb.explain(rb.parse('先去哈工大再去冰雪大世界再去哈学院'));
+  const kwLine = lines.find((l) => l.indexOf('检索词：') === 0);
+  assert.ok(kwLine, '必须有检索词这一行');
+  for (const kw of ['哈工大', '冰雪大世界', '哈学院']) {
+    assert.ok(kwLine.indexOf(kw) >= 0, `检索词行必须包含「${kw}」，实际：${kwLine}`);
+  }
+});
+
+test('检索词与目标地点是同一份时不显示两遍', () => {
+  const lines = rb.explain(rb.parse('先去哈工大再去冰雪大世界再去哈学院'));
+  assert.equal(
+    lines.filter((l) => l.indexOf('目标地点：') === 0).length,
+    0,
+    '与检索词完全重复的「目标地点」不该单独出现'
+  );
+  // 但「检索词」这个标签要留着 —— 用户验的是"系统拿什么去搜了"
+  assert.equal(lines.filter((l) => l.indexOf('检索词：') === 0).length, 1);
+});
+
+test('明确不想去的地方不能出现在目标地点里', () => {
+  /**
+   * ⚠️ **改 GOAL_RE 时引入的回归**（2026-10-13）。
+   *
+   * `GOAL_RE` 改成全局匹配后，「别去兆麟公园」里**也有一个「去」** ——
+   * 于是兆麟公园进了目标地点，同时又出现在「排除」里，**自相矛盾**。
+   */
+  const r = rb.parse('一定要去中央大街，别去兆麟公园', { knownPlaceNames: KNOWN });
+  assert.deepEqual(r.goalAlternatives, [], '排除项不能进目标');
+  assert.equal(r.goalText, '中央大街');
+
+  const lines = rb.explain(r);
+  const joined = lines.join('\n');
+  assert.match(joined, /排除：兆麟公园/);
+  assert.equal(
+    lines.some((l) => l.indexOf('目标地点：') === 0 && l.indexOf('兆麟公园') >= 0),
+    false,
+    '目标地点里不能出现兆麟公园'
+  );
+});
+
 test('含糊表达绝不能被换算成数值（§6.2）', () => {
   const r = rb.parse('有点累，尽量少走');
 

@@ -686,10 +686,22 @@ function parse(text, opts) {
   GOAL_RE.lastIndex = 0;
   let gm;
   while ((gm = GOAL_RE.exec(raw)) !== null) {
-    for (const p of splitPlaces(gm[1])) {
+    const parts = splitPlaces(gm[1]);
+    /**
+     * ⚠️ **「别去 X」里也有一个「去」** —— 会被 `GOAL_RE` 匹配到。
+     *
+     * 实测（2026-10-13）：把 `GOAL_RE` 改成全局匹配后，
+     * 「一定要去中央大街，**别去**兆麟公园」的目标地点变成了
+     * 「中央大街 / 兆麟公园」—— **用户明确不想去的地方被当成了目标**，
+     * 而它同时又出现在「排除」里，自相矛盾。
+     *
+     * 所以目标必须**排除掉排除项**（与检索词的处理一致）。
+     */
+    const kept = parts.filter((p) => out.avoidTexts.indexOf(p) < 0);
+    for (const p of kept) {
       if (goalParts.indexOf(p) < 0) goalParts.push(p);
     }
-    goalTexts.push(gm[0].trim());
+    if (kept.length) goalTexts.push(gm[0].trim());
     // 零长度匹配保护：正则若匹配到空串会死循环
     if (GOAL_RE.lastIndex === gm.index) GOAL_RE.lastIndex++;
   }
@@ -847,6 +859,13 @@ function explain(parsed) {
   const lines = [];
   const seen = new Set();
 
+  /** 检索词（复数）—— 后面渲染说明时要用 */
+  const kws = (parsed.searchKeywords || []).length
+    ? parsed.searchKeywords
+    : parsed.searchKeyword
+      ? [parsed.searchKeyword]
+      : [];
+
   const LABEL = {
     endAt: '结束时间',
     startAt: '开始时间',
@@ -872,7 +891,16 @@ function explain(parsed) {
   };
 
   // 1) 解析过程记录：带原文片段，最有用
-  for (const m of parsed.matched || []) push(m.field, m.value, m.text);
+  //
+  // ⚠️ `searchKeyword`（单数）要跳过 —— 它只是"主检索词"，一个值。
+  // 直接显示它会让用户以为系统只搜了一个地方（实测踩到：
+  // 用户说「先去哈工大再去冰雪大世界再去哈学院」，
+  // 界面显示「检索词：哈工大」，而实际三个都搜了）。
+  // 检索词统一在下面按**复数**渲染。
+  for (const m of parsed.matched || []) {
+    if (m.field === 'searchKeyword') continue;
+    push(m.field, m.value, m.text);
+  }
 
   // 2) 兜底：结构化字段里有值、但 matched 没提到的，补上
   if (parsed.startClock) push('startAt', parsed.startClock.text);
@@ -883,7 +911,31 @@ function explain(parsed) {
   if (parsed.extendStayMin != null) push('extendStay', parsed.extendStayMin);
   for (const n of parsed.mustVisitTexts || []) push('mustVisit', n);
   for (const n of parsed.avoidTexts || []) push('avoid', n);
-  if (parsed.searchKeyword) push('searchKeyword', parsed.searchKeyword);
+
+  /**
+   * 3) 检索词 —— **按复数渲染**。
+   *
+   * ⚠️ 实测踩到的坑（2026-10-13）：用户说
+   * 「先去哈工大再去冰雪大世界再去哈学院」，界面只显示「检索词：哈工大」，
+   * 让人以为漏搜了两个地方 —— 而实际三个都搜了，只是这里打印了单数字段。
+   *
+   * 检索词与「目标地点」常常是同一份列表。**同一件事不显示两遍**，
+   * 但保留「检索词」这个标签 —— 用户验的是"系统拿什么去搜了"。
+   */
+  const goalHit = (parsed.matched || []).find((m) => m.field === 'goal');
+  const goals = [].concat(parsed.goalText ? [parsed.goalText] : [], parsed.goalAlternatives || []);
+  const sameAsGoals =
+    kws.length > 0 && kws.length === goals.length && kws.every((k, i) => k === goals[i]);
+
+  // 与检索词完全重复的「目标地点」不再单独输出（下面是它的替身）
+  if (sameAsGoals && goalHit) {
+    const already = lines.findIndex((l) => l.indexOf('目标地点：') === 0);
+    if (already >= 0) lines.splice(already, 1);
+  }
+
+  if (kws.length) {
+    push('searchKeyword', kws.join(' / '), sameAsGoals && goalHit ? goalHit.text : null);
+  }
 
   return lines;
 }
