@@ -200,6 +200,33 @@
       而站点之间是画在时间轴里的，两处不一致。
     -->
 
+    <!--
+      当前路线：概览给的是数字，地图给的是"在哪"，
+      中间缺一条"**按什么顺序走**"。这条链补上它，走到哪了一目了然。
+      点某一站可以跳到下面时间轴的对应位置。
+    -->
+    <view wx:if="{{timeline.length}}" class="card route-card">
+      <view class="row">
+        <text class="k">当前路线</text>
+        <text class="v muted">{{timeline.length}} 站</text>
+      </view>
+      <view class="chain">
+        <block wx:if="{{startLeg}}">
+          <text class="chain-node chain-origin">{{startLeg.label}}</text>
+          <text class="chain-arrow">→</text>
+        </block>
+        <block wx:for="{{timeline}}" wx:key="nodeId">
+          <text
+            class="chain-node {{item.visited ? 'on' : ''}} {{item.isCurrent ? 'cur' : ''}} {{item.skipped ? 'skip' : ''}}"
+            data-nodeid="{{item.nodeId}}"
+            bindtap="jumpToNode"
+          >{{item.seq}} {{item.placeName}}</text>
+          <text wx:if="{{!item.isLast}}" class="chain-arrow">→</text>
+        </block>
+      </view>
+      <view class="sub">绿色是已走过，橙色是当前站；点某一站可跳到它的详情</view>
+    </view>
+
     <!-- 路线地图：走到哪了一眼看得出 -->
     <view wx:if="{{routeMap}}" class="card map-card">
       <view class="row">
@@ -266,7 +293,8 @@
       </view>
 
       <block wx:for="{{timeline}}" wx:key="nodeId">
-        <view class="node {{item.isCurrent ? 'current' : ''}} {{item.status}} {{item.visited ? 'visited' : ''}} {{item.skipped ? 'skip' : ''}}">
+        <view class="node {{item.isCurrent ? 'current' : ''}} {{item.status}} {{item.visited ? 'visited' : ''}} {{item.skipped ? 'skip' : ''}}"
+              id="node-{{item.nodeId}}">
           <view class="node-rail">
             <view class="dot"></view>
             <view wx:if="{{!item.isLast}}" class="line"></view>

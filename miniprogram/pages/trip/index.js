@@ -938,6 +938,14 @@ Page({
 
   // ══════════ 进度 ══════════
 
+  /** 点"当前路线"里的某一站 → 滚到时间轴上它的详情 */
+  jumpToNode(e) {
+    const nodeId = e.currentTarget.dataset.nodeid
+    if (!nodeId) return
+    // 用选择器滚动最稳：时间轴可能很长，算像素位置容易偏
+    wx.pageScrollTo({ selector: `#node-${nodeId}`, duration: 300, offsetTop: -20 })
+  },
+
   /**
    * 记录实际进度（到了 / 逛完了 / 撤销）。
    *

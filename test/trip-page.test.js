@@ -197,6 +197,59 @@ test('到了下一站，上一段才显示"已走过"', async () => {
   assert.equal(page.data.timeline[0].legToNext.visited, true, '到了第二站，1→2 这段才算走过');
 });
 
+// ── 当前路线（概览与地图之间的顺序链）─────────────────────
+
+test('当前路线链的数据来自 timeline + startLeg，且要能反映进度', async () => {
+  /**
+   * 用户要求（2026-10-13）："在路线概览和路线地图中间显示当前路线"。
+   *
+   * 概览给的是数字，地图给的是"在哪"，中间缺一条"按什么顺序走"。
+   * 这条链**不新增数据源** —— 直接渲染 timeline 与 startLeg，
+   * 所以它天然与时间轴、地图三处一致。
+   */
+  const page = pageWithTrip({
+    api: {
+      'trip.progress': () => {
+        const next = JSON.parse(JSON.stringify(PLAN_NODES));
+        next[0].status = 'done';
+        next[1].status = 'arrived';
+        return { ok: true, data: { tripId: 't1', version: 2, nodes: next } };
+      },
+    },
+  });
+
+  // 链需要的字段一个都不能少
+  for (const t of page.data.timeline) {
+    assert.equal(typeof t.seq, 'number', '链上要显示序号');
+    assert.equal(typeof t.placeName, 'string');
+    assert.equal(typeof t.visited, 'boolean', '链的颜色靠它');
+    assert.equal(typeof t.isCurrent, 'boolean', '当前站的橙色靠它');
+    assert.equal(typeof t.isLast, 'boolean', '末站后面不加箭头');
+  }
+  assert.ok(page.data.startLeg.label, '链的起点要用 startLeg.label');
+  assert.equal(page.data.timeline[0].visited, false);
+
+  page.nodeProgress({ currentTarget: { dataset: { nodeid: 'n0', status: 'done' } } });
+  await new Promise((r) => setImmediate(r));
+
+  assert.equal(page.data.timeline[0].visited, true, '第一站变绿');
+  assert.equal(page.data.timeline[1].isCurrent, true, '第二站变当前站');
+  assert.equal(page.data.timeline[1].visited, true, '到了也算走过');
+});
+
+test('点链上的某一站要能跳到它 —— 跳转方法必须存在', () => {
+  const page = pageWithTrip();
+  assert.equal(typeof page.jumpToNode, 'function', 'wxml 里绑了 jumpToNode，缺了会静默不响应');
+
+  const scrolls = [];
+  global.wx = { pageScrollTo: (a) => scrolls.push(a) };
+  page.jumpToNode({ currentTarget: { dataset: { nodeid: 'n1' } } });
+  delete global.wx;
+
+  assert.equal(scrolls.length, 1);
+  assert.match(scrolls[0].selector, /n1/, '要滚到对应节点');
+});
+
 // ── 预选理由 ──────────────────────────────────────────────
 
 test('预选要说明"为什么是它"，搜不到的词也要如实说', () => {

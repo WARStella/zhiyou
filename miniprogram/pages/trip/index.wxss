@@ -729,3 +729,46 @@
   color: #6b7785;
   margin-right: 8rpx;
 }
+
+/* ── 当前路线（概览与地图之间的顺序链）───────── */
+/*
+  概览给的是数字，地图给的是"在哪"，中间缺一条"按什么顺序走"。
+  这条链补上它；走到的站变绿，当前站变橙 —— 与地图、时间轴三处一致。
+*/
+.chain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 8rpx 0 4rpx;
+}
+.chain-node {
+  font-size: 24rpx;
+  color: #0b3c6e;
+  background: #eef4fb;
+  border-radius: 999rpx;
+  padding: 6rpx 18rpx;
+  margin: 6rpx 0;
+  max-width: 100%;
+}
+.chain-origin {
+  color: #ffffff;
+  background: #ff7a45;
+}
+.chain-node.on {
+  color: #ffffff;
+  background: #0f9d58;
+}
+.chain-node.cur {
+  color: #ffffff;
+  background: #ff7a45;
+}
+.chain-node.skip {
+  color: #9aa5b1;
+  background: #f0f2f4;
+  text-decoration: line-through;
+}
+.chain-arrow {
+  font-size: 22rpx;
+  color: #c3cad3;
+  margin: 0 8rpx;
+}
