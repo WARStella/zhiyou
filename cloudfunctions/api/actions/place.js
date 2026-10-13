@@ -5,7 +5,7 @@ const { CODES, require_fields, fail } = require('../lib/errors');
 const { placeEligibility, canBeMeetingPoint } = require('../lib/authz');
 const { createMapProvider } = require('../lib/map');
 const { haversineMeters } = require('../lib/geo');
-const { isVisitableCategory } = require('../lib/ai/rulebased');
+const { isVisitableCategory, isVisitablePlace, LODGING_NAME_RE } = require('../lib/ai/rulebased');
 const { logEvent } = require('../lib/trace');
 const C = require('../lib/repo/collections');
 
@@ -129,6 +129,40 @@ async function detail(ctx) {
  */
 const PACE_LIMITS = { relaxed: 3, normal: 4, packed: 5 };
 
+/**
+ * 在候选里找与 `kw` **最接近的那一个**。
+ *
+ * ⚠️ 为什么需要它（2026-10-13 第四次踩到"名字包含即相等"）：
+ * 用户说「冰雪大世界」，而候选里有 10 条名字含这五个字的 POI ——
+ * 冰雪大世界本身、梦幻冰雪馆、VR 游戏店、民宿、宾馆、公寓、摩天轮…
+ * 旧的"含这几个字就全选"把十条全排进了行程。
+ *
+ * **用户说的"冰雪大世界"是一个地方，不是十个。**
+ *
+ * 排序依据（都可解释）：
+ *   ① 名字**恰好等于**关键词的最优先；
+ *   ② 其次**名字最短** —— 越短越接近"这个地方本身"：
+ *      「哈尔滨冰雪大世界」(8) 优于「哈尔滨欣怡宾馆(冰雪大世界凯利广场店)」(20)。
+ *
+ * 不可游览的（交通、住宿）直接跳过 —— 名字再短也不该进游览顺序。
+ */
+function bestMatch(candidates, kw, seen) {
+  const hits = (candidates || []).filter(
+    (c) =>
+      c.placeId &&
+      !seen.has(c.placeId) &&
+      c.visitable !== false &&
+      c.name &&
+      c.name.indexOf(kw) >= 0
+  );
+  if (!hits.length) return null;
+
+  return hits.slice().sort((a, b) => {
+    const exact = (x) => (x.name === kw ? 0 : x.name.indexOf(kw) === 0 ? 1 : 2);
+    return exact(a) - exact(b) || a.name.length - b.name.length;
+  })[0];
+}
+
 function autoPick(candidates, req) {
   req = req || {};
   const pace = PACE_LIMITS[req.pace] ? req.pace : 'normal';
@@ -143,60 +177,64 @@ function autoPick(candidates, req) {
 
   const picked = [];
   const seen = new Set();
-  const hitMust = (name) =>
-    mustTexts.some((m) => m && name && (name.indexOf(m) >= 0 || m.indexOf(name) >= 0));
-
   const take = (c, reason) => {
     picked.push({ placeId: c.placeId, name: c.name, reason });
     seen.add(c.placeId);
   };
+  /** 检索词与必去项合起来 = 用户"点名"的地方 */
+  const named = keywords.concat(mustTexts.filter((m) => keywords.indexOf(m) < 0));
 
   /**
-   * ⓪ **兜底：每个检索词各选一个最佳匹配。**
+   * 「在某个区域逛」还是「去某几个具体地方」—— **这决定了要不要替他补地点**。
    *
-   * ⚠️ 真实事故（2026-10-13）：用户说「先去哈工大玩一小时再去冰雪大世界玩3小时」，
-   * 而检索只发了「哈工大」一个词，候选里根本没有冰雪大世界；
-   * 修好多关键词检索之后，还有第二道坎 ——
-   * 若按相关性取前 N 个，第一个词的结果会把名额占满。
+   * ⚠️ 实测（2026-10-13）：用户说「先去哈工大玩一小时再去冰雪大世界玩3小时」，
+   * 他已经把行程排好了（1 小时 + 3 小时），系统却还按"节奏"补地点，
+   * 一路补到 10 个。
    *
-   * 所以这里**先保证覆盖**：用户提到的每个地方，行程里都要有它的一席。
+   * 判据（两条，都可解释）：
+   *   · **点了两个以上地方** → 他给的是行程单（"先去 A 再去 B"）→ 只选他说的；
+   *   · **只点了一个、或说了"附近"** → 他心里只有一个目标或一片区域，
+   *     系统按节奏补足是帮忙；
+   *   · **什么都没认出来** → 更该按节奏给一份起点。
+   *
+   * 多塞一个地方都是替用户做决定 —— 而他已经说得很具体了。
    */
-  for (const kw of keywords) {
-    const hit = candidates.find(
-      (c) =>
-        c.placeId &&
-        !seen.has(c.placeId) &&
-        c.visitable !== false &&
-        c.name &&
-        c.name.indexOf(kw) >= 0
-    );
-    if (hit) take(hit, `你提到的「${kw}」`);
-  }
+  const areaMode = Boolean(req.anchorText) || named.length <= 1;
 
-  // ① 必去优先，不受数量限制 —— **但同样要过"可游览"这一关**。
-  //
-  // ⚠️ 真实事故（2026-10-13）：用户说「我想先去**哈工大**玩一小时」，
-  // 而「哈工大」是子串，于是匹配上了
-  // **「哈工大[地铁站]」「哈工大[公交站]」「哈工大-3口」**，
-  // 全部被标成"必去" —— 系统一本正经地把一个地铁站安排进了行程。
-  //
-  // 教训：**"名字里有这几个字"不等于"这就是那个地方"**，
-  // 与之前"民宿名字里嵌了地标名"是同一类错误。
-  for (const c of candidates) {
-    if (!c.placeId || seen.has(c.placeId)) continue;
-    if (c.visitable === false) continue;
-    if (hitMust(c.name)) take(c, '必去');
+  /**
+   * ⓪ **每个"点名提到的地方"各取一个最佳匹配。**
+   *
+   * ⚠️ 两次真实事故都在这一步（2026-10-13）：
+   *   ① 检索只发了「哈工大」一个词，候选里根本没有冰雪大世界
+   *      → 改成多关键词检索；
+   *   ② 必去判据是"名字里含这几个字"且**不设数量上限** ——
+   *      候选里 10 条名字带「冰雪大世界」的全被选了进来：
+   *
+   *          哈尔滨冰雪大世界 ✓   ← 用户要的
+   *          哈尔滨冰雪大世界梦幻冰雪馆
+   *          穿越冰雪大世界(哈尔滨印象城C座店)   ← VR 游戏店
+   *          冰雪大世界民宿                     ← 住宿
+   *          哈尔滨欣怡宾馆(冰雪大世界凯利广场店)  ← 住宿
+   *          漫步云端公寓(哈尔滨大世界世茂大道地铁站) ← 公寓
+   *          …
+   *
+   * **用户说的"冰雪大世界"是一个地方，不是十个。**
+   * 所以每个名字**只取一个最接近的**（见 bestMatch）。
+   */
+  for (const kw of named) {
+    const best = bestMatch(candidates, kw, seen);
+    if (best) take(best, mustTexts.indexOf(kw) >= 0 ? '必去' : `你提到的「${kw}」`);
   }
 
   /**
-   * ② 其余按相关性顺序补足，跳过不可游览的。
+   * ① 区域漫游时才按节奏补足。点名模式到此为止。
    *
-   * 名额上限要**为"覆盖每个提到的地方"和"必去"留出空间** ——
-   * 否则它们会把这几个名额挤掉，用户明说要去的地方反而选不上。
+   * 名额上限要**为"点名的地方"留出空间** —— 否则它们会把名额挤掉，
+   * 用户明说要去的地方反而选不上。
    */
-  const reserved = keywords.length + mustTexts.length;
+  const quota = areaMode ? Math.max(limit, named.length) : named.length;
   for (const c of candidates) {
-    if (picked.length >= Math.max(limit, reserved)) break;
+    if (picked.length >= quota) break;
     if (!c.placeId || seen.has(c.placeId)) continue;
     if (c.visitable === false) continue;
     take(c, pace === 'relaxed' ? '按「少走路」少选几个' : '相关性靠前');
@@ -516,14 +554,26 @@ async function search(ctx) {
         /**
          * 能不能作为**游览地点**。
          *
-         * ⚠️ 实测踩到的坑：搜「冰雪大世界」，上游把「冰雪大世界[公交站]」
-         * 排在前面 —— 类目是 `基础设施;交通设施:公交车站`。
-         * 它是公交站，不是那个冰雪乐园。
+         * ⚠️ 实测踩到的坑（三次，都是同一类）：
+         *   · 搜「冰雪大世界」，上游把「冰雪大世界[公交站]」排在前面
+         *     （类目 `基础设施;交通设施:公交车站`）；
+         *   · 真实类目是「公交车站」而不是「公交站」，正则漏掉了；
+         *   · 搜出来还混着「冰雪大世界民宿」「哈尔滨欣怡宾馆(…)」
+         *     「漫步云端公寓(…地铁站)」—— **住的地方不是玩的地方**。
          *
-         * 这里**不硬过滤**（用户也可能真的在找某个交通设施），
+         * 住宿类的类目常常笼统到查不出来，所以**类目与名字都要查**
+         * （见 rulebased.isVisitablePlace）。
+         *
+         * 这里**不硬过滤**（用户也可能真的在找某个交通设施或住处），
          * 而是把不可游览的**稳定地排到后面**，并打上标记让界面能说明。
          */
-        visitable: isVisitableCategory(r.category),
+        visitable: isVisitablePlace(r.name, r.category),
+        /** 为什么不可游览 —— 界面要能说清，而不是让用户猜 */
+        notVisitableReason: (() => {
+          if (!isVisitableCategory(r.category)) return '交通/公共设施';
+          if (LODGING_NAME_RE.test(String(r.name || ''))) return '住宿场所';
+          return null;
+        })(),
       });
     });
 

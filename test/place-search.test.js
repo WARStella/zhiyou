@@ -156,6 +156,126 @@ test('多关键词：某个词搜不到时，如实报告而不是假装搜全�
   assert.ok(res.picked.keywordsCovered.indexOf('公园') >= 0);
 });
 
+// ── 点名模式 vs 区域漫游 ──────────────────────────────────
+
+test('点名去两个地方，就不该替他补到十个', async () => {
+  /**
+   * ⚠️ **真实事故的回归**（2026-10-13，第四次"名字包含即相等"）。
+   *
+   * 用户说「先去哈工大玩一小时再去冰雪大世界玩3小时」，
+   * 而"必去"的判据是**名字里含这几个字**且**不设数量上限**，
+   * 于是候选里 10 条名字带「冰雪大世界」的全进了行程：
+   * 冰雪大世界本身、梦幻冰雪馆、VR 游戏店、民宿、宾馆、公寓、摩天轮…
+   *
+   * **用户说的"冰雪大世界"是一个地方，不是十个。**
+   */
+  const w = await makeWorld();
+  const res = expectOk(
+    await w.A(
+      'place.search',
+      Object.assign(
+        {
+          keywords: ['公园', '教堂'],
+          center: CENTER,
+          // 没有 anchorText → 用户点名了具体地方 → 只选点名的
+          autoPick: { pace: 'normal', keywords: ['公园', '教堂'], mustVisitTexts: ['公园', '教堂'] },
+        },
+        FAKE
+      )
+    )
+  );
+
+  assert.equal(
+    res.picked.placeIds.length,
+    2,
+    `点名两个地方就该只有两个，实际 ${res.picked.items.map((x) => x.name).join('、')}`
+  );
+  const names = res.picked.items.map((x) => x.name);
+  assert.ok(names.includes('兆麟公园'), '「公园」要选中一个');
+  assert.ok(names.includes('圣索菲亚教堂'), '「教堂」要选中一个');
+});
+
+test('点名一个地方时，同名的住宿与附属项不能被一起选进来', async () => {
+  /**
+   * 实测：搜「冰雪大世界」返回的 10 条里混着
+   * 「冰雪大世界民宿」「…欣怡宾馆(冰雪大世界凯利广场店)」「…公寓」——
+   * **住的地方不是玩的地方**，看一眼就知道不对。
+   *
+   * 住宿类的类目常常笼统到查不出来，所以名字也要查。
+   */
+  const w = await makeWorld();
+  const res = expectOk(
+    await w.A(
+      'place.search',
+      Object.assign(
+        {
+          keywords: ['冰雪大世界'],
+          center: CENTER,
+          autoPick: { pace: 'normal', keywords: ['冰雪大世界'], mustVisitTexts: ['冰雪大世界'] },
+        },
+        FAKE
+      )
+    )
+  );
+
+  for (const item of res.picked.items) {
+    assert.equal(
+      /宾馆|酒店|民宿|公寓|旅馆|客栈|招待所|旅舍/.test(item.name),
+      false,
+      `住宿场所不该进游览顺序：${item.name}`
+    );
+  }
+  // 夹具里确实有交通设施类，否则这条断言是空的
+  assert.ok(res.candidates.some((c) => c.visitable === false), '夹具里必须有不可游览项');
+});
+
+test('区域漫游：说了"附近逛逛"，就该按节奏补足', async () => {
+  /**
+   * 与"点名"相反的情形：用户只知道大概去哪一片（「中央大街**附近**逛逛」），
+   * 这时替他多选几个是**帮忙**，不是添乱。
+   */
+  const w = await makeWorld();
+  const res = expectOk(
+    await w.A(
+      'place.search',
+      Object.assign(
+        {
+          keywords: ['公园'],
+          center: CENTER,
+          autoPick: {
+            pace: 'packed', // 紧凑 5，但候选不够 5 条就会少于上限
+            keywords: ['公园'],
+            mustVisitTexts: ['公园'],
+            anchorText: '公园', // ← 有锚点 = 区域漫游
+          },
+        },
+        FAKE
+      )
+    )
+  );
+
+  assert.ok(
+    res.picked.placeIds.length > 1,
+    `区域漫游应当补足多个，实际只选了 ${res.picked.placeIds.length} 个`
+  );
+});
+
+test('住宿名字被识别为不可游览，并说明原因', async () => {
+  const w = await makeWorld();
+  const res = expectOk(
+    await w.A('place.search', Object.assign({ keyword: '', center: CENTER }, FAKE))
+  );
+
+  for (const c of res.candidates) {
+    if (c.visitable === false) {
+      assert.ok(c.notVisitableReason, `${c.name} 不可游览却没给出原因`);
+      assert.match(c.notVisitableReason, /交通|住宿/);
+    } else {
+      assert.equal(c.notVisitableReason, null, `${c.name} 可游览却带了原因`);
+    }
+  }
+});
+
 test('地点检索：默认全城检索，需要"附近的"时才用坐标', async () => {
   const w = await makeWorld();
 
@@ -308,7 +428,11 @@ test('自动预选：必去一定选上，且不被数量上限挤掉', async ()
     '必去',
     '要能说明为什么选它'
   );
-  assert.ok(ids.length >= 3, '必去不占用普通名额');
+  /**
+   * 只点名**一个**地方 → 系统按节奏补足，这是帮忙（他只知道要去哪一处）。
+   * 点名**两个以上** → 那是行程单，只选他说的（见下一条测试）。
+   */
+  assert.ok(ids.length >= 3, '只点名一个地方时，必去不占用普通名额');
 });
 
 test('自动预选：绝不自动选交通设施', async () => {

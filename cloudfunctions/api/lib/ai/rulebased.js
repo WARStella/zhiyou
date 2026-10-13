@@ -215,11 +215,37 @@ function splitPlaces(s) {
  * 腾讯的 POI 类目格式是「大类;中类:小类」这种自由文本，只能用关键词排除。
  */
 const NON_VISITABLE_CATEGORY_RE =
-  /地铁|轻轨|公交|巴士|车站|火车站|汽车站|机场|码头|港口|停车场|加油|加气|充电站|收费站|服务区|高速|道路|路口|门牌|出入口|天桥|地下通道|隧道|卫生间|公共厕所|厕所|ATM|银行|营业厅|售票处|咨询处|派出所|岗亭/;
+  /地铁|轻轨|公交|巴士|车站|火车站|汽车站|机场|码头|港口|停车场|加油|加气|充电站|收费站|服务区|高速|道路|路口|门牌|出入口|天桥|地下通道|隧道|卫生间|公共厕所|厕所|ATM|银行|营业厅|售票处|咨询处|派出所|岗亭|宾馆|酒店|民宿|公寓|旅馆|客栈|招待所|住宿|青年旅舍|旅舍/;
 
-/** 这条类目是否**可以**作为游览地点（交通设施、公共设施一律不算） */
+/**
+ * **住宿类** —— 与交通设施同属"可以出现在候选里，但不是游览地点"。
+ *
+ * ⚠️ 实测踩到的坑（2026-10-13）：搜「冰雪大世界」，返回里混着
+ * 「冰雪大世界民宿」「哈尔滨欣怡宾馆(冰雪大世界凯利广场店)」
+ * 「漫步云端公寓(…地铁站)」—— 它们是**住的地方**，不是玩的地方。
+ * 用户说"去冰雪大世界玩"，系统把宾馆排进行程，一眼就看出不对。
+ *
+ * 单独列一份是因为**名字也要查**：这些 POI 的类目常常是笼统的
+ * 「生活服务」之类，光看类目查不出来，但名字里的「宾馆/民宿/公寓」
+ * 是明确的住宿信号，且基本不会出现在游览地名字里。
+ */
+const LODGING_NAME_RE = /宾馆|酒店|民宿|公寓|旅馆|客栈|招待所|青年旅舍|旅舍|度假村|别墅/;
+
+/** 这条类目是否**可以**作为游览地点（交通设施、住宿、公共设施一律不算） */
 function isVisitableCategory(category) {
   return !NON_VISITABLE_CATEGORY_RE.test(String(category || ''));
+}
+
+/**
+ * 这个候选能不能作为**游览地点** —— 类目与名字都要查。
+ *
+ * 名字这一关是必要的：住宿类的类目常常笼统到查不出来，
+ * 而「XX宾馆」「XX公寓」这样的名字本身就是明确信号。
+ */
+function isVisitablePlace(name, category) {
+  if (!isVisitableCategory(category)) return false;
+  if (LODGING_NAME_RE.test(String(name || ''))) return false;
+  return true;
 }
 
 /** 去掉 POI 名里的类别或门店后缀：「冰雪大世界[地铁站]」→「冰雪大世界」 */
@@ -873,7 +899,14 @@ module.exports = {
   baseName,
   pickKnownPlaceNames,
   isVisitableCategory,
+  /** 类目 + 名字双重判断 —— 住宿类的类目常常笼统到查不出来 */
+  isVisitablePlace,
   cleanPlacePhrase,
+  /** 把可能并列的地名串拆开（含"连接词可能是地名一部分"的保护） */
+  splitPlaces,
   NON_VISITABLE_CATEGORY_RE,
+  LODGING_NAME_RE,
+  CATEGORY_WORDS,
+  GENERIC_CATEGORY_WORDS,
   _rules: { END_TIME_RES, START_TIME_RES, PACE_RULES, VAGUE_RULES, ANCHOR_RES, GOAL_RE },
 };

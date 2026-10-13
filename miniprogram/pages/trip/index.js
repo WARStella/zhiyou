@@ -376,6 +376,13 @@ Page({
                 mustVisitTexts: (autoFrom.parsed && autoFrom.parsed.mustVisitTexts) || [],
                 // 每个检索词至少选一个 —— 用户提到的地方不该被名额挤掉
                 keywords: keywords,
+                /**
+                 * ⚠️ 锚点决定**要不要替他补地点**：
+                 *   · 有锚点（「中央大街**附近**逛逛」）→ 区域漫游 → 按节奏补足；
+                 *   · 没有锚点（「先去 A 再去 B」）→ 他已经排好了 → 只选他说的。
+                 * 不加这个，系统会在用户已排好的行程上多塞 8 个地方。
+                 */
+                anchorText: (autoFrom.parsed && autoFrom.parsed.anchorText) || null,
               }
             : undefined,
         })
