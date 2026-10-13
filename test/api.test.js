@@ -911,6 +911,74 @@ test('版本一致性：写操作漏传 expectedVersion 必须被拒绝，不能
   );
 });
 
+test('规划：stayByText 按地点分别设停留时长', async () => {
+  /**
+   * ⚠️ **真实需求的回归**（2026-10-13）。
+   *
+   * 用户说「先去哈工大玩一小时再去冰雪大世界玩两小时再去哈学院玩一小时」——
+   * 每个地方时长不同。而此前只有单个 `stayMin`，**装不下**，
+   * 模型只好反过来问用户"请确认统一哪个"。
+   */
+  const w = await makeWorld();
+  const res = expectOk(
+    await w.A('trip.plan', {
+      placeIds: ['p_zhongyang', 'p_fanghong', 'p_sofia'],
+      startAt: NOW,
+      constraints: [],
+      startPoint: null,
+      stayByText: { 中央大街: 60, 防洪纪念塔: 120 },
+    })
+  );
+
+  const byName = {};
+  res.nodes.forEach((n) => {
+    byName[n.placeName] = n.plannedStayMin;
+  });
+
+  assert.equal(byName['中央大街'], 60, '按地点给的值必须生效');
+  assert.equal(byName['防洪纪念塔'], 120, '第二个地点用自己的值，不能被第一个顶替');
+  assert.equal(
+    byName['圣索菲亚教堂'],
+    45,
+    '**没提到的地方用地点自带默认值** —— 绝不能拿别人的时长顶替'
+  );
+});
+
+test('规划：stayByText 用双向包含匹配（「冰雪大世界」对上「哈尔滨冰雪大世界」）', async () => {
+  const w = await makeWorld();
+  const res = expectOk(
+    await w.A('trip.plan', {
+      placeIds: ['p_zhongyang'],
+      startAt: NOW,
+      constraints: [],
+      startPoint: null,
+      // 用户说短名，POI 是全名 —— 应当命中
+      stayByText: { 中央: 90 },
+    })
+  );
+  assert.equal(res.nodes[0].plannedStayMin, 90);
+});
+
+test('规划：stayByText 优先于统一的 stayMin', async () => {
+  const w = await makeWorld();
+  const res = expectOk(
+    await w.A('trip.plan', {
+      placeIds: ['p_zhongyang', 'p_fanghong'],
+      startAt: NOW,
+      constraints: [],
+      startPoint: null,
+      stayMin: 30,
+      stayByText: { 中央大街: 75 },
+    })
+  );
+  const byName = {};
+  res.nodes.forEach((n) => {
+    byName[n.placeName] = n.plannedStayMin;
+  });
+  assert.equal(byName['中央大街'], 75, '按地点给的值优先');
+  assert.equal(byName['防洪纪念塔'], 30, '没按地点给的回落到统一值');
+});
+
 test('规划：stayMin 覆盖地点自带的停留时长', async () => {
   const w = await makeWorld();
 

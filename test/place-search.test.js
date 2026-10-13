@@ -375,6 +375,51 @@ test('没有检索词时才退回必去项 —— 不能因此漏掉用户明说
   assert.ok(r.placeIds.includes('p1'), '没有检索词时，必去项必须仍然生效');
 });
 
+test('点名三个地方就三个 —— 模型误填 anchorText 也不能多塞', async () => {
+  /**
+   * ⚠️ **真实事故的回归**（2026-10-13）。
+   *
+   * 用户说「先去哈工大玩一小时再去冰雪大世界玩两小时再去哈学院玩一小时」，
+   * 而模型把**具体目的地**「哈工大」填进了 `anchorText`。
+   *
+   * 系统的"要不要替他补地点"判据里含 `Boolean(anchorText)` ——
+   * 于是被当成"区域漫游"，**又补了一个地方进来**：
+   *
+   *     1 哈尔滨工业大学       必去
+   *     2 哈尔滨冰雪大世界     必去
+   *     3 哈尔滨学院           必去
+   *     4 哈尔滨冰雪大世界梦幻冰雪馆  相关性靠前   ← 用户没说过
+   *
+   * 判据改成只看**点名了几个地方** —— 点了三个就是三个。
+   */
+  const w = await makeWorld();
+  const res = expectOk(
+    await w.A(
+      'place.search',
+      Object.assign(
+        {
+          keywords: ['公园', '教堂'],
+          center: CENTER,
+          autoPick: {
+            pace: 'normal',
+            keywords: ['公园', '教堂'],
+            mustVisitTexts: ['公园', '教堂'],
+            // 模型把具体目的地误当成"区域"填了进来
+            anchorText: '公园',
+          },
+        },
+        FAKE
+      )
+    )
+  );
+
+  assert.equal(
+    res.picked.placeIds.length,
+    2,
+    `点名两个就两个，anchorText 不能触发补足。实际：${res.picked.items.map((x) => x.name).join('、')}`
+  );
+});
+
 test('地点检索：默认全城检索，需要"附近的"时才用坐标', async () => {
   const w = await makeWorld();
 

@@ -94,6 +94,8 @@ Page({
     startAtManual: false,
     /** 「逛一小时」→ 60；null 表示用地点自带默认值 */
     stayMin: null,
+    /** 每个地点时长不同时按地点给：{"哈工大": 60, "冰雪大世界": 120} */
+    stayByText: null,
     endAtText: '',
     endAt: '', // 空字符串 = 不限
     /** 结束时间是从解析结果填进来的（不是用户手选的）—— 要标明 */
@@ -280,6 +282,11 @@ Page({
         }
         // 「逛一小时」→ 每站停留 60 分钟（不给则用地点自带默认值）
         patch.stayMin = (d.structured && d.structured.stayMin) || null
+        /**
+         * 每个地点时长不同时按地点给：`{"哈工大": 60, "冰雪大世界": 120}`。
+         * 规划器按地点名匹配，匹配不上才回落到 stayMin。
+         */
+        patch.stayByText = (d.structured && d.structured.stayByText) || null
 
         that.setData(patch)
 
@@ -592,6 +599,8 @@ Page({
           startPoint: startPoint || undefined,
           // 「逛一小时」→ 每站 60 分钟；null 时后端用地点自带默认值
           stayMin: that.data.stayMin || undefined,
+          // 每个地点时长不同时按地点给（优先级高于 stayMin）
+          stayByText: that.data.stayByText || undefined,
         })
         .then(function (res) {
           if (!res || res.ok !== true) {

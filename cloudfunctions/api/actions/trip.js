@@ -150,6 +150,8 @@ async function plan(ctx) {
       paramsInput: req.structured && req.structured.params,
       startPoint: (req.structured && req.structured.startPoint) || p.startPoint || null,
       stayMin: (req.structured && req.structured.stayMin) != null ? req.structured.stayMin : p.stayMin,
+      stayByText:
+        (req.structured && req.structured.stayByText) || p.stayByText || null,
     };
   } else {
     require_fields(p, ['placeIds', 'startAt']);
@@ -173,6 +175,15 @@ async function plan(ctx) {
        * 不给就用地点自带的 `visitDurationMin.default`。
        */
       stayMin: p.stayMin,
+      /**
+       * **按地点分别给的停留时长**：`{"哈工大": 60, "冰雪大世界": 120}`。
+       *
+       * ⚠️ 实测（2026-10-13）：用户说「先去哈工大玩一小时再去冰雪大世界玩两小时
+       * 再去哈学院玩一小时」，而 schema 只有单个 `stayMinutes` ——
+       * **模型听懂了却装不下**，只好反过来问用户"三个时长请确认统一哪个"。
+       * 见 lib/ai/rulebased.js 里 `stayMinutesByText` 的说明。
+       */
+      stayByText: p.stayByText || null,
     };
   }
 
@@ -340,17 +351,25 @@ async function plan(ctx) {
   }
 
   /**
-   * 每站停留：`stayMin` 给定时**覆盖地点自带的默认值**。
+   * 每站停留：优先级 **按地点的时长 > 统一时长 > 地点自带默认值**。
    *
-   * 「我想去冰雪大世界，逛一小时」→ 每站 60 分钟。
-   * 不给时传 `undefined`，`buildTimeline` 会回落到 `visitDurationMin.default`
+   * 「我想去冰雪大世界，逛一小时」→ 每站 60 分钟；
+   * 「哈工大 1 小时、冰雪大世界 2 小时」→ 各按各的。
+   *
+   * ⚠️ 不给时传 `undefined`，`buildTimeline` 会回落到 `visitDurationMin.default`
    * —— 注意不能用 `null`，那会被当成"停留 0 分钟"。
    */
-  const items = spec.placeIds.map((placeId, i) => ({
-    nodeId: `n_${i}_${placeId}`,
-    placeId,
-    stayMin: typeof spec.stayMin === 'number' && spec.stayMin > 0 ? spec.stayMin : undefined,
-  }));
+  const items = spec.placeIds.map((placeId, i) => {
+    const place = placesById[placeId];
+    const byName = matchStayByText(spec.stayByText, place && place.name);
+    const stayMin =
+      byName != null
+        ? byName
+        : typeof spec.stayMin === 'number' && spec.stayMin > 0
+          ? spec.stayMin
+          : undefined;
+    return { nodeId: `n_${i}_${placeId}`, placeId: placeId, stayMin: stayMin };
+  });
   const tl = timelineMod.buildTimeline({
     startAt: spec.startAt,
     items,
@@ -932,6 +951,28 @@ async function progress(ctx) {
   }
 
   return resp.ok({ tripId: trip._id, version: res.doc.version, nodes: res.doc.nodes }, { version: res.doc.version });
+}
+
+/**
+ * 在"按地点给的时长"里找这个地点对应的值。
+ *
+ * 匹配用**双向包含**（与必去项同一套宽松度）：
+ * 用户说「冰雪大世界」，POI 叫「哈尔滨冰雪大世界」—— 应当算命中。
+ * 反过来 POI 名更短时（用户说全称）也要能匹配上。
+ *
+ * ⚠️ 匹配不上就返回 null，**绝不用别的地点的时长顶替** ——
+ * 那会让"哈工大 1 小时"变成"冰雪大世界也 1 小时"。
+ */
+function matchStayByText(map, name) {
+  if (!map || !name) return null;
+  for (const k of Object.keys(map)) {
+    if (!k) continue;
+    if (name.indexOf(k) >= 0 || k.indexOf(name) >= 0) {
+      const v = map[k];
+      if (typeof v === 'number' && v > 0) return v;
+    }
+  }
+  return null;
 }
 
 module.exports = { plan, get, adjust, confirmChange, progress, loadPlaces, loadTripForRead };

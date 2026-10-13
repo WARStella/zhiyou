@@ -426,6 +426,32 @@ test('明确不想去的地方不能出现在目标地点里', () => {
   );
 });
 
+test('按地点给时长时，说明里只列一份，不并列两个矛盾的值', () => {
+  /**
+   * 实测问题：逐条的 matched 记录会长成
+   * 「每站停留：60 分钟」「每站停留：120 分钟」—— **两个值并排、互相矛盾**，
+   * 看起来像系统自相冲突。应当统一按地点渲染一份。
+   */
+  const lines = rb.explain(rb.parse('先去哈工大玩一小时再去冰雪大世界玩两小时再去哈学院玩一小时'));
+  const stayLines = lines.filter((l) => l.indexOf('每站停留：') === 0);
+  assert.equal(stayLines.length, 1, `只该有一条，实际 ${stayLines.length} 条：${stayLines.join(' | ')}`);
+  assert.match(stayLines[0], /哈工大 60 分钟/);
+  assert.match(stayLines[0], /冰雪大世界 120 分钟/);
+  assert.match(stayLines[0], /哈学院 60 分钟/);
+});
+
+test('带单位的值不再重复加单位', () => {
+  const lines = rb.explain(rb.parse('先去哈工大玩一小时再去冰雪大世界玩两小时'));
+  const stay = lines.find((l) => l.indexOf('每站停留：') === 0);
+  assert.equal(/分钟 分钟/.test(stay), false, `单位重复了：${stay}`);
+});
+
+test('只说一个时长时仍按"每站"显示（那时确实每站一样）', () => {
+  const lines = rb.explain(rb.parse('我想去冰雪大世界，逛一小时'));
+  const stay = lines.find((l) => l.indexOf('每站停留：') === 0);
+  assert.match(stay, /每站停留：60 分钟/);
+});
+
 test('含糊表达绝不能被换算成数值（§6.2）', () => {
   const r = rb.parse('有点累，尽量少走');
 

@@ -181,8 +181,24 @@ function splitPlaces(s) {
   if (!str) return [];
 
   const rawParts = str.split(PLACE_SPLIT_RE);
-  // 首段或末段为空 → 连接词紧贴边界，说明它是名字的一部分，整体不拆
-  if (!rawParts[0] || !rawParts[rawParts.length - 1]) {
+
+  /**
+   * 保护：**首段为空就不拆**。
+   *
+   * 地名不可能以连接词开头 —— 「**和平**路」「**和**兴路」若被拆开，
+   * 会得到「平路」这种根本不是地名的东西。
+   *
+   * ⚠️ **只管开头，不管结尾**（2026-10-13 修正）。
+   * 首版连"末段为空"也当成不拆的信号，结果踩了另一个坑：
+   * `GOAL_RE` 的 `{2,20}` 会把长句**截断**在连接词上 ——
+   *
+   *     「先去哈工大玩一小时再去冰雪大世界玩两小时再去哈学院玩一小时」
+   *       → 捕获到 20 字：「哈工大玩一小时再去冰雪大世界玩两小时再去」
+   *       → 拆出末段为空 → **整串当成一个地名** ❌
+   *
+   * 结尾为空是**截断**留下的痕迹，不是"连接词属于名字"的证据，丢掉那一段即可。
+   */
+  if (!rawParts[0]) {
     const whole = cleanPlacePhrase(str);
     return whole.length >= 2 ? [whole] : [];
   }
@@ -390,10 +406,20 @@ const STAY_DURATION_RE =
  * `g` 标志是必须的：用户可能说了好几个「去」——
  * 「想去中央大街，然后去防洪纪念塔」。只取第一个会丢掉后半句。
  *
- * ⚠️ 拆分与清洗由 `splitPlaces` 负责（见那里的说明：
- * 「再」也是分隔符，且「和平路」不能被拆坏）。
+ * ⚠️ **必须用惰性匹配 + 前瞻停在连接词上**（2026-10-13 修正）。
+ *
+ * 首版是贪婪的 `{2,20}`，于是：
+ *
+ *     「先去哈工大玩一小时**再去**冰雪大世界玩两小时**再去**哈学院玩一小时」
+ *       → 一次吞掉 20 个字：「哈工大玩一小时再去冰雪大世界玩两小时再去」
+ *       → **连下一个「去」都被吃了**，哈学院整个丢失 ❌
+ *
+ * 现在遇到「再/然后/接着/之后」或标点就停，每个「去 X」各成一段。
+ * 「和/跟/与/、」故意**不**停 —— 那些可能是地名的一部分（「和平路」），
+ * 交给 `splitPlaces` 带保护地拆。
  */
-const GOAL_RE = /(?:想|要|打算|准备|计划|愿意)?\s*去\s*([\u4e00-\u9fa5A-Za-z0-9·]{2,20})/g;
+const GOAL_RE =
+  /(?:想|要|打算|准备|计划|愿意)?\s*去\s*([\u4e00-\u9fa5A-Za-z0-9·]{2,30}?)(?=再|然后|接着|之后|又|，|,|。|；|;|！|!|？|\?|$)/g;
 
 // ── 主解析 ────────────────────────────────────────────────
 
@@ -420,8 +446,18 @@ function parse(text, opts) {
     goalAlternatives: [],
     /** 锚点的并列项：「中央大街和索菲亚教堂」→ ['索菲亚教堂'] */
     anchorAlternatives: [],
-    /** **规划时**的每站停留分钟数（「逛一小时」→ 60）；null 表示没说 */
+    /** 「逛一小时」→ 60：**每站**停留分钟数，未说则为 null */
     stayMinutes: null,
+    /**
+     * **按地点分别给的停留时长**：`{"哈工大": 60, "冰雪大世界": 120}`。
+     *
+     * ⚠️ 实测（2026-10-13）：用户说「先去哈工大玩一小时再去冰雪大世界玩两小时」，
+     * 而 schema 只有单个 `stayMinutes` —— **模型听懂了却装不下**，
+     * 只好塞两条 matched，再反过来问用户"您说了三个不同的时长，请确认统一哪个"。
+     *
+     * **听不懂是模型的问题；听懂了接不住，是 schema 的问题。**
+     */
+    stayMinutesByText: {},
     startClock: null,
     endClock: null,
     pace: 'normal',
@@ -630,40 +666,48 @@ function parse(text, opts) {
    *
    * 放在 ⑦ 之后、用独立的匹配：两者语义不同（见 STAY_DURATION_RE 的说明），
    * 但同现时以"规划时长"为准 —— 那是用户对这次游览的直接描述。
-   */
-  const stayDurMatch = raw.match(STAY_DURATION_RE);
-  /**
-   * ⚠️ 「**多**待 20 分钟」是**调整**语义（在已有行程上多待一会儿），
-   * 不是"每个地方待 20 分钟"。两条规则会同时匹配到它，所以这里要看**前一个字**。
    *
-   * 用显式判断而不是 lookbehind：后者的运行时可移植性没必要赌。
+   * ⚠️ **要按地点分别记录**（2026-10-13 修正）：
+   * 用户说「先去哈工大玩一小时再去冰雪大世界玩两小时」，
+   * 而 schema 只有单个 `stayMinutes` —— **听懂了却装不下**。
+   * 所以这里扫描**每一处**时长，并把紧邻它前面的地名一起记下来。
    */
-  const stayDur =
-    stayDurMatch && raw.charAt(stayDurMatch.index - 1) !== '多' ? stayDurMatch : null;
-  if (stayDur) {
-    // 「半小时」→ 30 分钟；其余走中文/阿拉伯数字转换
-    const n = stayDur[1] === '半' ? 0.5 : toNumber(stayDur[1]);
-    if (n != null && n > 0) {
-      // ⚠️ 单位是**第 2 个捕获组**（`(?:个)` 是非捕获组）—— 数错组号会让
-      //    「一小时」被当成 1 分钟，而且不报错。
-      const unit = stayDur[2];
+  const stayHits = [];
+  {
+    const re = new RegExp(STAY_DURATION_RE.source, 'g');
+    let m;
+    while ((m = re.exec(raw)) !== null) {
+      // 「多待 20 分钟」是**调整**语义，不是规划时长（见上面的说明）
+      if (raw.charAt(m.index - 1) === '多') continue;
+      const n = m[1] === '半' ? 0.5 : toNumber(m[1]);
+      if (n == null || n <= 0) continue;
+      const unit = m[2]; // ⚠️ 单位是第 2 个捕获组，数错组号会让「一小时」变成 1 分钟
       const minutes = unit === '小时' || unit === '钟头' ? Math.round(n * 60) : n;
-      // 明显不合理的时长要求确认，而不是照单全收（也不可能逛 20 小时）
-      if (minutes > 8 * 60) {
-        out.uncertainties.push({
-          field: 'stayMinutes',
-          why: `「${stayDur[0]}」看上去太长（${minutes} 分钟），请确认`,
-          text: stayDur[0],
-        });
-      } else {
-        out.stayMinutes = minutes;
-        out.matched.push({
-          field: 'stayMinutes',
-          text: stayDur[0].trim(),
-          value: minutes,
-          rule: 'stay-duration',
-        });
-      }
+      stayHits.push({ index: m.index, end: m.index + m[0].length, text: m[0].trim(), minutes: minutes });
+      if (re.lastIndex === m.index) re.lastIndex++;
+    }
+  }
+
+  const unreasonable = stayHits.filter((h) => h.minutes > 8 * 60);
+  for (const h of unreasonable) {
+    out.uncertainties.push({
+      field: 'stayMinutes',
+      why: `「${h.text}」看上去太长（${h.minutes} 分钟），请确认`,
+      text: h.text,
+    });
+  }
+
+  const goodStay = stayHits.filter((h) => h.minutes <= 8 * 60);
+  if (goodStay.length) {
+    // 整句只有一个时长 → 当成"每站都待这么久"
+    out.stayMinutes = goodStay[0].minutes;
+    for (const h of goodStay) {
+      out.matched.push({
+        field: 'stayMinutes',
+        text: h.text,
+        value: h.minutes,
+        rule: 'stay-duration',
+      });
     }
   }
 
@@ -715,6 +759,29 @@ function parse(text, opts) {
       value: goalParts.join(' / '),
       rule: 'goal',
     });
+  }
+
+  /**
+   * ⑦.6 把时长**按地点分开**。
+   *
+   *     「先去哈工大玩一小时再去冰雪大世界玩两小时」
+   *        → { 哈工大: 60, 冰雪大世界: 120 }
+   *
+   * 做法：对每一处时长，**往前找最近出现过的目标地名**。
+   * 不用位置切段是因为「玩一小时」可能出现在地名之前，往前找更稳。
+   *
+   * ⚠️ 只有两处以上时长才分开记 —— 只说了一个时长时，
+   * 那是"每站都待这么久"，塞进 map 反而会让别的站取不到值。
+   */
+  if (goodStay.length >= 2 && goalParts.length) {
+    for (const h of goodStay) {
+      let best = null;
+      for (const g of goalParts) {
+        const idx = raw.lastIndexOf(g, h.index);
+        if (idx >= 0 && (!best || idx > best.idx)) best = { g: g, idx: idx };
+      }
+      if (best) out.stayMinutesByText[best.g] = h.minutes;
+    }
   }
 
   // ⑧ 检索关键词：**宁可不给，也不给垃圾**
@@ -825,6 +892,14 @@ function toStructured(parsed, opts) {
     pace: parsed.pace,
     /** 「逛一小时」→ 60：**每站**停留分钟数，未说则为 null */
     stayMin: parsed.stayMinutes == null ? null : parsed.stayMinutes,
+    /**
+     * **按地点分别给的停留时长**：`{"哈工大": 60, "冰雪大世界": 120}`。
+     * 规划器会按地点名匹配；匹配不上就回落到 `stayMin`。
+     */
+    stayByText:
+      parsed.stayMinutesByText && Object.keys(parsed.stayMinutesByText).length
+        ? parsed.stayMinutesByText
+        : null,
     maxWalkMinutes: null, // 含糊表达**不换算**（§6.2）
     preferences: [],
   };
@@ -886,7 +961,13 @@ function explain(parsed) {
     const key = `${field}:${value}`;
     if (seen.has(key)) return;
     seen.add(key);
-    const unit = UNIT[field] || '';
+    /**
+     * 单位只在**值是纯数字**时补。
+     * 否则「哈工大 60 分钟 / 哈学院 60 分钟」会被加成「… 分钟 分钟」，
+     * 或「检索词：A / B」这种本就没有单位的值被硬加一个。
+     */
+    const unit =
+      UNIT[field] && /^[\d.]+$/.test(String(value)) ? UNIT[field] : '';
     lines.push(text ? `${label}：${value}${unit}（来自「${text}」）` : `${label}：${value}${unit}`);
   };
 
@@ -899,6 +980,14 @@ function explain(parsed) {
   // 检索词统一在下面按**复数**渲染。
   for (const m of parsed.matched || []) {
     if (m.field === 'searchKeyword') continue;
+    /**
+     * ⚠️ 按地点给的时长时，逐条的 `stayMinutes` 记录**不再单独显示**。
+     *
+     * 用户说「哈工大1小时、冰雪大世界2小时」时，逐条记录会长成
+     * 「每站停留：60 分钟」「每站停留：120 分钟」—— 两个值并排、互相矛盾，
+     * 看起来像系统自相冲突。下面统一按地点渲染一份。
+     */
+    if (m.field === 'stayMinutes' && Object.keys(parsed.stayMinutesByText || {}).length) continue;
     push(m.field, m.value, m.text);
   }
 
@@ -907,7 +996,15 @@ function explain(parsed) {
   if (parsed.endClock) push('endAt', parsed.endClock.text);
   if (parsed.pace && parsed.pace !== 'normal') push('pace', parsed.pace);
   if (parsed.anchorText) push('anchor', parsed.anchorText);
-  if (parsed.stayMinutes != null) push('stayMinutes', parsed.stayMinutes);
+  if (parsed.stayMinutes != null && !Object.keys(parsed.stayMinutesByText || {}).length) {
+    push('stayMinutes', parsed.stayMinutes);
+  }
+  /** 按地点分别给的时长 —— 一次列清，而不是显示两个互相矛盾的值 */
+  const byText = parsed.stayMinutesByText || {};
+  const byTextKeys = Object.keys(byText);
+  if (byTextKeys.length) {
+    push('stayMinutes', byTextKeys.map((k) => `${k} ${byText[k]} 分钟`).join(' / '));
+  }
   if (parsed.extendStayMin != null) push('extendStay', parsed.extendStayMin);
   for (const n of parsed.mustVisitTexts || []) push('mustVisit', n);
   for (const n of parsed.avoidTexts || []) push('avoid', n);

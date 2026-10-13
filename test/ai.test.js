@@ -108,7 +108,7 @@ test('模型解析：正常返回能解析出结构化需求', async () => {
   assert.equal(r.ok, true);
   assert.equal(r.parsed.anchorText, '中央大街');
   assert.equal(r.usage.total_tokens, 42, 'token 用量要带出来，供成本核算');
-  assert.equal(r.promptVersion, 'intent-v3', '提示词版本要随结果回传，否则评测无法归因');
+  assert.equal(r.promptVersion, 'intent-v4', '提示词版本要随结果回传，否则评测无法归因');
 
   // 请求要带上 Key 与 Key 不能出现在结果里
   assert.match(http.calls[0].url, /chat\/completions/);
@@ -158,6 +158,7 @@ test('提示词 schema 必须覆盖解析器实际读取的每一个字段', asy
     'mustVisitTexts',
     'avoidTexts',
     'stayMinutes',
+    'stayMinutesByText',
     'extendStayMin',
     'matched',
     'uncertainties',
@@ -181,6 +182,49 @@ test('提示词必须说清"没说"不等于"不确定"', async () => {
   const prompt = JSON.parse(http.calls[0].opts.body).messages[0].content;
   assert.match(prompt, /"没说"不等于"不确定"/, '这条区分必须显式写在提示词里');
   assert.match(prompt, /正常情况/, '要说明"没提到"是正常的，不用报告');
+});
+
+test('提示词必须允许"每个地点时长不同"，不能让它去问用户', async () => {
+  /**
+   * ⚠️ **真实事故的回归**（2026-10-13）。
+   *
+   * 用户说「先去哈工大玩一小时再去冰雪大世界玩两小时再去哈学院玩一小时」，
+   * 模型**完全听懂了**，但 v3 的 schema 只有一个 `stayMinutes` —— **装不下**。
+   * 于是它塞了两条 matched，再反过来问用户：
+   *
+   *     "您为三个地点分别说了不同的停留时长…请确认是否统一或调整"
+   *
+   * **听不懂是模型的问题；听懂了接不住，是 schema 的问题。**
+   */
+  const http = fakeTransport([okBody(JSON.stringify(VALID))]);
+  const p = createHttpParser({ key: 'sk-test', http: http });
+  await p.parse('x', {});
+
+  const prompt = JSON.parse(http.calls[0].opts.body).messages[0].content;
+  assert.match(prompt, /stayMinutesByText/, 'schema 必须能装下"按地点给的时长"');
+  assert.match(
+    prompt,
+    /不要因为时长不同就把它当成"需要用户确认"/,
+    '要明确告诉模型：时长不同是正常的，别反问用户'
+  );
+});
+
+test('提示词必须说清 anchorText 只用于"一片区域"', async () => {
+  /**
+   * ⚠️ **真实事故的回归**（2026-10-13）。
+   *
+   * 用户点名了三个地方，模型把「哈工大」填进了 `anchorText`。
+   * 而系统拿 anchorText 当"区域漫游"的判据 —— 于是**自作主张多加了一个地点**。
+   *
+   * 具体目的地不是"区域"，放 searchKeywords。
+   */
+  const http = fakeTransport([okBody(JSON.stringify(VALID))]);
+  const p = createHttpParser({ key: 'sk-test', http: http });
+  await p.parse('x', {});
+
+  const prompt = JSON.parse(http.calls[0].opts.body).messages[0].content;
+  assert.match(prompt, /一片区域/, '要说清 anchorText 是"区域"而不是"目的地"');
+  assert.match(prompt, /自作主张/, '要说明填错的后果');
 });
 
 test('模型解析：返回包着 markdown 也要能解析出来', async () => {
