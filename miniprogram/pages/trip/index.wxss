@@ -376,6 +376,21 @@
   color: #0f9d58;
 }
 
+/* ── 跳过的节点 ───────────────────────────── */
+/* ⚠️ 跳过的**不能显示成绿色** —— 绿色代表"去过了"，跳过就是没去。
+   灰色才如实：这一站被跳过了。 */
+.node.skip .dot {
+  background: #9aa5b1;
+}
+.node.skip .node-body {
+  border-left: 8rpx solid #9aa5b1;
+  opacity: 0.72;
+}
+.node.skip .node-name {
+  color: #9aa5b1;
+  text-decoration: line-through;
+}
+
 /* ── 进度操作 ─────────────────────────────── */
 .progress-acts {
   border-top: none;

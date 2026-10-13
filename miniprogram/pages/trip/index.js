@@ -37,6 +37,17 @@ const STATUS_LABEL = {
  *
  * 混在一起会让人以为"标记已到达"也会改路线 —— 那是两件不同的事。
  */
+/**
+ * 「到过」= 真的去过。`skipped` **不算** —— 跳过就是没去。
+ *
+ * ⚠️ 这个区分踩过两次坑，都记在这里：
+ *   ① 地图上把 skipped 也算成走过，绿线会画到一个没去过的地方；
+ *   ② 时间轴上用"**本节点**走完了"来判定"**本节点→下一节点**这段走过了" ——
+ *      **位置反了**。点完 1 号的「逛完了」，你还没走到 2 号，那一段当然没走过。
+ *      正确判据是**下一站到了没有**：到了下一站，才说明这一段走完了。
+ */
+const isReached = (status) => status === 'arrived' || status === 'done'
+
 const PROGRESS_ACTIONS = {
   pending: [{ status: 'arrived', label: '到了' }],
   arrived: [{ status: 'done', label: '逛完了' }],
@@ -514,7 +525,7 @@ Page({
     const currentIndex = this.currentIndexOf(nodes)
     return (nodes || []).map((n, i) => {
       const next = nodes[i + 1] || null
-      const visited = n.status === 'done' || n.status === 'skipped'
+      const reached = isReached(n.status)
       return {
         nodeId: n.nodeId,
         seq: i + 1,
@@ -525,8 +536,9 @@ Page({
         verified: n.verified,
         statusLabel: STATUS_LABEL[n.status] || n.status,
         status: n.status,
-        /** 已到过 —— 时间轴上也变绿，与地图一致 */
-        visited: visited,
+        /** 已到过 —— 时间轴上也变绿，与地图一致。跳过的**不算** */
+        visited: reached,
+        skipped: n.status === 'skipped',
         isCurrent: i === currentIndex,
         isLast: i === nodes.length - 1,
         /** 该站可做的进度操作（记录事实，不重新规划） */
@@ -540,8 +552,12 @@ Page({
               // 只有"直线估算"需要提醒 —— 它与真实路线在短距离下能差 7 倍
               warn: next.travelSource === 'estimated' ? '估算' : '',
               source: next.travelSource,
-              /** 这一段的起点已走过 → 整段都可以算走过 */
-              visited: visited,
+              /**
+               * ⚠️ 判据是**下一站到了没有**，不是"本站走完了"。
+               * 点完 1 号的「逛完了」，你还没走到 2 号 —— 这一段没走过。
+               * 到了 2 号（arrived/done），才说明 1→2 这段走完了。
+               */
+              visited: isReached(next.status),
             }
           : null,
       }
@@ -686,25 +702,27 @@ Page({
     if (!located.length) return null
 
     const startPt = startPoint && typeof startPoint.latitude === 'number' ? startPoint : null
-    const isVisited = (s) => s === 'done' || s === 'skipped'
 
-    /** 已走过 = 最后一个 done/skipped 节点（含）之前的部分 */
-    let lastVisitedIdx = -1
+    /**
+     * 已走过 = 最后一个**真正到过**的节点（含）之前的部分。
+     * `skipped` 不算 —— 跳过就是没去，绿线不该画到那里。
+     */
+    let lastReachedIdx = -1
     located.forEach((n, i) => {
-      if (isVisited(n.status)) lastVisitedIdx = i
+      if (isReached(n.status)) lastReachedIdx = i
     })
-    const visitedCount = located.filter((n) => isVisited(n.status)).length
+    const reachedCount = located.filter((n) => isReached(n.status)).length
 
     const header = startPt ? [startPt] : []
     const full = header.concat(
       located.map((n) => ({ latitude: n.location.latitude, longitude: n.location.longitude }))
     )
-    const splitAt = header.length + lastVisitedIdx
+    const splitAt = header.length + lastReachedIdx
 
-    // 绿线：起点 → 最后一个已到过的节点
+    // 绿线：起点 → 最后一个到过的节点
     // 蓝线：从那个节点继续往后（**与绿线首尾相接**，视觉上是连续的一条路）
-    const donePts = lastVisitedIdx >= 0 ? full.slice(0, splitAt + 1) : []
-    const restPts = lastVisitedIdx >= 0 ? full.slice(splitAt) : full
+    const donePts = lastReachedIdx >= 0 ? full.slice(0, splitAt + 1) : []
+    const restPts = lastReachedIdx >= 0 ? full.slice(splitAt) : full
 
     const lines = []
     if (donePts.length >= 2) {
@@ -728,20 +746,21 @@ Page({
     }
 
     const markers = located.map((n, i) => {
-      const visited = isVisited(n.status)
+      const reached = isReached(n.status)
+      const skipped = n.status === 'skipped'
       const arrived = n.status === 'arrived'
       return {
         id: i + 1,
         latitude: n.location.latitude,
         longitude: n.location.longitude,
-        // 已到过 → 绿色图标；其余 → 深蓝
-        iconPath: visited ? '/assets/pin-done.png' : '/assets/pin-place.png',
+        // 到过 → 绿色图标；**跳过的仍是蓝的**（没去过就不该显示成去过）
+        iconPath: reached ? '/assets/pin-done.png' : '/assets/pin-place.png',
         width: 28,
         height: 35,
         callout: {
           content: String(i + 1),
           color: '#FFFFFF',
-          bgColor: visited ? '#0F9D58' : arrived ? '#FF7A45' : '#0B3C6E',
+          bgColor: reached ? '#0F9D58' : skipped ? '#9AA5B1' : arrived ? '#FF7A45' : '#0B3C6E',
           fontSize: 11,
           borderRadius: 10,
           padding: 5,
@@ -778,7 +797,7 @@ Page({
       polyline: lines,
       markers: markers,
       /** 进度，界面直接显示，不用自己数 */
-      visitedCount: visitedCount,
+      reachedCount: reachedCount,
       totalCount: located.length,
       legend:
         located.length >= 2
