@@ -121,6 +121,42 @@ test('「去 X」抽出后要清掉尾部的游览动词', () => {
   assert.equal(r.goalText, '中央大街', '不能是「中央大街逛逛」');
 });
 
+// ── 实测踩到的坑：交通设施抢占了用户想去的地方 ────────────
+
+test('交通设施不得被当作"用户想去的地方"', () => {
+  /**
+   * 真实事故：库里有一条检索回来的 POI 叫「冰雪大世界[地铁站]」
+   * （类目 `基础设施;交通设施:地铁站`）。它是**地铁站**，不是那个冰雪乐园。
+   * 让它参与匹配，用户想去的地方会被替换成一个地铁站，
+   * 检索词也跟着变成「冰雪大世界[地铁站]」—— 搜出来全是地铁站。
+   */
+  const places = [
+    { name: '中央大街', category: '旅游景点:景点' },
+    { name: '冰雪大世界[地铁站]', category: '基础设施;交通设施:地铁站' },
+    { name: '哈尔滨站[地铁站]', category: '基础设施;交通设施:地铁站' },
+  ];
+  const known = rb.pickKnownPlaceNames(places);
+
+  assert.deepEqual(known, ['中央大街'], '地铁站必须被排除');
+  assert.equal(rb.NON_VISITABLE_CATEGORY_RE.test('基础设施;交通设施:地铁站'), true);
+
+  const r = rb.parse('我想去冰雪大世界', { knownPlaceNames: known });
+  assert.deepEqual(r.mustVisitTexts, [], '不得把地铁站当成必去');
+  assert.equal(r.searchKeyword, '冰雪大世界', '检索词必须是用户说的那个地标');
+});
+
+test('匹配时要去掉名字里的门店后缀', () => {
+  const places = [{ name: 'Theone钢琴教室(民生路店)', category: '教育培训:音乐教室' }];
+  const known = rb.pickKnownPlaceNames(places);
+
+  assert.equal(rb.baseName('Theone钢琴教室(民生路店)'), 'Theone钢琴教室');
+  assert.equal(rb.baseName('冰雪大世界[地铁站]'), '冰雪大世界');
+  assert.equal(rb.baseName('普通名字'), '普通名字', '没有后缀时原样返回');
+
+  const r = rb.parse('想去Theone钢琴教室', { knownPlaceNames: known });
+  assert.deepEqual(r.mustVisitTexts, ['Theone钢琴教室(民生路店)'], '去掉后缀一致就该认');
+});
+
 // ── 不能解析的（§6.2 的核心） ─────────────────────────────
 
 test('含糊表达绝不能被换算成数值（§6.2）', () => {

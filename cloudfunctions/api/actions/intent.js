@@ -31,9 +31,12 @@ async function parse(ctx) {
   const started = Date.now();
 
   // 已知地点名 —— 用来判断"必去 XX / 别去 XX"里 XX 是不是真的地名，
-  // 否则会把「一定要去看看」里的"看看"也当地点
+  // 否则会把「一定要去看看」里的"看看"也当地点。
+  //
+  // ⚠️ 必须**排除交通设施等不可游览类目**：库里一条「冰雪大世界[地铁站]」
+  // 会让用户想去的地方被替换成一个地铁站（见 rulebased 里的说明）。
   const places = await repo.find(C.PLACES, {}, { limit: 200 });
-  const knownPlaceNames = places.map((x) => x.name).filter(Boolean);
+  const knownPlaceNames = rulebased.pickKnownPlaceNames(places);
 
   const r = await parseIntents(p.text, {
     provider: p.provider,

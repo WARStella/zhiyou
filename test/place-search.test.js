@@ -143,19 +143,47 @@ test('地点检索：save:false 只给候选，不写库', async () => {
 
 // ── 排序 ──────────────────────────────────────────────────
 
-test('地点检索：默认按到中心的直线距离排序，且不消耗额外配额', async () => {
+test('地点检索：默认按上游相关性排序，而不是按距离重排', async () => {
   const w = await makeWorld();
   const res = expectOk(await w.A('place.search', Object.assign({ keyword: '', center: CENTER }, FAKE)));
 
-  assert.equal(res.ranking.basis, 'distance');
-  assert.equal(res.ranking.enriched, 0, '默认不做步行精排');
-  assert.equal(res.mapApiCalls, 1, '一次检索只消耗 1 次配额');
+  /**
+   * ⚠️ 首版默认按"到检索中心的直线距离"重排，**把上游的相关性排序整个冲掉了**。
+   * 实测后果：搜「冰雪大世界」时结果前列全是附近的地铁站，真正的目标被挤到后面。
+   * 搜索的第一诉求是"找到我要的那个地方"，那是相关性。
+   */
+  assert.equal(res.ranking.basis, 'relevance');
+  assert.equal(res.mapApiCalls, 1, '相关性排序零配额成本');
 
-  const dists = res.candidates.map((x) => x.straightLineMeters);
-  for (let i = 1; i < dists.length; i++) {
-    assert.ok(dists[i] >= dists[i - 1], `应按距离升序，实际 ${JSON.stringify(dists)}`);
+  const idx = res.candidates.map((c) => c.upstreamIndex);
+  for (let i = 1; i < idx.length; i++) {
+    assert.ok(idx[i] > idx[i - 1], '必须保持上游顺序');
   }
-  assert.match(res.ranking.note, /直线距离/);
+
+  // 距离仍然照常计算并返回 —— 只是不再当排序依据
+  assert.equal(
+    res.candidates.every((c) => typeof c.straightLineMeters === 'number'),
+    true,
+    '距离仍要给出，供用户参考'
+  );
+  assert.match(res.ranking.note, /相关性/);
+  assert.ok(res.ranking.basisMeaning.relevance);
+
+  // 与显式的距离排序**确实不同** —— 否则这条测试等于没测
+  const byDist = expectOk(
+    await w.A('place.search', Object.assign({ keyword: '', center: CENTER, rankBy: 'distance' }, FAKE))
+  );
+  assert.equal(byDist.ranking.basis, 'distance');
+  assert.notDeepEqual(
+    res.candidates.map((c) => c.name),
+    byDist.candidates.map((c) => c.name),
+    '两种排序恰好相同时，这条断言就失去意义了 —— 换一组夹具'
+  );
+
+  const dists = byDist.candidates.map((c) => c.straightLineMeters);
+  for (let i = 1; i < dists.length; i++) {
+    assert.ok(dists[i] >= dists[i - 1], '显式按距离时必须真的按距离升序');
+  }
 });
 
 test('地点检索：rankBy=verified 时已核验地点优先', async () => {

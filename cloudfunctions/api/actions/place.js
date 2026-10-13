@@ -272,9 +272,39 @@ async function search(ctx) {
     });
   }
 
-  // ── 排序：默认按到中心的直线距离 —— **零成本**，不消耗地图配额
-  const basis = p.rankBy === 'verified' ? 'verified' : 'distance';
-  let ranked = rankByDistance(rows, center, basis, verifiedIds);
+  /**
+   * ── 排序 ──
+   *
+   * ⚠️ 默认是 **`relevance`（保留上游的相关性排序）**，这是 2026-10-13 修正的。
+   *
+   * 首版默认按"到检索中心的直线距离"重排，**把上游的相关性排序整个冲掉了**。
+   * 实测后果：搜「冰雪大世界」时，结果前列全是附近的地铁站
+   * （哈尔滨站[地铁站]、尚志大街[地铁站]…）—— 因为它们离用户更近，
+   * 而真正的冰雪大世界反而被挤到后面。
+   *
+   * 搜索的第一诉求是"**找到我要的那个地方**"，那是相关性；
+   * 距离是第二诉求（"顺便看看近的"），不该抢第一的位置。
+   *
+   * 距离仍然照常计算并随结果返回 —— 只是不再拿它当默认排序依据。
+   */
+  const basis =
+    p.rankBy === 'distance' ? 'distance' : p.rankBy === 'verified' ? 'verified' : 'relevance';
+
+  let ranked;
+  if (basis === 'relevance') {
+    // `rows` 是按上游返回顺序推入的，所以下标就是上游的相关性名次
+    ranked = rows.map((r, i) => {
+      const straight =
+        center && r.location ? Math.round(haversineMeters(center, r.location)) : null;
+      return Object.assign({}, r, {
+        upstreamIndex: i,
+        straightLineMeters: straight,
+        verified: verifiedIds.has(r.placeId),
+      });
+    });
+  } else {
+    ranked = rankByDistance(rows, center, basis, verifiedIds);
+  }
 
   /**
    * 可选：用**真实步行时间**精排前 K 个。
@@ -333,8 +363,19 @@ async function search(ctx) {
       note:
         enriched > 0
           ? `前 ${enriched} 个已用真实步行时间精排（每项多消耗 1 次地图配额）`
-          : '按直线距离排序，未消耗地图配额。开启 enrichWalk 可用真实步行时间精排' +
-            '（直线距离在短距离下不可靠：实测直线 10 米对应实际步行 76 米）',
+          : basis === 'relevance'
+            ? '按检索结果的相关性排序（上游顺序），距离仅作参考。' +
+              '需要"离我最近"时传 rankBy: "distance"；开启 enrichWalk 可用真实步行时间精排' +
+              '（直线距离在短距离下不可靠：实测直线 10 米对应实际步行 76 米）'
+            : basis === 'distance'
+              ? '按到检索中心的直线距离排序，未消耗地图配额'
+              : '已核验地点优先，其次按距离',
+      /** 说明每个候选的排序依据，界面可直接展示 */
+      basisMeaning: {
+        relevance: '上游检索的相关性——"找到你要的那个地方"',
+        distance: '到检索中心的直线距离——"离我最近的"',
+        verified: '已实地核验的优先',
+      },
       timeEstimateCaveat:
         '外部检索地点的停留时长是**估值**（visitDurationSource: default-untuned），' +
         '用于生成时间线，但不是踏勘结论。',

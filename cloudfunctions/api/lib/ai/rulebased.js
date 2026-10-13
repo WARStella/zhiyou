@@ -149,18 +149,53 @@ function cleanPlacePhrase(s) {
 }
 
 /**
+ * 不适合作为"游览地点"的 POI 类目。
+ *
+ * ⚠️ **实测踩到的坑**：用户说「我想去冰雪大世界」，而库里有一条早先检索回来的
+ * POI 叫「冰雪大世界[地铁站]」，类目是 `基础设施;交通设施:地铁站`。
+ * 它是**地铁站**，不是那个冰雪乐园。
+ *
+ * 把它当已知地点参与匹配的后果：用户想去的地方被替换成一个地铁站，
+ * 检索词也跟着变成「冰雪大世界[地铁站]」—— 搜出来自然全是地铁站。
+ *
+ * 腾讯的 POI 类目是「大类;中类:小类」这种自由文本，所以这里用关键词排除。
+ */
+const NON_VISITABLE_CATEGORY_RE =
+  /地铁站|公交站|停车场|加油站|充电站|收费站|服务区|道路|路口|门牌|出入口|天桥|隧道|卫生间|公共厕所|ATM|营业厅|售票处|咨询处/;
+
+/** 去掉 POI 名里的类别或门店后缀：「冰雪大世界[地铁站]」→「冰雪大世界」 */
+function baseName(name) {
+  return String(name || '')
+    .replace(/[\[【（(][^\]】）)]*[\]】）)]\s*$/, '')
+    .trim();
+}
+
+/**
+ * 从地点记录里挑出**能作为"用户想去的地方"**的名字。
+ *
+ * 过滤掉交通设施等不可游览的类目 —— 否则「冰雪大世界」会被
+ * 「冰雪大世界[地铁站]」抢先匹配（见 NON_VISITABLE_CATEGORY_RE 的说明）。
+ */
+function pickKnownPlaceNames(places) {
+  return (places || [])
+    .filter((p) => p && p.name && !NON_VISITABLE_CATEGORY_RE.test(String(p.category || '')))
+    .map((p) => p.name);
+}
+
+/**
  * 文本里是否点名了某个已知地点。
  *
  * ⚠️ **双向包含是危险的，这里踩过一次真实的坑**：
  * 用户说「我想去冰雪大世界」，库里有一条检索回来的 POI 叫
  * 「哈尔滨悦苒民宿(哈尔滨冰雪大世界融创文旅城龙川路地铁站)」——
  * 因为它的名字里**嵌了地标名**，`n.includes(text)` 就命中了它。
- * 结果：把这间民宿当成了"用户必去的地方"，检索词也变成了那串 30 字的 POI 全名，
- * 搜出来只有它自己。
  *
  * 所以只承认**真正的简称**：用户的说法要至少覆盖全名的一半长度。
  *   · 「索菲亚」→「圣索菲亚教堂」 3/6 = 0.5 ✓
  *   · 「冰雪大世界」→ 那条民宿名 5/30 ≈ 0.17 ✗
+ *
+ * 比对时同时考虑**去掉类别后缀的名字**：「Theone钢琴教室(民生路店)」
+ * 去掉后缀就是「Theone钢琴教室」，用户这么说应当算完整提到。
  */
 const ABBREV_MIN_RATIO = 0.5;
 
@@ -169,18 +204,31 @@ function matchKnown(text, knownPlaceNames) {
   const t = String(text || '').trim();
   if (t.length < 2) return null;
 
-  const hits = knownPlaceNames.filter((n) => {
-    if (!n || typeof n !== 'string') return false;
-    // 用户在话里完整提到了某个已知地点 —— 这条永远安全
-    if (t.includes(n)) return true;
-    // 简称：只在**长度接近**时才认，避免"碰巧是某个长名字的子串"
-    if (n.includes(t) && t.length / n.length >= ABBREV_MIN_RATIO) return true;
-    return false;
-  });
+  const scored = [];
+  for (const n of knownPlaceNames) {
+    if (!n || typeof n !== 'string') continue;
+    const base = baseName(n) || n;
 
-  if (!hits.length) return null;
-  // 取最长的那个，避免「教堂」抢在「圣索菲亚教堂」前面
-  return hits.sort((a, b) => b.length - a.length)[0];
+    // 用户在话里完整提到了某个已知地点 —— 这条永远安全
+    if (t.includes(n)) {
+      scored.push({ n, score: 3 });
+      continue;
+    }
+    // 与"去掉后缀的名字"完全一致（如用户说「Theone钢琴教室」，库里是「Theone钢琴教室(民生路店)」）
+    if (t === base) {
+      scored.push({ n, score: 2 });
+      continue;
+    }
+    // 真正的简称：长度要过半，避免"碰巧是某个长名字的子串"
+    if (base.includes(t) && t.length / base.length >= ABBREV_MIN_RATIO) {
+      scored.push({ n, score: 1 });
+    }
+  }
+
+  if (!scored.length) return null;
+  // 先按匹配强度，再按名字长度（避免「教堂」抢在「圣索菲亚教堂」前面）
+  scored.sort((a, b) => b.score - a.score || b.n.length - a.n.length);
+  return scored[0].n;
 }
 
 /**
@@ -563,5 +611,11 @@ module.exports = {
   explain,
   toNumber,
   parseClock,
-  _rules: { END_TIME_RES, START_TIME_RES, PACE_RULES, VAGUE_RULES, ANCHOR_RES },
+  // 供调用方（与测试）复用
+  matchKnown,
+  baseName,
+  pickKnownPlaceNames,
+  cleanPlacePhrase,
+  NON_VISITABLE_CATEGORY_RE,
+  _rules: { END_TIME_RES, START_TIME_RES, PACE_RULES, VAGUE_RULES, ANCHOR_RES, GOAL_RE },
 };
