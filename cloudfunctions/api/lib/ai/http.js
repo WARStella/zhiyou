@@ -14,6 +14,7 @@
  */
 
 const { defaultTransport, redact } = require('../http');
+const { parseJsonLoose } = require('./json');
 
 /** 提示词版本 —— 改了提示词就必须改它，否则评测结果无法归因 */
 const PROMPT_VERSION = 'intent-v1';
@@ -74,7 +75,17 @@ function createHttpParser(opts) {
     async parse(text, o) {
       o = o || {};
       if (!key) {
-        return { ok: false, reason: 'AI_KEY_NOT_CONFIGURED', message: '云函数环境变量 AI_API_KEY 未配置' };
+        return {
+          ok: false,
+          reason: 'AI_KEY_NOT_CONFIGURED',
+          message: '云函数环境变量 AI_API_KEY 未配置，无法调用大模型',
+          // 失败必须带可执行的修复指引（与地图服务同一约定）
+          hint:
+            '云开发控制台 → 云函数 → api → 配置 → 环境变量 → 新增 AI_API_KEY。' +
+            'Key 到 platform.deepseek.com 申请；**为本项目单独申请**，' +
+            '不要复用其他工具的（账单会纠缠）。' +
+            '配好之前系统会自动降级到规则解析，功能不中断。',
+        };
       }
 
       const url = `${baseUrl}/chat/completions`;
@@ -129,14 +140,20 @@ function createHttpParser(opts) {
         };
       }
 
-      let parsed;
-      try {
-        parsed = JSON.parse(content);
-      } catch (e) {
+      /**
+       * ⚠️ 用容错解析而不是裸 `JSON.parse`。
+       *
+       * 模型经常把 JSON 包在 markdown 代码块里，或前后加一句"好的"。
+       * 那是**已知的常见行为**，不该让整次解析失败 ——
+       * 尤其 `response_format` 并非所有模型都可靠支持（有的忽略、有的报错）。
+       * 详见 lib/ai/json.js 的说明。
+       */
+      const parsed = parseJsonLoose(content);
+      if (!parsed) {
         return {
           ok: false,
           reason: 'AI_BAD_JSON',
-          message: '模型返回的不是合法 JSON',
+          message: '模型返回的不是合法 JSON（已尝试剥离 markdown 代码块与前后解释）',
           rawHead: String(content).slice(0, 600),
           timingMs,
         };
@@ -158,6 +175,12 @@ function createHttpParser(opts) {
         usage: body.usage || null,
         promptVersion: PROMPT_VERSION,
         model,
+        /**
+         * 模型的**原始输出**（截断）。
+         * 成功时也要带出来 —— 核对"它到底返回了什么结构"只能靠它，不能靠记忆。
+         * 与地图探针带 rawHead 是同一条纪律。
+         */
+        rawHead: String(content).slice(0, 600),
       };
     },
   };

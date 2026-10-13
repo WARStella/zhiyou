@@ -15,6 +15,7 @@ const trip = require('./trip');
 const meet = require('./meet');
 const map = require('./map');
 const intent = require('./intent');
+const ai = require('./ai');
 
 module.exports = {
   // 用户与运维
@@ -62,4 +63,7 @@ module.exports = {
 
   // 需求解析（AI 层与算法层的接缝）
   'intent.parse': intent.parse,
+
+  // 大模型探针（与 map.probe 同套路）
+  'ai.probe': ai.probe,
 };

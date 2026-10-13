@@ -21,8 +21,9 @@
     <button class="btn ghost" bindtap="runSelfTest" disabled="{{running}}">写入形态自检</button>
     <button class="btn ghost" bindtap="initDb" disabled="{{running}}">初始化数据库</button>
     <button class="btn ghost" bindtap="runMapProbe" disabled="{{running}}">地图接口探针（会真实调用）</button>
+    <button class="btn ghost" bindtap="runAiProbe" disabled="{{running}}">大模型接口探针（会真实调用）</button>
   </view>
-  <view class="tip">顺序：后端自检 → 初始化数据库 → 唯一索引校验 → 写入形态自检 → 地图接口探针</view>
+  <view class="tip">顺序：后端自检 → 初始化数据库 → 唯一索引校验 → 写入形态自检 → 地图接口探针 → 大模型接口探针</view>
 
   <button class="btn link-btn" bindtap="openMap">打开地图页面（位置接口申请材料）</button>
 
@@ -106,6 +107,24 @@
           <view class="diag-hd">{{result.data.verdict}}</view>
           <view wx:for="{{result.data.results}}" wx:key="name" class="hint">
             {{item.ok ? '✓' : '✗'}} {{item.name}} — {{item.summary || item.message}}
+          </view>
+        </view>
+      </block>
+
+      <!-- ai.probe -->
+      <block wx:if="{{result.data.kind === 'aiProbe'}}">
+        <view class="kv"><text class="k2">解析器</text><text class="v2">{{result.data.provider}}</text></view>
+        <view class="kv">
+          <text class="k2">Key 已配置</text>
+          <text class="v2">{{result.data.keyConfigured ? result.data.keyMasked : '否（需加 AI_API_KEY）'}}</text>
+        </view>
+        <view class="kv"><text class="k2">模型</text><text class="v2">{{result.data.model || '(未指定)'}}</text></view>
+        <view class="kv"><text class="k2">提示词版本</text><text class="v2">{{result.data.promptVersion || '-'}}</text></view>
+        <view class="kv"><text class="k2">通过 / 总数</text><text class="v2">{{result.data.passed}} / {{result.data.total}}</text></view>
+        <view class="diag">
+          <view class="diag-hd">{{result.data.verdict}}</view>
+          <view wx:for="{{result.data.results}}" wx:key="name" class="hint">
+            {{item.ok ? '✓' : (item.expectedFailure ? '·' : '✗')}} {{item.name}} — {{item.summary || item.message}}
           </view>
         </view>
       </block>

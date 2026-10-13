@@ -38,18 +38,41 @@ function createRuleParser() {
 function createFakeParser(opts) {
   opts = opts || {};
   const canned = opts.canned || {};
+  /**
+   * 假解析器也要遵守"Key 只以掩码出现"的约定 ——
+   * 否则探针的泄露断言在本地是空跑，测不到真问题。
+   */
+  const rawKey = opts.key !== undefined ? opts.key : process.env.AI_API_KEY;
+  const key = rawKey == null ? 'FAKE_AI_KEY_OK' : String(rawKey).trim();
+
   return {
     name: 'fake',
     promptVersion: 'fake-v1',
     model: 'fake',
     available: true,
+    keyMasked: key
+      ? `${key.slice(0, 4)}${'*'.repeat(Math.max(4, key.length - 8))}${key.slice(-4)}`
+      : null,
     async parse(text, o) {
       if (opts.failWith) {
-        return { ok: false, reason: opts.failWith.reason || 'AI_UPSTREAM_FAILED', message: opts.failWith.message || '假解析器故障' };
+        return {
+          ok: false,
+          reason: opts.failWith.reason || 'AI_UPSTREAM_FAILED',
+          message: opts.failWith.message || '假解析器故障',
+        };
       }
       const hit = canned[text];
-      if (hit) return { ok: true, parsed: Object.assign({ rawText: text, parser: 'fake' }, hit), timingMs: 1 };
-      return { ok: true, parsed: rulebased.parse(text, o), timingMs: 1 };
+      const parsed = hit
+        ? Object.assign({ rawText: text, parser: 'fake' }, hit)
+        : rulebased.parse(text, o);
+      return {
+        ok: true,
+        parsed,
+        timingMs: 1,
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+        // 假解析器也要回传原始内容 —— 否则"探针必须带出原始返回"这条契约本地测不到
+        rawHead: JSON.stringify(parsed).slice(0, 600),
+      };
     },
   };
 }
