@@ -60,9 +60,23 @@ function loadPage(relPath, opts) {
   global.getApp = () => opts.app || { globalData: { cloudReady: true } };
   global.wx = Object.assign(
     {
+      /**
+       * ⚠️ **必须是回调风格**（2026-10-13 修正）。
+       *
+       * 小程序的 `wx.getLocation` 是 `{success, fail}` 回调，不是 Promise。
+       * 首版替身写成 `() => Promise.reject(...)` —— **形状不对，于是页面代码
+       * 走进了完全不同的分支**：`new Promise(resolve => { wx.getLocation({...}) })`
+       * 永远不 resolve，页面就一直停在"正在取路线…"，而测试看到的是别的原因。
+       *
+       * **替身不同形，测出来的就不是真机上的行为。**
+       */
+      getLocation: (o) => {
+        if (o && typeof o.fail === 'function') o.fail({ errMsg: 'harness: no location' });
+      },
       createMapContext: () => ({ includePoints: (a) => wxCalls.push({ fn: 'includePoints', args: a }) }),
-      getLocation: () => Promise.reject(new Error('no location')),
       showToast: (a) => wxCalls.push({ fn: 'showToast', args: a }),
+      openLocation: (a) => wxCalls.push({ fn: 'openLocation', args: a }),
+      pageScrollTo: (a) => wxCalls.push({ fn: 'pageScrollTo', args: a }),
       cloud: {},
       nextTick: (fn) => fn(),
     },
@@ -74,9 +88,18 @@ function loadPage(relPath, opts) {
     // eslint-disable-next-line global-require
     require(abs);
   } finally {
+    /**
+     * ⚠️ 只还原 `Page`，**`wx` 与 `getApp` 保持安装**（2026-10-13 修正）。
+     *
+     * 首版把 `wx` 也还原了 —— 于是 `require` 之后、测试调用页面方法时，
+     * `global.wx` 已经是 `undefined`，页面里 `wx.getLocation` 直接抛
+     * 「Cannot read properties of undefined」。
+     *
+     * 真实运行时里 `wx` 是**常驻全局**，不在加载后消失。
+     * **替身的生命周期也要与真实同形**，否则测出来的是另一回事。
+     * 每次 `loadPage` 都会重新覆盖，所以不会互相污染。
+     */
     global.Page = prevGlobals.Page;
-    global.getApp = prevGlobals.getApp;
-    global.wx = prevGlobals.wx;
     if (prevCache) require.cache[apiPath] = prevCache;
     else delete require.cache[apiPath];
   }

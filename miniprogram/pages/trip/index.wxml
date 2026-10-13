@@ -222,9 +222,35 @@
         <text wx:if="{{currentLeg.estimated}}" class="leg-warn">估算</text>
       </view>
       <view class="leg-actions">
-        <button class="btn ghost small" bindtap="openNavigation">导航到这一站</button>
+        <button wx:if="{{!navLeg}}" class="btn small" bindtap="startNavigation" disabled="{{navLoading}}">
+          {{navLoading ? '正在取路线…' : '开始导航'}}
+        </button>
+        <block wx:else>
+          <button class="btn ghost small" bindtap="stopNavigation">退出导航</button>
+        </block>
+        <button class="btn ghost small" bindtap="openInWechatMap">用微信地图打开（有语音）</button>
       </view>
-      <view class="sub">导航交给微信内置地图；应用内逐步导航是后续计划</view>
+
+      <view wx:if="{{navError}}" class="hint">{{navError}}</view>
+      <view wx:if="{{navHint}}" class="hint">{{navHint}}</view>
+
+      <!-- 内置导航：转向指引（**上游原话**，不自己做文案） -->
+      <view wx:if="{{navLeg && navLeg.steps.length}}" class="nav-steps">
+        <view class="nav-head">
+          <text class="nav-title">转向指引</text>
+          <text class="v muted">{{navLeg.distanceMeters}} 米 · {{navLeg.durationMinutes}} 分钟</text>
+        </view>
+        <view wx:for="{{navLeg.steps}}" wx:key="seq" class="nav-step">
+          <text class="nav-seq">{{item.seq}}</text>
+          <view class="nav-body">
+            <text class="nav-text">{{item.instruction}}</text>
+            <text wx:if="{{item.distanceMeters}}" class="nav-dist">{{item.distanceMeters}} 米</text>
+          </view>
+        </view>
+        <view class="sub">路径与指令均来自上游；地图上画的是真实步行路径，不是直线示意</view>
+      </view>
+
+      <view class="sub" wx:else>导航交给微信内置地图；应用内逐步导航是后续计划</view>
     </view>
 
     <!-- 路线地图：走到哪了一眼看得出 -->

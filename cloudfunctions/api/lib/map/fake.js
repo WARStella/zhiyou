@@ -22,6 +22,7 @@
 
 const { haversineMeters, DETOUR_FACTOR } = require('../geo');
 const { PLACE_POOL } = require('./fake-data');
+const { decodeRoute } = require('./polyline');
 
 const WALK_SPEED_M_PER_MIN = 75;
 
@@ -111,8 +112,51 @@ function createFakeProvider(opts) {
       // 详见 lib/map/tencent.js 的 checkDurationUnit —— 那里有实测依据。
       const durationMinutes = Math.max(1, Math.round(distanceMeters / speed));
 
-      // 折线用扁平数组，模拟腾讯返回的形态（lat,lng 交替，含 0,0 占位）
-      const polyline = [from.latitude, from.longitude, 0, 0, to.latitude, to.longitude];
+      /**
+       * 折线用**真实的差分压缩格式**造，不要图省事写成绝对坐标。
+       *
+       * ⚠️ 首版是 `[from.lat, from.lng, 0, 0, to.lat, to.lng]` —— 第三对直接写了
+       * 绝对坐标，可格式上它应该是**增量**。这样解出来会得到"起点 + 终点"
+       * 这种荒唐值，而**假服务自己不会报错**。
+       *
+       * **替身比真实情况宽松，缺陷就测不出来** —— 这个坑今天已经踩过两次
+       * （内存仓储、编造的 POI 类目）。
+       */
+      const mid = {
+        latitude: (from.latitude + to.latitude) / 2,
+        longitude: (from.longitude + to.longitude) / 2,
+      };
+      const pts = [
+        { latitude: from.latitude, longitude: from.longitude },
+        mid,
+        { latitude: to.latitude, longitude: to.longitude },
+      ];
+      const polyline = [pts[0].latitude, pts[0].longitude];
+      for (let i = 1; i < pts.length; i++) {
+        polyline.push(Math.round((pts[i].latitude - pts[i - 1].latitude) * 1e6));
+        polyline.push(Math.round((pts[i].longitude - pts[i - 1].longitude) * 1e6));
+      }
+
+      /** 分步指引：文案要像真的，但**不编造具体路名**（假服务没有路网数据） */
+      const half = Math.round(distanceMeters / 2);
+      const steps = [
+        {
+          instruction: '从起点出发前行',
+          act_desc: '',
+          dir_desc: '',
+          road_name: '',
+          distance: half,
+          polyline_idx: [0, 2],
+        },
+        {
+          instruction: '继续前行到达终点',
+          act_desc: '',
+          dir_desc: '',
+          road_name: '',
+          distance: distanceMeters - half,
+          polyline_idx: [2, 4],
+        },
+      ];
 
       return Object.assign(base, {
         ok: true,
@@ -129,6 +173,16 @@ function createFakeProvider(opts) {
         distanceMeters,
         durationRaw: durationMinutes,
         durationUnit: 'minute',
+        /**
+         * 解码后的路线（导航用）—— 与真实 provider 同形。
+         * 假的也要**走同一个解码器**，否则调用方在真数据上会撞到没测过的分支。
+         */
+        route: decodeRoute({
+          distance: distanceMeters,
+          duration: durationMinutes,
+          polyline,
+          steps,
+        }),
         unitCheck: {
           unit: 'minute',
           impliedMPerMin: Math.round(distanceMeters / durationMinutes),

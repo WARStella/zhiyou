@@ -49,6 +49,8 @@ module.exports = {
   'trip.adjust': trip.adjust,
   'trip.confirmChange': trip.confirmChange,
   'trip.progress': trip.progress,
+  /** 某一段的真实步行路线与转向指引 —— 内置导航的数据来源 */
+  'trip.legRoute': trip.legRoute,
 
   // 集合
   'meet.recommend': meet.recommend,

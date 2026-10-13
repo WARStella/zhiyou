@@ -462,6 +462,17 @@ async function plan(ctx) {
     version: 1,
     nodes,
     params,
+    /**
+     * ⚠️ 出发位置必须**随行程持久化**（2026-10-13 补）。
+     *
+     * 首版只把它放进响应，没落库 —— 于是事后取导航时，
+     * **第一段的起点无处可查**。出发位置是这次计划的一部分，
+     * 不是一次性的响应字段。
+     *
+     * 放在**顶层**而不是 `params` 里：`params` 是算法参数白名单
+     * （`resolveParams` 会拒绝不认识的键），而这是行程数据。
+     */
+    startPoint: startPoint || null,
     plannedStartAt: new Date(spec.startAt),
     plannedEndAt: tl.endAt,
     generatedBy: {
@@ -975,4 +986,138 @@ function matchStayByText(map, name) {
   return null;
 }
 
-module.exports = { plan, get, adjust, confirmChange, progress, loadPlaces, loadTripForRead };
+/**
+ * 取某一段的**真实步行路线与转向指引** —— 内置导航的数据来源。
+ *
+ * ── 为什么单独一个接口，而不是让 trip.plan 一并返回 ──────────
+ *
+ * 一条路线的折线有几十到几百个点，一次计划里有好几段 ——
+ * 全塞进 `trip.plan` 的响应里，只会让"生成路线"这个动作变慢、变重。
+ * 而导航是**用户主动点**才需要的，一次只要一段。
+ *
+ * ── 起点怎么取（优先级从高到低）────────────────────────────
+ *
+ *   ① `fromPoint`：**客户端当前位置** —— 导航本来就该从"你在哪"算起；
+ *   ② 上一站的位置；
+ *   ③ `trip.params.startPoint`：计划时的出发位置（旧行程可能没有）。
+ *
+ * 三者都没有就如实失败，**不编一个起点**。
+ *
+ * ⚠️ 每次调用**真实消耗 1 次地图配额**（`walkTimes` 会如实计数）。
+ */
+async function legRoute(ctx) {
+  const { repo, openid, env } = ctx;
+  require_fields(ctx.payload, ['tripId']);
+  const p = ctx.payload;
+  const started = Date.now();
+
+  const trip = await repo.get(C.TRIPS, p.tripId);
+  if (!trip) throw fail(CODES.NOT_FOUND, '行程不存在');
+  if (trip.mode === 'team') await requireCrewMember(repo, trip.crewId, openid);
+  else assert(trip.ownerUserId === openid, CODES.FORBIDDEN_NOT_MEMBER, '无权读取该行程');
+
+  const nodes = trip.nodes || [];
+  const isReached = (s) => s === 'arrived' || s === 'done';
+
+  /** 目标节点：显式给 nodeId 用它；否则用"当前站"（第一个没走完的） */
+  let idx = -1;
+  if (p.nodeId) {
+    idx = nodes.findIndex((n) => n.nodeId === p.nodeId);
+    assert(idx >= 0, CODES.NOT_FOUND, '节点不存在');
+  } else {
+    idx = nodes.findIndex((n) => !isReached(n.status));
+    assert(idx >= 0, CODES.NOT_FOUND, '行程已全部走完，没有需要导航的下一站');
+  }
+
+  const to = nodes[idx];
+  assert(to && to.location, CODES.INVALID_PARAM, '该节点没有坐标，无法导航');
+
+  const startFromTrip = trip.startPoint;
+  const from =
+    (p.fromPoint && typeof p.fromPoint.latitude === 'number' && p.fromPoint) ||
+    (idx > 0 && nodes[idx - 1] && nodes[idx - 1].location) ||
+    (startFromTrip && typeof startFromTrip.latitude === 'number' && startFromTrip) ||
+    null;
+
+  if (!from) {
+    return resp.ok({
+      ok: false,
+      reason: 'NO_START_POINT',
+      message: '不知道从哪里出发，无法规划这一段路线',
+      hint:
+        '客户端传 fromPoint（当前位置）最准；或在生成路线时传 startPoint，' +
+        '那样出发位置会随行程一起保存。',
+      legs: [],
+    });
+  }
+
+  // 起终点重合时上游会直接拒绝（status 374，已实测）—— 先自行判掉
+  if (from.latitude === to.location.latitude && from.longitude === to.location.longitude) {
+    return resp.ok({
+      ok: false,
+      reason: 'SAME_POINT',
+      message: '你已经在这一站了，不需要导航',
+      legs: [],
+    });
+  }
+
+  const provider = (ctx.createMapProvider || createMapProvider)(
+    p.provider || process.env.MAP_PROVIDER,
+    { key: env === 'dev' ? p.overrideKey : undefined, timeoutMs: p.timeoutMs }
+  );
+
+  let r;
+  try {
+    r = await provider.walkingRoute(from, to.location);
+  } catch (e) {
+    r = { ok: false, reason: 'THREW', message: (e && e.message) || String(e) };
+  }
+
+  await logEvent(repo, {
+    ts: new Date(ctx.now ? ctx.now : Date.now()),
+    type: 'upstream_call',
+    action: 'trip.legRoute',
+    userId: openid,
+    result: r.ok ? 'ok' : 'error',
+    errCode: r.ok ? null : r.reason || 'UPSTREAM_FAILED',
+    durationMs: Date.now() - started,
+    mapApiCalls: 1,
+    detail: { tripId: trip._id, nodeId: to.nodeId, provider: provider.name },
+  });
+
+  if (!r.ok) {
+    return resp.ok({
+      ok: false,
+      reason: r.reason,
+      status: r.status || null,
+      message: r.message,
+      hint: r.hint || null,
+      legs: [],
+      mapApiCalls: 1,
+    });
+  }
+
+  return resp.ok({
+    ok: true,
+    tripId: trip._id,
+    nodeId: to.nodeId,
+    placeName: to.placeName,
+    /** 上一次的段序号（第几段）与总段数，界面用来显示"第 k / n 段" */
+    legIndex: idx + 1,
+    totalLegs: nodes.length,
+    from: { latitude: from.latitude, longitude: from.longitude, label: from.label || null },
+    to: { latitude: to.location.latitude, longitude: to.location.longitude, name: to.placeName },
+    distanceMeters: r.distanceMeters,
+    durationMinutes: r.durationMinutes,
+    /**
+     * 解码后的真实路径与分步指引。
+     * `decoded: false` 表示上游没给或解不开 —— 界面要能分清，
+     * 而不是画一条直线冒充真实路线。
+     */
+    route: r.route,
+    mapApiCalls: 1,
+    note: '每次导航消耗 1 次地图配额；路径与指令均来自上游，未做改写',
+  });
+}
+
+module.exports = { plan, get, adjust, confirmChange, progress, legRoute, loadPlaces, loadTripForRead };

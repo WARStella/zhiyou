@@ -44,6 +44,7 @@
  */
 
 const { HttpError, redact, maskSecret } = require('../http');
+const { decodeRoute } = require('./polyline');
 
 const DEFAULT_BASE = 'https://apis.map.qq.com/ws/direction/v1/walking/';
 /** 地点检索端点（WebServiceAPI · 搜索服务） */
@@ -260,6 +261,20 @@ function createTencentProvider(opts) {
         polylineHead: polyline.slice(0, 8),
         stepCount: steps.length,
         firstStep: steps[0] || null,
+
+        /**
+         * ── 解码后的路线（导航用）──────────────────────────────
+         *
+         * `route.points` 是**可直接画在地图上的真实步行路径**，
+         * `route.steps` 带**上游原话的转向指引**。
+         * 解码格式与验证方式见 `lib/map/polyline.js` 的文件头
+         * （用真实录音确认过：末点落在目的地、折线长度与 distance 吻合）。
+         *
+         * ⚠️ 解析失败时这里是 `decoded: false`，**不是 null** ——
+         * 调用方要能分清"上游没给路径"与"我解不开"。
+         */
+        route: decodeRoute({ distance: distanceMeters, duration: durationRaw, polyline, steps, direction: route && route.direction }),
+
         // ── 原始返回头部，供人工核对结构与坐标系 ──
         rawHead: String(res.rawBody || '').slice(0, RAW_HEAD_LIMIT),
       });

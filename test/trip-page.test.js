@@ -288,13 +288,11 @@ test('直线估算出来的段要标出来 —— 它与真实路线能差 7 倍
   assert.equal(page.data.currentLeg.estimated, true, '估算必须标出来');
 });
 
-test('导航按钮要把目的地交给 wx.openLocation', () => {
-  const page = pageWithTrip();
-
+test('「用微信地图打开」要把目的地交给 wx.openLocation', () => {
   const opened = [];
-  global.wx = { openLocation: (a) => opened.push(a), showToast: () => {} };
-  page.openNavigation();
-  delete global.wx;
+  const page = pageWithTrip({ wx: { openLocation: (a) => opened.push(a) } });
+
+  page.openInWechatMap();
 
   assert.equal(opened.length, 1, '应当调用一次');
   assert.equal(opened[0].name, '哈尔滨工业大学');
@@ -302,16 +300,147 @@ test('导航按钮要把目的地交给 wx.openLocation', () => {
 });
 
 test('没有坐标时提示而不是静默失败', () => {
-  const page = pageWithTrip();
+  const toasts = [];
+  const page = pageWithTrip({ wx: { showToast: (a) => toasts.push(a) } });
   page.setData({ currentLeg: { to: '某地', toLocation: null } });
 
-  const toasts = [];
-  global.wx = { openLocation: () => {}, showToast: (a) => toasts.push(a) };
-  page.openNavigation();
-  delete global.wx;
+  page.openInWechatMap();
 
   assert.equal(toasts.length, 1, '要说清为什么打不开');
   assert.match(toasts[0].title, /坐标/);
+});
+
+// ── 内置导航 ──────────────────────────────────────────────
+
+test('开始导航：取真实路线，并画在地图上（不是直线示意）', async () => {
+  /**
+   * 用户问（2026-10-13）："不能内置导航吗"。
+   *
+   * 能 —— 腾讯的步行路线接口返回 `polyline`（差分压缩）与 `steps`
+   * （**中文转向指引原话**），解码规则已用真实录音确认
+   * （见 test/polyline.test.js）。
+   */
+  const page = pageWithTrip({
+    api: {
+      'trip.legRoute': () => ({
+        ok: true,
+        data: {
+          ok: true,
+          placeName: '哈尔滨工业大学',
+          legIndex: 1,
+          totalLegs: 2,
+          distanceMeters: 815,
+          durationMinutes: 12,
+          from: { latitude: 45.7755, longitude: 126.6172 },
+          to: { latitude: 45.781, longitude: 126.6185, name: '哈尔滨工业大学' },
+          route: {
+            decoded: true,
+            pointCount: 3,
+            points: [
+              { latitude: 45.7755, longitude: 126.6172 },
+              { latitude: 45.7782, longitude: 126.6178 },
+              { latitude: 45.781, longitude: 126.6185 },
+            ],
+            steps: [
+              { seq: 1, instruction: '从起点朝西北行进62米右转进入上游街', distanceMeters: 62 },
+              { seq: 2, instruction: '沿上游街行进110米左转进入中央大街', distanceMeters: 110 },
+            ],
+          },
+        },
+      }),
+    },
+  });
+
+  assert.equal(page.data.navLeg, null, '一开始不在导航状态');
+
+  page.startNavigation();
+  await new Promise((r) => setImmediate(r));
+
+  const nav = page.data.navLeg;
+  assert.ok(nav, '应当进入导航状态');
+  assert.equal(nav.decoded, true);
+  assert.equal(nav.steps.length, 2);
+  assert.equal(nav.steps[0].instruction, '从起点朝西北行进62米右转进入上游街');
+
+  // 地图上要画**真实路径**，不是两个点之间的直线
+  assert.equal(page.data.routeMap.navMode, true, '地图要进入导航模式');
+  assert.equal(page.data.routeMap.polyline[0].points.length, 3, '画的是解码后的真实路径');
+  assert.match(page.data.routeMap.legend, /真实步行路径/);
+});
+
+test('导航失败时如实报错，不画一条假线', async () => {
+  const page = pageWithTrip({
+    api: {
+      'trip.legRoute': () => ({
+        ok: true,
+        data: { ok: false, reason: 'UPSTREAM_STATUS_121', message: '每日调用量已达上限', hint: '去控制台看配额' },
+      }),
+    },
+  });
+
+  page.startNavigation();
+  await new Promise((r) => setImmediate(r));
+
+  assert.equal(page.data.navLeg, null, '失败就不能进导航状态');
+  assert.match(page.data.navError, /上限/);
+  assert.match(page.data.navHint, /配额/);
+  assert.equal(page.data.routeMap.navMode, undefined, '地图留在原来的示意模式');
+});
+
+test('上游没给路径点时，画不出线也要说清楚', async () => {
+  const page = pageWithTrip({
+    api: {
+      'trip.legRoute': () => ({
+        ok: true,
+        data: {
+          ok: true,
+          placeName: 'X',
+          distanceMeters: 100,
+          durationMinutes: 2,
+          to: { latitude: 45.78, longitude: 126.62 },
+          route: { decoded: false, pointCount: 0, points: [], steps: [] },
+        },
+      }),
+    },
+  });
+
+  page.startNavigation();
+  await new Promise((r) => setImmediate(r));
+
+  assert.equal(page.data.navLeg.decoded, false);
+  assert.match(page.data.navError, /不用直线冒充/, '要说清为什么地图上没有线');
+});
+
+test('退出导航后地图回到整条路线的示意', async () => {
+  const page = pageWithTrip({
+    api: {
+      'trip.legRoute': () => ({
+        ok: true,
+        data: {
+          ok: true,
+          placeName: 'A',
+          to: { latitude: 45.78, longitude: 126.62 },
+          route: {
+            decoded: true,
+            pointCount: 2,
+            points: [
+              { latitude: 45.7755, longitude: 126.6172 },
+              { latitude: 45.781, longitude: 126.6185 },
+            ],
+            steps: [],
+          },
+        },
+      }),
+    },
+  });
+
+  page.startNavigation();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(page.data.routeMap.navMode, true);
+
+  page.stopNavigation();
+  assert.equal(page.data.navLeg, null);
+  assert.equal(page.data.routeMap.navMode, undefined, '要回到示意模式');
 });
 
 // ── 预选理由 ──────────────────────────────────────────────

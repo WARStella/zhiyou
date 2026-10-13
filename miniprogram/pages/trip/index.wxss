@@ -786,3 +786,62 @@
   padding: 12rpx 0;
   margin: 0;
 }
+
+/* ── 内置导航：转向指引 ───────────────────── */
+/*
+  指令文案**一律用上游原话**（腾讯返回的 instruction），不自己拼 ——
+  编错一个路口，用户就多走一公里。
+*/
+.nav-steps {
+  margin-top: 16rpx;
+  border-top: 1rpx solid #f0f2f4;
+  padding-top: 16rpx;
+}
+.nav-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 10rpx;
+}
+.nav-title {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #0b3c6e;
+}
+.nav-step {
+  display: flex;
+  align-items: flex-start;
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid #f7f8f9;
+}
+.nav-step:last-child {
+  border-bottom: none;
+}
+.nav-seq {
+  flex: none;
+  width: 36rpx;
+  height: 36rpx;
+  line-height: 36rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: #0b3c6e;
+  color: #ffffff;
+  font-size: 22rpx;
+  margin-right: 14rpx;
+}
+.nav-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.nav-text {
+  font-size: 26rpx;
+  color: #2c3540;
+  line-height: 1.5;
+}
+.nav-dist {
+  font-size: 22rpx;
+  color: #9aa5b1;
+  margin-top: 4rpx;
+}

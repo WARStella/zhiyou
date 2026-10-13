@@ -101,6 +101,11 @@ Page({
      * 不是"站的顺序"，而是行走时真正要看的东西，也是导航需要的全部输入。
      */
     currentLeg: null,
+    /** 应用内导航取到的这一段真实路线（含转向指引）；null 表示没在导航 */
+    navLeg: null,
+    navLoading: false,
+    navError: '',
+    navHint: '',
     endAtText: '',
     endAt: '', // 空字符串 = 不限
     /** 结束时间是从解析结果填进来的（不是用户手选的）—— 要标明 */
@@ -709,7 +714,7 @@ Page({
       {
         timeline: this.buildTimelineView(nodes),
         currentNodeIndex: this.currentIndexOf(nodes),
-        routeMap: this.buildRouteMap(nodes, this.data.startPoint),
+        routeMap: this.buildRouteMap(nodes, this.data.startPoint, this.data.navLeg),
         // 当前出行段随进度变化：走完一站，这一段就换成"从这一站去下一站"
         currentLeg: this.buildCurrentLeg(nodes, this.data.startLeg),
       },
@@ -770,7 +775,7 @@ Page({
             totalWalkMeters: d.summary.totalWalkMeters,
           }
         : null,
-      routeMap: this.buildRouteMap(nodes, d.startPoint),
+      routeMap: this.buildRouteMap(nodes, d.startPoint, this.data.navLeg),
       walkTimes: d.walkTimes || null,
       startPoint: d.startPoint || null,
       startLeg: startLegView,
@@ -835,7 +840,7 @@ Page({
    * 腾讯返回的 `polyline` 是差分压缩格式（首对绝对坐标、其后为相对增量），
    * 解码规则需以官方文档为准，不靠观察猜。
    */
-  buildRouteMap(nodes, startPoint) {
+  buildRouteMap(nodes, startPoint, navLeg) {
     const located = (nodes || []).filter(
       (n) =>
         n.location &&
@@ -843,6 +848,60 @@ Page({
         typeof n.location.longitude === 'number'
     )
     if (!located.length) return null
+
+    /**
+     * ── 导航模式：画**真实路径** ──────────────────────────────
+     *
+     * 进来的是 `trip.legRoute` 解出来的折线（几十到几百个点）。
+     * 这时候不再画"游览顺序示意" —— 那是一条直线，会让人以为要走直线。
+     * `decoded: false` 时**什么都不画**，并如实说明 —— 宁可没有线，
+     * 也不能拿示意图冒充真实路线。
+     */
+    if (navLeg && navLeg.route && navLeg.route.decoded && navLeg.route.points.length >= 2) {
+      const path = navLeg.route.points;
+      const focus = navLeg.fromIndex != null ? navLeg.route.points : path;
+      return {
+        center: path[0],
+        includePoints: path,
+        polyline: [
+          {
+            points: path,
+            color: '#0B3C6E',
+            width: 6,
+            arrowLine: true,
+            borderColor: '#FFFFFF',
+            borderWidth: 2,
+          },
+        ],
+        markers: [startPoint, navLeg.toLocation]
+          .filter((p) => p && typeof p.latitude === 'number')
+          .map((p, i) => ({
+            id: i,
+            latitude: p.latitude,
+            longitude: p.longitude,
+            iconPath: i === 0 ? '/assets/dot-me.png' : '/assets/pin-place.png',
+            width: i === 0 ? 22 : 28,
+            height: i === 0 ? 22 : 35,
+            callout: {
+              content: i === 0 ? '我' : navLeg.placeName || '终点',
+              color: '#FFFFFF',
+              bgColor: i === 0 ? '#FF7A45' : '#0B3C6E',
+              fontSize: 11,
+              borderRadius: 10,
+              padding: 4,
+              display: 'ALWAYS',
+              textAlign: 'center',
+            },
+          })),
+        reachedCount: 0,
+        totalCount: 0,
+        nextName: navLeg.placeName || null,
+        navMode: true,
+        legend:
+          `真实步行路径（上游返回 ${path.length} 个点），不是顺序示意` +
+          (focus === path ? '' : ''),
+      };
+    }
 
     const startPt = startPoint && typeof startPoint.latitude === 'number' ? startPoint : null
 
@@ -1030,15 +1089,98 @@ Page({
   },
 
   /**
-   * 打开导航 —— 交给微信内置地图。
+   * **开始导航** —— 取这一段的真实路线与转向指引。
    *
-   * 小程序里**没有**内嵌的逐向导航，`wx.openLocation` 是标准做法：
-   * 打开内置地图并标出目的地，用户在那里点「导航」。
+   * 数据来自 `trip.legRoute`：解码后的真实步行路径 + **上游原话**的转向指引。
+   * 每次调用消耗 1 次地图配额（响应里的 `mapApiCalls` 会如实计数）。
    *
-   * 后续要做「应用内导航」（显示当前段路线、偏航提醒）的话，
-   * 数据已经齐了：`currentLeg.toLocation` + 地图 provider 的步行路线接口。
+   * ⚠️ 与「用微信地图打开」是两条路：
+   *   · 这里 = **应用内导航**（把真实路径画在地图上 + 逐步指引）
+   *   · 那里 = 交给微信内置地图（有语音，但要跳出小程序）
+   * 两条都留着，因为各有各的用处：走路时看应用内，要语音播报时用系统地图。
    */
-  openNavigation() {
+  startNavigation() {
+    const that = this
+    if (!this.data.trip || !this.data.currentLeg) {
+      wx.showToast({ title: '还没有可以导航的路段', icon: 'none' })
+      return
+    }
+
+    this.setData({ navLoading: true, navError: '', navLeg: null })
+
+    /**
+     * 传当前位置最准 —— 导航本来就该从"你在哪"算起，而不是从计划时的出发点。
+     * 取不到位置就用行程里存的出发位置（服务端会依次回退）。
+     */
+    this.tryLocate()
+      .then(function (from) {
+        return api.callApi('trip.legRoute', {
+          tripId: that.data.trip.tripId,
+          fromPoint: from || undefined,
+        })
+      })
+      .then(function (res) {
+        if (!res || res.ok !== true) {
+          that.setData({
+            navLoading: false,
+            navError: (res && res.error && res.error.message) || '取路线失败',
+          })
+          return
+        }
+        const d = res.data
+        if (d.ok === false) {
+          // 上游失败（配额、Key、起终点重合…）—— 如实展示，不画一条直线冒充
+          that.setData({
+            navLoading: false,
+            navError: d.message || '取路线失败',
+            navHint: d.hint || '',
+          })
+          return
+        }
+
+        that.setData(
+          {
+            navLoading: false,
+            navLeg: {
+              placeName: d.placeName,
+              legIndex: d.legIndex,
+              totalLegs: d.totalLegs,
+              distanceMeters: d.distanceMeters,
+              durationMinutes: d.durationMinutes,
+              decoded: Boolean(d.route && d.route.decoded),
+              pointCount: (d.route && d.route.pointCount) || 0,
+              steps: (d.route && d.route.steps) || [],
+              /** 真实路径 —— 地图直接画它（见 buildRouteMap 的导航模式分支） */
+              route: d.route || null,
+              toLocation: d.to,
+            },
+            navHint: '',
+            navError:
+              d.route && d.route.decoded
+                ? ''
+                : '上游没有返回可用的路径点，地图上不画线（不用直线冒充真实路线）',
+          },
+          /**
+           * 必须**重建地图**，不能只调 fitRouteMap ——
+           * `routeMap` 是在 `buildRouteMap` 里按 navLeg 分支生成的，
+           * 不重建就还是原来那条"顺序示意"的线。
+           * `rebuildFromNodes` 内部会把 navLeg 传下去，并在之后重新框视野。
+           */
+          () => that.rebuildFromNodes()
+        )
+      })
+      .catch(function (err) {
+        that.setData({ navLoading: false, navError: (err && err.errMsg) || '取路线失败' })
+      })
+  },
+
+  /** 退出导航，地图回到"整条路线"的示意 */
+  stopNavigation() {
+    this.setData({ navLeg: null, navError: '', navHint: '' }, () => this.rebuildFromNodes())
+  },
+
+  /** 交给微信内置地图（有语音播报，但要跳出小程序） */
+  openInWechatMap() {
     const leg = this.data.currentLeg
     if (!leg || !leg.toLocation) {
       wx.showToast({ title: '这一段还没有目的地坐标', icon: 'none' })
