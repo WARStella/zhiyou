@@ -2,7 +2,8 @@
   "pages": [
     "pages/trip/index",
     "pages/map/index",
-    "pages/index/index"
+    "pages/index/index",
+    "pages/debug-team/index"
   ],
   "window": {
     "backgroundTextStyle": "light",

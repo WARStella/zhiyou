@@ -1,0 +1,64 @@
+<view class="page">
+  <view class="title">三机联调</view>
+  <view class="intro">三台手机、三个微信账号。A 建队，B/C 加入。仅测试集合状态，不绑定行程、不采集位置。按钮会写入开发库。</view>
+  <view class="card">
+    <view>环境：{{env || '检查中'}} · {{envId}}</view>
+    <text selectable class="mono">我的身份：{{identity || '未就绪'}}</text>
+    <view class="hint">核对三台手机的身份不同、云环境相同。</view>
+  </view>
+  <view wx:if="{{error}}" class="error" selectable>{{error}}</view>
+  <view wx:if="{{busy}}" class="hint">请求进行中，请稍候…</view>
+  <view class="card">
+    <view class="heading">1 · 创建或加入同一小队</view>
+    <button bindtap="createCrew" disabled="{{busy || !ready}}">A：创建测试小队</button>
+    <input placeholder="B/C 输入 A 的邀请码" value="{{inviteCode}}" data-field="inviteCode" bindinput="input" disabled="{{busy}}" />
+    <button bindtap="joinCrew" disabled="{{busy || !ready}}">加入小队</button>
+    <button class="secondary" data-kind="invite" bindtap="copy">复制邀请码</button>
+    <text selectable class="mono">小队：{{crewId || '未加入'}}</text>
+    <view wx:for="{{members}}" wx:key="userId" class="member"><text selectable>{{item.userId}}</text> · {{item.role}}</view>
+  </view>
+  <view class="card">
+    <view class="heading">2 · A 创建集合，B/C 加载任务</view>
+    <view class="hint">三人全部加入后创建。每轮新建集合；计划时间为创建后 30 分钟。</view>
+    <input placeholder="手动集合点名称" value="{{placeName}}" data-field="placeName" bindinput="input" disabled="{{busy}}" />
+    <input placeholder="纬度，例如从地图读取的纬度" value="{{latitude}}" data-field="latitude" bindinput="input" disabled="{{busy}}" />
+    <input placeholder="经度，例如从地图读取的经度" value="{{longitude}}" data-field="longitude" bindinput="input" disabled="{{busy}}" />
+    <button bindtap="createMeeting" disabled="{{busy || !ready || !crewId}}">创建本轮集合</button>
+    <button class="secondary" data-kind="task" bindtap="copy">复制集合任务 ID</button>
+    <input placeholder="B/C 粘贴集合任务 ID" value="{{taskInput}}" data-field="taskInput" bindinput="input" disabled="{{busy}}" />
+    <button bindtap="refresh" disabled="{{busy || !ready}}">加载 / 刷新状态（新请求）</button>
+  </view>
+  <view class="card" wx:if="{{task}}">
+    <view class="heading">3 · 倒数后同时操作</view>
+    <view class="status">{{task.status}} · version {{version}}</view>
+    <text selectable class="mono">发起人：{{task.initiatorUserId}}</text>
+    <view>计划集合：{{task.plannedMeetAt}}</view>
+    <view>实际到齐：{{task.allArrivedAt || '尚未到齐'}}</view>
+    <view>实际出发：{{task.departedAt || '尚未出发'}}</view>
+    <view class="hint">时间为服务端 ISO 时间（Z 表示 UTC）。最后刷新：{{refreshedAt}}</view>
+    <view wx:for="{{task.participants}}" wx:key="userId" class="member">
+      <text selectable>{{item.userId}}</text><view>{{item.status}} · 确认版本 {{item.confirmedVersion}}</view>
+    </view>
+    <button data-kind="confirm" bindtap="mutate" disabled="{{busy}}">确认集合</button>
+    <button data-kind="arrive" bindtap="mutate" disabled="{{busy}}">我已到达</button>
+    <button data-kind="depart" bindtap="mutate" disabled="{{busy}}">尝试出发</button>
+    <view class="hint">先 B/C 同时确认，再测试未到齐出发；随后同时到达，最后分别测试 B 出发被拒绝、A 出发成功。刻意保留出发按钮，让后端验证权限。</view>
+  </view>
+  <view class="card">
+    <view class="heading">4 · 异常与重试</view>
+    <button class="secondary" data-kind="old" bindtap="mutate" disabled="{{busy || !task}}">错误版本确认（预期拒绝）</button>
+    <button class="secondary" data-kind="missing" bindtap="mutate" disabled="{{busy || !task}}">不带版本出发（预期拒绝）</button>
+    <button class="secondary" bindtap="replay" disabled="{{busy || !ready || !lastWriteId}}">原样重试最近写请求</button>
+    <text selectable class="mono">最近写请求：{{lastWriteId || '无'}}</text>
+    <button class="secondary" data-kind="request" bindtap="copy">复制最近写请求 ID</button>
+    <input placeholder="跨账号测试：填另一台手机的确认请求 ID" value="{{sharedRequestId}}" data-field="sharedRequestId" bindinput="input" disabled="{{busy}}" />
+    <button class="secondary" data-kind="shared" bindtap="mutate" disabled="{{busy || !task}}">用共享 ID 确认（跨账号预期拒绝）</button>
+    <view class="hint">正常操作使用新编号；只有原样重试复用旧编号。成功重试应返回 meta.replayed=true。跨账号测试使用另一人的已完成请求编号。</view>
+  </view>
+  <view class="card">
+    <view class="heading">请求记录（最近 30 条，新记录在前）</view>
+    <button class="secondary" data-kind="logs" bindtap="copy">复制完整记录</button>
+    <view class="hint">包含账号标识、任务 ID 与响应，仅供团队内部排查。刷新请求也会记录。</view>
+    <text selectable class="json">{{pretty || '暂无记录'}}</text>
+  </view>
+</view>

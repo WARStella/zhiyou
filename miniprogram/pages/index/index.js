@@ -39,6 +39,13 @@ Page({
     this.call('ops.health', {}, '后端自检')
   },
 
+  openTeamDebug() {
+    wx.navigateTo({
+      url: '/pages/debug-team/index',
+      fail: (err) => this.setData({ callError: { message: err.errMsg || '联调页打开失败，请重新编译。' } }),
+    })
+  },
+
   /** 大模型接口探针 —— 配好 AI_API_KEY 后点这个确认通没通 */
   runAiProbe() {
     this.call('ai.probe', {}, '大模型接口探针')

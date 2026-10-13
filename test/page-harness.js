@@ -25,7 +25,7 @@ function loadPage(relPath, opts) {
 
   const calls = [];
   const apiStub = {
-    newRequestId: () => 'req-test',
+    newRequestId: opts.newRequestId || (() => 'req-test'),
     callApi: (action, payload, options) => {
       calls.push({ action, payload, options });
       const h = (opts.api && opts.api[action]) || null;

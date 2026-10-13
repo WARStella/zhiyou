@@ -16,6 +16,7 @@
 
   <!-- 三个操作 -->
   <view class="btns">
+    <button class="btn" bindtap="openTeamDebug" disabled="{{running}}">三机联调（内部）</button>
     <button class="btn" bindtap="runHealth" disabled="{{running}}">后端自检</button>
     <button class="btn ghost" bindtap="runVerifyIndexes" disabled="{{running}}">唯一索引校验</button>
     <button class="btn ghost" bindtap="runSelfTest" disabled="{{running}}">写入形态自检</button>
