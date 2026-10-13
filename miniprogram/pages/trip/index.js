@@ -481,27 +481,43 @@ Page({
       nodes.findIndex((n) => n.status !== 'done' && n.status !== 'skipped')
     )
 
-    const timeline = nodes.map((n, i) => ({
-      nodeId: n.nodeId,
-      seq: i + 1,
-      placeName: n.placeName,
-      arrive: hhmm(n.plannedArriveAt),
-      leave: hhmm(n.plannedLeaveAt),
-      stayMin: n.plannedStayMin,
-      travelMin: n.travelFromPrevMin,
-      travelMeters: n.travelFromPrevMeters,
-      // 出行方式：首版只有步行，但字段已经下发 —— 显式标出来，
-      // 而不是让用户从"约 8 分钟"里猜这是走路还是坐车
-      travelModeLabel: n.travelMode === 'walking' ? '步行' : '',
-      travelFromStart: n.travelFromStart === true,
-      // 只有"直线估算"需要提醒 —— 它与真实路线在短距离下能差 7 倍
-      travelWarn: n.travelSource === 'estimated' ? '（估算）' : '',
-      verified: n.verified,
-      statusLabel: STATUS_LABEL[n.status] || n.status,
-      status: n.status,
-      isCurrent: i === currentIndex,
-      isLast: i === nodes.length - 1,
-    }))
+    /**
+     * 时间轴数据。
+     *
+     * ⚠️ 路段的位置很要紧（2026-10-13 修正）：
+     *   后端给的 `travelFromPrevMin` 是**从上一节点到本节点**的时间，
+     *   首版把它渲染在**本节点的卡片里**，读起来像"到了这里之后要走 8 分钟"，
+     *   而实际意思是"从上一站走过来要 8 分钟"。
+     *
+     *   所以这里把它挪到**两个节点之间**：`legToNext` 表示"本节点 → 下一节点"。
+     */
+    const timeline = nodes.map((n, i) => {
+      const next = nodes[i + 1] || null
+      return {
+        nodeId: n.nodeId,
+        seq: i + 1,
+        placeName: n.placeName,
+        arrive: hhmm(n.plannedArriveAt),
+        leave: hhmm(n.plannedLeaveAt),
+        stayMin: n.plannedStayMin,
+        verified: n.verified,
+        statusLabel: STATUS_LABEL[n.status] || n.status,
+        status: n.status,
+        isCurrent: i === currentIndex,
+        isLast: i === nodes.length - 1,
+        /** 本节点 → 下一节点之间的出行段；末节点为 null */
+        legToNext: next
+          ? {
+              mode: next.travelMode === 'walking' ? '步行' : '',
+              minutes: next.travelFromPrevMin,
+              meters: next.travelFromPrevMeters,
+              // 只有"直线估算"需要提醒 —— 它与真实路线在短距离下能差 7 倍
+              warn: next.travelSource === 'estimated' ? '估算' : '',
+              source: next.travelSource,
+            }
+          : null,
+      }
+    })
 
     this.setData({
       loading: false,

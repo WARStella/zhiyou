@@ -287,6 +287,62 @@
   font-size: 22rpx;
   color: #0fa98a;
 }
+
+/* ── 出行段：两个目的地之间 ─────────────────── */
+.leg {
+  display: flex;
+  align-items: stretch;
+  margin: -8rpx 0 8rpx;
+}
+.leg-rail {
+  width: 40rpx;
+  display: flex;
+  justify-content: center;
+  flex: none;
+}
+.leg-bar {
+  width: 3rpx;
+  background: #cfd6dd;
+  border-radius: 2rpx;
+}
+.leg-body {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  padding: 12rpx 20rpx;
+  margin-left: 0;
+  background: #f4f7fa;
+  border-radius: 10rpx;
+  flex: 1;
+}
+.leg-mode {
+  font-size: 23rpx;
+  font-weight: 600;
+  color: #0b3c6e;
+  margin-right: 10rpx;
+}
+.leg-time {
+  font-size: 23rpx;
+  font-weight: 600;
+  color: #0fa98a;
+  margin-right: 10rpx;
+}
+.leg-dist {
+  font-size: 21rpx;
+  color: #7b8794;
+}
+.leg-warn {
+  font-size: 20rpx;
+  color: #d9642a;
+  background: #fff1e8;
+  border-radius: 6rpx;
+  padding: 2rpx 10rpx;
+  margin-left: 10rpx;
+}
+/* 估算出来的时间要能一眼看出来 —— 它与真实路线在短距离下能差 7 倍 */
+.leg-estimated .leg-body {
+  background: #fff8ed;
+}
 .acts {
   display: flex;
   margin-top: 18rpx;

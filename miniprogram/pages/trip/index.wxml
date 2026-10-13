@@ -221,45 +221,54 @@
       <view wx:for="{{warnings}}" wx:key="code" class="warn-item">· {{item.message}}</view>
     </view>
 
-    <!-- 时间轴 -->
+    <!-- 时间轴：节点之间插入独立的出行段 -->
     <view class="tl">
-      <view
-        wx:for="{{timeline}}"
-        wx:key="nodeId"
-        class="node {{item.isCurrent ? 'current' : ''}} {{item.status}}"
-      >
-        <view class="node-rail">
-          <view class="dot"></view>
-          <view wx:if="{{!item.isLast}}" class="line"></view>
-        </view>
-
-        <view class="node-body">
-          <view class="node-head">
-            <text class="node-seq">{{item.seq}}</text>
-            <text class="node-name">{{item.placeName}}</text>
-            <text wx:if="{{!item.verified}}" class="badge unverified">未核验</text>
-            <text class="badge {{item.status}}">{{item.statusLabel}}</text>
+      <block wx:for="{{timeline}}" wx:key="nodeId">
+        <view class="node {{item.isCurrent ? 'current' : ''}} {{item.status}}">
+          <view class="node-rail">
+            <view class="dot"></view>
+            <view wx:if="{{!item.isLast}}" class="line"></view>
           </view>
 
-          <view class="node-times">
-            <text class="t">到达 {{item.arrive}}</text>
-            <text class="t">停留 {{item.stayMin}} 分钟</text>
-            <text class="t">离开 {{item.leave}}</text>
-          </view>
+          <view class="node-body">
+            <view class="node-head">
+              <text class="node-seq">{{item.seq}}</text>
+              <text class="node-name">{{item.placeName}}</text>
+              <text wx:if="{{!item.verified}}" class="badge unverified">未核验</text>
+              <text class="badge {{item.status}}">{{item.statusLabel}}</text>
+            </view>
 
-          <view wx:if="{{item.travelMin}}" class="node-travel">
-            <text wx:if="{{item.travelFromStart}}">从出发位置 </text>
-            {{item.travelModeLabel}} {{item.travelMin}} 分钟 · {{item.travelMeters}} 米
-            <text wx:if="{{item.travelWarn}}" class="travel-warn">{{item.travelWarn}}</text>
-          </view>
+            <view class="node-times">
+              <text class="t">到达 {{item.arrive}}</text>
+              <text class="t">停留 {{item.stayMin}} 分钟</text>
+              <text class="t">离开 {{item.leave}}</text>
+            </view>
 
-          <view class="acts">
-            <view class="act" data-nodeid="{{item.nodeId}}" data-key="extend" bindtap="nodeAction">多停 10 分钟</view>
-            <view class="act" data-nodeid="{{item.nodeId}}" data-key="shorten" bindtap="nodeAction">少停 10 分钟</view>
-            <view class="act warn-act" data-nodeid="{{item.nodeId}}" data-key="skip" bindtap="nodeAction">跳过</view>
+            <view class="acts">
+              <view class="act" data-nodeid="{{item.nodeId}}" data-key="extend" bindtap="nodeAction">多停 10 分钟</view>
+              <view class="act" data-nodeid="{{item.nodeId}}" data-key="shorten" bindtap="nodeAction">少停 10 分钟</view>
+              <view class="act warn-act" data-nodeid="{{item.nodeId}}" data-key="skip" bindtap="nodeAction">跳过</view>
+            </view>
           </view>
         </view>
-      </view>
+
+        <!--
+          出行段：**独立的一条**，位于两个目的地之间。
+          放在这里而不是塞进节点卡片里 —— 塞进去会读成"到了这里之后要走 8 分钟"，
+          而它的意思是"从上一站走过来要 8 分钟"。
+        -->
+        <view wx:if="{{item.legToNext}}" class="leg {{item.legToNext.warn ? 'leg-estimated' : ''}}">
+          <view class="leg-rail">
+            <view class="leg-bar"></view>
+          </view>
+          <view class="leg-body">
+            <text class="leg-mode">{{item.legToNext.mode}}</text>
+            <text class="leg-time">{{item.legToNext.minutes}} 分钟</text>
+            <text class="leg-dist">{{item.legToNext.meters}} 米</text>
+            <text wx:if="{{item.legToNext.warn}}" class="leg-warn">{{item.legToNext.warn}}</text>
+          </view>
+        </view>
+      </block>
     </view>
 
     <!-- ══════════ 调整候选（§5.2 四种展示情况） ══════════ -->
