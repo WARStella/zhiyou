@@ -136,6 +136,19 @@
       <button class="btn ghost" bindtap="resetTrip">重新选择地点</button>
     </view>
 
+    <!-- 出发段：从当前位置到第一站。不给它的话行程会假装人已在门口 -->
+    <view wx:if="{{startLeg}}" class="card start-leg">
+      <view class="row">
+        <text class="k">出发</text>
+        <text class="v muted">{{startLeg.label}} → {{startLeg.toName}}</text>
+      </view>
+      <view class="leg-line">
+        步行 {{startLeg.minutes}} 分钟 · {{startLeg.meters}} 米
+        <text wx:if="{{startLeg.warn}}" class="travel-warn">{{startLeg.warn}}</text>
+      </view>
+      <view class="sub">行程已把这段算进总时间</view>
+    </view>
+
     <!-- 路线地图：把游览顺序连成一条线 -->
     <view wx:if="{{routeMap}}" class="card map-card">
       <map
@@ -202,7 +215,8 @@
           </view>
 
           <view wx:if="{{item.travelMin}}" class="node-travel">
-            前往下一站约 {{item.travelMin}} 分钟 · {{item.travelMeters}} 米
+            <text wx:if="{{item.travelFromStart}}">从出发位置 </text>
+            {{item.travelModeLabel}} {{item.travelMin}} 分钟 · {{item.travelMeters}} 米
             <text wx:if="{{item.travelWarn}}" class="travel-warn">{{item.travelWarn}}</text>
           </view>
 

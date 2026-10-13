@@ -148,6 +148,7 @@ async function plan(ctx) {
       requirementId: p.requirementId,
       rawText: req.rawText,
       paramsInput: req.structured && req.structured.params,
+      startPoint: (req.structured && req.structured.startPoint) || p.startPoint || null,
     };
   } else {
     require_fields(p, ['placeIds', 'startAt']);
@@ -160,6 +161,12 @@ async function plan(ctx) {
       requirementId: null,
       rawText: p.rawText || null,
       paramsInput: p.params,
+      /**
+       * 出发位置（通常是用户当前位置）。给了它，**第一段交通就从这里算起** ——
+       * 否则行程会假装"人已经在第一个景点门口"，总时间和总步行量都会偏小。
+       * 前端默认传当前位置（用户要求：行程默认起始位置是自己的当前位置）。
+       */
+      startPoint: p.startPoint || null,
     };
   }
 
@@ -253,8 +260,76 @@ async function plan(ctx) {
     now,
   });
 
+  /**
+   * ★ 起点段：从出发位置（默认"我的位置"）到第一站的交通。
+   *
+   * 不这样做的话，行程会假装人已经在第一个景点门口 ——
+   * 计划出发时间、总步行量与"能不能赶上结束时间"都会偏乐观。
+   *
+   * 起点是**移动的**，所以不进 `walkableTo` 缓存（缓存是地点↔地点的，
+   * 存一个每次都不同的位置没有意义），每次都实时取或估算。
+   */
+  const startPoint =
+    spec.startPoint && typeof spec.startPoint.latitude === 'number' && typeof spec.startPoint.longitude === 'number'
+      ? {
+          latitude: spec.startPoint.latitude,
+          longitude: spec.startPoint.longitude,
+          label: spec.startPoint.label || '我的位置',
+        }
+      : null;
+
+  let startLeg = null;
+  if (startPoint) {
+    const firstPlace = placesById[spec.placeIds[0]];
+    if (firstPlace && firstPlace.location) {
+      const provider = createMapProvider(process.env.MAP_PROVIDER);
+      let r;
+      try {
+        r = await provider.walkingRoute(startPoint, firstPlace.location);
+      } catch (e) {
+        r = { ok: false, reason: 'THREW', message: (e && e.message) || String(e) };
+      }
+      walkFill.mapApiCalls++;
+
+      if (r.ok) {
+        startLeg = {
+          minutes: r.durationMinutes,
+          meters: r.distanceMeters,
+          source: geo.WALK_SOURCE.UPSTREAM,
+          from: startPoint,
+          toPlaceId: firstPlace._id,
+          toPlaceName: firstPlace.name,
+        };
+      } else {
+        // 取不到就估算 —— 但**必须记进失败清单**，让界面能说明这段不可靠
+        startLeg = Object.assign(
+          geo.walkMinutesFromPoint(startPoint, firstPlace, params) || {},
+          {
+            from: startPoint,
+            toPlaceId: firstPlace._id,
+            toPlaceName: firstPlace.name,
+            fallbackReason: r.reason || 'UPSTREAM_FAILED',
+          }
+        );
+        walkFill.failed++;
+        walkFill.failures.push({
+          from: startPoint.label,
+          to: firstPlace.name,
+          reason: r.reason || 'UPSTREAM_FAILED',
+          message: r.message || null,
+        });
+      }
+    }
+  }
+
   const items = spec.placeIds.map((placeId, i) => ({ nodeId: `n_${i}_${placeId}`, placeId }));
-  const tl = timelineMod.buildTimeline({ startAt: spec.startAt, items, placesById, params });
+  const tl = timelineMod.buildTimeline({
+    startAt: spec.startAt,
+    items,
+    placesById,
+    params,
+    startLeg,
+  });
   const feasibility = checkFeasibility({
     timeline: tl,
     constraints: spec.constraints,
@@ -396,6 +471,9 @@ async function plan(ctx) {
     unverifiedNotice,
     /** 各段步行时间的来源构成 —— 界面必须能区分真实路线与直线估算 */
     walkTimes,
+    /** 出发位置（默认"我的位置"）与第一段交通 */
+    startPoint,
+    startLeg,
     saved: true,
   });
 }
@@ -535,6 +613,44 @@ async function adjust(ctx) {
     result: result.feasibleCount > 0 ? 'ok' : 'no_feasible',
   });
 
+  /**
+   * 这次候选**牺牲了别的安排**吗？
+   *
+   * 判据用 `impact` 里已有的数据，不另立标准：
+   *   · 删掉了某个节点，或把某个节点的停留压到下限以下 → **有取舍**，必须让用户选；
+   *   · 只是把后续整体往后推（没有任何东西被牺牲） → **没有取舍**，
+   *     此时"确认"只是让用户多点一次，不产生任何信息。
+   */
+  const tradeoffOf = (c) => {
+    const im = c.impact || {};
+    const removed = (im.removedNodeIds || []).length;
+    const shortened = (im.shortenedNodeIds || []).length;
+    return { removed, shortened, has: removed > 0 || shortened > 0 };
+  };
+  result.candidates.forEach((c) => {
+    c.tradeoff = tradeoffOf(c);
+    c.requiresConfirmation = c.tradeoff.has;
+  });
+
+  /**
+   * 无取舍时自动生效（2026-10-13 用户决定）。
+   *
+   * 为什么可以这样做：
+   *   · **没有任何安排被牺牲** —— 不存在需要用户权衡的东西，
+   *     这时候弹确认只是增加一次点击，不增加任何决策信息；
+   *   · **团队模式一律确认** —— §8.1 的成员确认是本项目核心卖点，
+   *     不能被"省事"简化掉。个人模式没有第二个人要确认，所以可以省。
+   *
+   * 生效走的仍然是 `confirmChange` —— **同一套版本校验、同一份快照**，
+   * 不复制一份"绕过确认"的旁路（那种旁路迟早与主路径行为不一致）。
+   */
+  const wantAuto = p.autoApply !== 'never';
+  const feasible = result.candidates.filter((c) => c.feasible);
+  const autoTarget =
+    wantAuto && trip.mode !== 'team' && feasible.length === 1 && !feasible[0].tradeoff.has
+      ? feasible[0]
+      : null;
+
   await logEvent(repo, {
     ts: now,
     type: 'state_change',
@@ -543,8 +659,43 @@ async function adjust(ctx) {
     tripId: trip._id,
     algoVersion: result.algoVersion,
     durationMs: Date.now() - started,
-    detail: { proposalId: proposal._id, candidateCount: result.candidates.length },
+    detail: {
+      proposalId: proposal._id,
+      candidateCount: result.candidates.length,
+      autoApplied: Boolean(autoTarget),
+      tradeoffCount: result.candidates.filter((c) => c.tradeoff.has).length,
+    },
   });
+
+  if (autoTarget) {
+    // 走正式确认路径，不另开旁路
+    const confirmed = await confirmChange(
+      Object.assign({}, ctx, {
+        payload: { proposalId: proposal._id, candidateId: autoTarget.candidateId },
+        expectedVersion: trip.version,
+      })
+    );
+    await repo.update(C.CHANGE_PROPOSALS, proposal._id, {
+      autoApplied: true,
+      autoReason: 'no_tradeoff',
+    });
+    return resp.ok(
+      Object.assign({}, confirmed.data, {
+        applied: true,
+        appliedReason: 'no_tradeoff',
+        proposalId: proposal._id,
+        candidates: result.candidates,
+        feasibleCount: result.feasibleCount,
+        excludedReasons: result.excludedReasons,
+        noFeasible: false,
+        autoApplied: { candidateId: autoTarget.candidateId, strategy: autoTarget.strategy },
+        note:
+          '本次调整没有牺牲任何已有安排，已直接生效。' +
+          '若出现取舍（需要压缩或删除某个节点），系统仍会先给出候选让你选择。',
+      }),
+      { version: trip.version }
+    );
+  }
 
   return resp.ok(
     {
@@ -557,6 +708,12 @@ async function adjust(ctx) {
       algoVersion: result.algoVersion,
       // 无可行方案时明确告知，不补默认方案（10/28 验收）
       noFeasible: result.feasibleCount === 0,
+      applied: false,
+      /** 哪种情况需要用户确认 —— 界面据此决定是弹卡片还是直接提示已生效 */
+      confirmationRule:
+        trip.mode === 'team'
+          ? '团队行程一律需要成员确认（§8.1）'
+          : '仅当调整牺牲了已有安排（压缩或删除节点）时才需要确认',
     },
     { version: trip.version }
   );
@@ -613,8 +770,7 @@ async function confirmChange(ctx) {
   const nodes = (candidate.nodes || []).map((n, i) => Object.assign({}, n, { seq: i }));
   const expectedVersion = ctx.expectedVersion == null ? trip.version : ctx.expectedVersion;
 
-  const res = await repo.updateCas(C.TRIPS, trip._id, expectedVersion, {
-    nodes,
+  const res = await repo.updateCas(C.TRIPS, trip._id, expectedVersion, {    nodes,
     plannedEndAt: candidate.impact.changedEndAt,
     status: 'active',
   });

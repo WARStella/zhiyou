@@ -134,6 +134,25 @@ function walkMinutes(fromPlace, toPlace, params) {
   return { minutes: Math.max(1, Math.ceil(meters / speed)), meters, source: WALK_SOURCE.ESTIMATED };
 }
 
+/**
+ * 从**一个临时坐标**（如用户当前位置）到某地点的步行时间。
+ *
+ * 与 `walkMinutes` 的区别：起点是移动的，**不进 `walkableTo` 缓存** ——
+ * 缓存是"地点↔地点"的，存一个每次都可能不同的位置没有意义。
+ * 所以这里只提供估算；真实值由调用方先从地图接口取回再传入。
+ */
+function walkMinutesFromPoint(fromPoint, toPlace, params) {
+  const speed = (params && params.walkSpeedMPerMin) || 75;
+  const straight = haversineMeters(fromPoint, toPlace && toPlace.location);
+  if (straight == null) return null;
+  const meters = Math.round(straight * DETOUR_FACTOR);
+  return {
+    minutes: Math.max(1, Math.ceil(meters / speed)),
+    meters,
+    source: WALK_SOURCE.ESTIMATED,
+  };
+}
+
 const coordOf = (place, useEntrance) =>
   place && (useEntrance && place.entranceLocation ? place.entranceLocation : place.location);
 
@@ -142,6 +161,7 @@ module.exports = {
   coordOf,
   haversineMeters,
   walkMinutes,
+  walkMinutesFromPoint,
   findWalkRecord,
   withWalkRecord,
   needsWalkFetch,

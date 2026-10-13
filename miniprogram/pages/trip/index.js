@@ -72,6 +72,8 @@ Page({
     summary: null,
     routeMap: null,
     walkTimes: null,
+    startPoint: null,
+    startLeg: null,
     currentNodeIndex: 0,
     unverifiedNotice: null,
 
@@ -325,39 +327,49 @@ Page({
     const ids = this.data.selected.map((x) => x.placeId)
     if (!ids.length) return
 
-    this.setData({ loading: true, error: '', note: '', proposal: null, planRejected: false })
+    this.setData({ loading: true, error: '', note: '正在定位出发位置…', proposal: null, planRejected: false })
 
-    api
-      .callApi('trip.plan', {
-        placeIds: ids,
-        startAt: this.data.startAt,
-        constraints: this.buildConstraints(),
+    // 行程默认从**当前位置**出发。
+    // 不给起点的话，行程会假装人已经在第一个景点门口 ——
+    // 计划出发时间、总步行量与"能不能赶上结束时间"都会偏乐观。
+    this.tryLocate().then(function (startPoint) {
+      that.setData({
+        note: startPoint ? '' : '未取得当前位置，行程将从第一个地点开始计时（总时间会偏乐观）',
       })
-      .then(function (res) {
-        if (!res || res.ok !== true) {
-          that.setData({ loading: false, error: (res && res.error && res.error.message) || '生成失败' })
-          return
-        }
-        const d = res.data
 
-        // 规划判定不可行 —— 这不是错误，要如实展示冲突（§5.2 最后一行）
-        if (!d.saved) {
-          that.setData({
-            loading: false,
-            trip: null,
-            error: '',
-            planRejected: true,
-            conflicts: (d.conflicts || []).map((c) => c.message),
-            note: '当前条件下无法生成路线',
-          })
-          return
-        }
+      api
+        .callApi('trip.plan', {
+          placeIds: ids,
+          startAt: that.data.startAt,
+          constraints: that.buildConstraints(),
+          startPoint: startPoint || undefined,
+        })
+        .then(function (res) {
+          if (!res || res.ok !== true) {
+            that.setData({ loading: false, error: (res && res.error && res.error.message) || '生成失败' })
+            return
+          }
+          const d = res.data
 
-        that.applyTrip(d, '路线已生成')
-      })
-      .catch(function (err) {
-        that.setData({ loading: false, error: (err && err.errMsg) || '生成失败' })
-      })
+          // 规划判定不可行 —— 这不是错误，要如实展示冲突（§5.2 最后一行）
+          if (!d.saved) {
+            that.setData({
+              loading: false,
+              trip: null,
+              error: '',
+              planRejected: true,
+              conflicts: (d.conflicts || []).map((c) => c.message),
+              note: '当前条件下无法生成路线',
+            })
+            return
+          }
+
+          that.applyTrip(d, '路线已生成')
+        })
+        .catch(function (err) {
+          that.setData({ loading: false, error: (err && err.errMsg) || '生成失败' })
+        })
+    })
   },
 
   /** 用后端返回的行程刷新界面（生成与确认变更都走这里） */
@@ -377,6 +389,10 @@ Page({
       stayMin: n.plannedStayMin,
       travelMin: n.travelFromPrevMin,
       travelMeters: n.travelFromPrevMeters,
+      // 出行方式：首版只有步行，但字段已经下发 —— 显式标出来，
+      // 而不是让用户从"约 8 分钟"里猜这是走路还是坐车
+      travelModeLabel: n.travelMode === 'walking' ? '步行' : '',
+      travelFromStart: n.travelFromStart === true,
       // 只有"直线估算"需要提醒 —— 它与真实路线在短距离下能差 7 倍
       travelWarn: n.travelSource === 'estimated' ? '（估算）' : '',
       verified: n.verified,
@@ -402,8 +418,18 @@ Page({
             totalWalkMeters: d.summary.totalWalkMeters,
           }
         : null,
-      routeMap: this.buildRouteMap(nodes),
+      routeMap: this.buildRouteMap(nodes, d.startPoint),
       walkTimes: d.walkTimes || null,
+      startPoint: d.startPoint || null,
+      startLeg: d.startLeg
+        ? {
+            label: (d.startPoint && d.startPoint.label) || '我的位置',
+            minutes: d.startLeg.minutes,
+            meters: d.startLeg.meters,
+            warn: d.startLeg.source === 'estimated' ? '（估算）' : '',
+            toName: d.startLeg.toPlaceName,
+          }
+        : null,
       unverifiedNotice: d.unverifiedNotice || null,
       warnings: d.warnings || [],
       proposal: null,
@@ -425,13 +451,61 @@ Page({
    * **不靠观察猜**（工作日志里记了这件事）。顺序连线已经能表达
    * "去哪几个地方、什么顺序、大概什么走向"，而真实路径留到有余力时再做。
    */
-  buildRouteMap(nodes) {
-    const pts = nodes
+  buildRouteMap(nodes, startPoint) {
+    const nodePts = nodes
       .map((n) => n.location)
       .filter((p) => p && typeof p.latitude === 'number' && typeof p.longitude === 'number')
-    if (pts.length < 2) return null
+    if (nodePts.length < 2) return null
 
-    const points = pts.map((p) => ({ latitude: p.latitude, longitude: p.longitude }))
+    const startPt = startPoint && typeof startPoint.latitude === 'number' ? startPoint : null
+
+    // 有出发位置就把它接到线头上 —— 这样地图上看到的是
+    // 「我的位置 → 第一站 → 第二站 …」，而不是从第一个景点凭空开始
+    const all = startPt ? [startPt].concat(nodePts) : nodePts
+    const points = all.map((p) => ({ latitude: p.latitude, longitude: p.longitude }))
+
+    const markers = nodes
+      .filter((n) => n.location)
+      .map((n, i) => ({
+        id: i + 1,
+        latitude: n.location.latitude,
+        longitude: n.location.longitude,
+        iconPath: '/assets/pin-place.png',
+        width: 28,
+        height: 35,
+        // 序号与下方时间轴一一对应
+        callout: {
+          content: String(i + 1),
+          color: '#FFFFFF',
+          bgColor: n.verified ? '#0B3C6E' : '#9AA5B1',
+          fontSize: 11,
+          borderRadius: 10,
+          padding: 5,
+          display: 'ALWAYS',
+          textAlign: 'center',
+        },
+      }))
+
+    if (startPt) {
+      markers.unshift({
+        id: 0,
+        latitude: startPt.latitude,
+        longitude: startPt.longitude,
+        iconPath: '/assets/dot-me.png',
+        width: 22,
+        height: 22,
+        callout: {
+          content: '我',
+          color: '#FFFFFF',
+          bgColor: '#FF7A45',
+          fontSize: 11,
+          borderRadius: 10,
+          padding: 4,
+          display: 'ALWAYS',
+          textAlign: 'center',
+        },
+      })
+    }
 
     return {
       center: points[0],
@@ -446,27 +520,7 @@ Page({
           borderWidth: 2,
         },
       ],
-      markers: nodes
-        .filter((n) => n.location)
-        .map((n, i) => ({
-          id: i,
-          latitude: n.location.latitude,
-          longitude: n.location.longitude,
-          iconPath: '/assets/pin-place.png',
-          width: 28,
-          height: 35,
-          // 序号与下方时间轴一一对应
-          callout: {
-            content: String(i + 1),
-            color: '#FFFFFF',
-            bgColor: n.verified ? '#0B3C6E' : '#9AA5B1',
-            fontSize: 11,
-            borderRadius: 10,
-            padding: 5,
-            display: 'ALWAYS',
-            textAlign: 'center',
-          },
-        })),
+      markers: markers,
       note: '连线为游览顺序示意，不是逐段真实步行路径',
     }
   },
@@ -500,7 +554,17 @@ Page({
           that.setData({ busy: '', error: (res && res.error && res.error.message) || '调整失败' })
           return
         }
-        that.applyProposal(res.data)
+        const d = res.data
+        /**
+         * 没有取舍时后端**已经直接生效**了 —— 不必再让用户点一次确认。
+         * 只有出现取舍（需要压缩或删除某个节点）时才弹候选卡片，
+         * 因为那才是真正需要用户判断的地方。
+         */
+        if (d.applied) {
+          that.applyTrip(d, d.note || '调整已生效')
+          return
+        }
+        that.applyProposal(d)
       })
       .catch(function (err) {
         that.setData({ busy: '', error: (err && err.errMsg) || '调整失败' })

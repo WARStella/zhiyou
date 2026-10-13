@@ -458,6 +458,17 @@
   color: #8a5a00;
 }
 
+/* ── 出发段 ───────────────────────────────── */
+.start-leg {
+  border-left: 8rpx solid #ff7a45;
+}
+.leg-line {
+  margin-top: 12rpx;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #0fa98a;
+}
+
 /* ── 路线地图 ─────────────────────────────── */
 .map-card {
   padding: 16rpx 16rpx 20rpx;

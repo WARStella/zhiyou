@@ -37,6 +37,8 @@ function buildTimeline(p) {
     let travelMin = 0;
     let travelMeters = 0;
     let travelSource = 'none';
+    let travelFromStart = false;
+
     if (prevPlace) {
       const w = geo.walkMinutes(prevPlace, place, params);
       if (w) {
@@ -44,6 +46,17 @@ function buildTimeline(p) {
         travelMeters = w.meters || 0;
         travelSource = w.source;
       }
+    } else if (p.startLeg && typeof p.startLeg.minutes === 'number') {
+      /**
+       * 第一段：从**出发位置**（通常是"我的位置"）到第一站。
+       *
+       * 不这样算的话，行程会假装人已经在第一个景点门口 ——
+       * 计划出发时间、总步行量与"能不能赶上结束时间"都会偏乐观。
+       */
+      travelMin = p.startLeg.minutes;
+      travelMeters = p.startLeg.meters || 0;
+      travelSource = p.startLeg.source || 'estimated';
+      travelFromStart = true;
     }
 
     const stayMin =
@@ -69,6 +82,10 @@ function buildTimeline(p) {
       travelFromPrevMin: travelMin,
       travelFromPrevMeters: travelMeters,
       travelSource,
+      /** 这一段的出行方式。首版只有步行；字段预留，便于日后加公交/驾车。 */
+      travelMode: p.startLeg && travelFromStart ? 'walking' : prevPlace ? 'walking' : 'none',
+      /** 该段是否从"出发位置"（我的位置）算起 */
+      travelFromStart,
       plannedArriveAt: arriveAt,
       plannedStayMin: stayMin,
       plannedLeaveAt: leaveAt,
@@ -112,6 +129,9 @@ function toNodes(legs, source) {
     travelFromPrevMeters: l.travelFromPrevMeters,
     /** 这段步行时间的来源（survey / upstream / estimated）—— 界面必须能区分 */
     travelSource: l.travelSource || 'none',
+    /** 出行方式。首版恒为 walking；字段预留 */
+    travelMode: l.travelMode || 'none',
+    travelFromStart: l.travelFromStart === true,
     status: 'pending',
     actualArriveAt: null,
     actualLeaveAt: null,

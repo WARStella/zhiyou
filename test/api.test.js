@@ -700,6 +700,114 @@ test('地图接口取不到路线时回落直线估算，并如实报告失败�
   }
 });
 
+test('起点：行程从"我的位置"算起，而不是假装人已在第一个景点门口', async () => {
+  const w = await makeWorld();
+  const res = expectOk(
+    await w.A('trip.plan', {
+      placeIds: ['p_sofia'],
+      startAt: NOW,
+      constraints: [],
+      startPoint: { latitude: 45.78, longitude: 126.63, label: '我的位置' },
+    })
+  );
+
+  assert.ok(res.startPoint, '要回传出发位置');
+  assert.equal(res.startPoint.label, '我的位置');
+  assert.ok(res.startLeg.minutes > 0, '第一段必须有耗时');
+  assert.equal(res.startLeg.source, 'upstream', '真实路线优先');
+
+  const n0 = res.nodes[0];
+  assert.equal(n0.travelFromStart, true, '要标明这段是从出发位置算的');
+  assert.equal(n0.travelFromPrevMin, res.startLeg.minutes);
+  assert.equal(n0.travelSource, 'upstream');
+  assert.equal(n0.travelMode, 'walking', '出行方式字段要下发（首版恒为步行，字段预留）');
+  assert.ok(
+    res.summary.totalWalkMin >= res.startLeg.minutes,
+    '起点段必须计入总步行，否则总时间会偏乐观'
+  );
+
+  // 不给起点时不得凭空造一段交通
+  const w2 = await makeWorld();
+  const noStart = expectOk(
+    await w2.A('trip.plan', { placeIds: ['p_sofia'], startAt: NOW, constraints: [] })
+  );
+  assert.equal(noStart.startPoint, null);
+  assert.equal(noStart.startLeg, null);
+  assert.equal(noStart.nodes[0].travelFromPrevMin, 0);
+  assert.equal(noStart.nodes[0].travelFromStart, false);
+});
+
+test('调整分级：无取舍时一键生效，有取舍时才要求确认', async () => {
+  const V = ['p_zhongyang', 'p_fanghong', 'p_sofia'];
+  const hard = (min) => [
+    {
+      key: 'endAt',
+      value: new Date(NOW.getTime() + min * 60000).toISOString(),
+      hardness: 'hard',
+      confirmedAt: new Date(NOW).toISOString(),
+    },
+  ];
+  const extend = (trip, deltaMin) => ({
+    tripId: trip.tripId,
+    expectedVersion: trip.version,
+    trigger: { type: 'extend_stay', payload: { nodeId: trip.nodes[0].nodeId, deltaMin } },
+  });
+
+  // ── 时间宽松：延长停留不牺牲任何安排 → 一键生效 ──
+  const w = await makeWorld();
+  const loose = expectOk(
+    await w.A('trip.plan', { placeIds: V, startAt: NOW, constraints: hard(200) })
+  );
+  const auto = expectOk(await w.A('trip.adjust', extend(loose, 10)));
+
+  assert.equal(auto.applied, true, '没有取舍时应直接生效');
+  assert.equal(auto.appliedReason, 'no_tradeoff');
+  assert.ok(auto.version > loose.version, '自动生效同样要推进版本');
+  assert.match(auto.note, /没有牺牲任何已有安排/);
+
+  // ⚠️ 走的是**正式确认路径**，不是绕过确认的旁路 —— 否则两套行为迟早不一致
+  const prop = await w.repo.get(C.CHANGE_PROPOSALS, auto.proposalId);
+  assert.equal(prop.status, 'confirmed');
+  assert.equal(prop.autoApplied, true);
+  assert.equal(prop.autoReason, 'no_tradeoff');
+
+  // ── 时间紧：延长停留必须压缩后续 → 交给用户选 ──
+  const w2 = await makeWorld();
+  const tight = expectOk(
+    await w2.A('trip.plan', { placeIds: V, startAt: NOW, constraints: hard(160) })
+  );
+  const manual = expectOk(await w2.A('trip.adjust', extend(tight, 30)));
+
+  assert.equal(manual.applied, false, '有取舍时必须让用户选');
+  assert.ok(manual.candidates.length >= 1);
+  assert.equal(
+    manual.candidates.every((c) => c.tradeoff.has),
+    true,
+    '这些候选都牺牲了别的安排'
+  );
+  assert.equal(manual.candidates.every((c) => c.requiresConfirmation), true);
+  assert.match(manual.confirmationRule, /牺牲/);
+});
+
+test('团队行程一律要求确认，不能被"无取舍"简化掉', async () => {
+  const w = await makeWorld();
+  const { crewId } = await makeCrew(w);
+  const trip = expectOk(
+    await w.A('trip.plan', { placeIds: VALID_PLACES, startAt: NOW, constraints: [], crewId })
+  );
+
+  const res = expectOk(
+    await w.A('trip.adjust', {
+      tripId: trip.tripId,
+      expectedVersion: trip.version,
+      trigger: { type: 'extend_stay', payload: { nodeId: trip.nodes[0].nodeId, deltaMin: 10 } },
+    })
+  );
+
+  assert.equal(res.applied, false, '团队行程必须由成员确认（§8.1）');
+  assert.match(res.confirmationRule, /团队/);
+});
+
 test('ops.selfTest：测量各类写入形态，并只写 selftest 集合', async () => {
   const w = await makeWorld();
   const res = expectOk(await w.A('ops.selfTest', {}));
