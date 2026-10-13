@@ -180,8 +180,23 @@ test('map.probe：关键用例通过，失败情形被正确拒绝', async () =>
   assert.equal(res.keyConfigured, true);
   assert.equal(res.total, 1, '判据只看关键用例① —— 那就是 10/14 验收的原文');
   assert.equal(res.passed, 1);
-  assert.equal(res.informationalCount, 1, '极近距离是信息项，不参与判据');
+  assert.equal(
+    res.informationalCount,
+    2,
+    '信息项有两个：② 极近距离、⑥ 各出行方式（都不参与判据）'
+  );
   assert.match(res.verdict, /关键用例通过/);
+
+  /**
+   * ⚠️ ⑥（各出行方式）在**假服务上必须返回"没有路况数据"**，
+   * 不能编一份假路况出来 —— 那会让人以为这条链路已经实测过了，
+   * 而它的真实结构**恰恰是这次探针要去发现的东西**。
+   */
+  const modes = res.results.find((r) => /各出行方式/.test(r.name));
+  assert.ok(modes, '探针必须包含各出行方式这一项');
+  assert.equal(modes.ok, false, '假服务不该声称有路况');
+  assert.equal(modes.reason, 'FAKE_PROVIDER_HAS_NO_TRAFFIC');
+  assert.match(modes.hint, /真实 provider/, '要指出正确的做法');
 
   // 主用例必须给出"两个地点之间的路线与时间" —— 这正是 10/14 的验收原文
   const main = res.results[0];

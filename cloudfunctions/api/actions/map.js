@@ -157,6 +157,60 @@ async function probe(ctx) {
         });
       })
     );
+
+    /**
+     * ⑥ **各出行方式的方向接口探针**（信息项，2026-10-13 新增）
+     *
+     * 用户希望"调取路况，动态调整出行方式"。但**步行不受路况影响** ——
+     * 要看路况就必须支持骑行／驾车／公交，而这三个端点本项目从未实测过。
+     *
+     * 所以这里**不解析字段，只带出结构**（键路径 + 样本值 + 像路况的字段名）。
+     * 拿到真实结构再决定怎么解析 —— 猜错字段名会得到一个
+     * "看起来有值、其实是 undefined"的路况，而且**不报错**。
+     *
+     * 信息项：它失败**不影响**探针判据（真实的"没有权限/没勾服务"也是有效结论）。
+     */
+    results.push(
+      await runCase('⑥ 各出行方式（驾车／骑行／公交，信息项）', async () => {
+        const p2 = makeProvider(providerName, { key: p.overrideKey });
+        if (typeof p2.probeDirections !== 'function') {
+          return {
+            ok: false,
+            informational: true,
+            reason: 'NOT_SUPPORTED',
+            summary: `provider「${providerName}」不支持各出行方式探针`,
+          };
+        }
+        const r = await p2.probeDirections({ from: from, to: to });
+        if (!r.ok) {
+          return {
+            ok: false,
+            informational: true,
+            reason: r.reason,
+            message: r.message,
+            hint: r.hint || null,
+            summary: r.message || r.reason,
+          };
+        }
+        const modes = (r.results || []).map((x) => x.mode);
+        const okModes = (r.results || []).filter((x) => x.ok).map((x) => x.mode);
+        return {
+          ok: true,
+          informational: true,
+          modesTried: modes,
+          modesOk: okModes,
+          /** 每个方式的结构清单 —— 这是探针真正的产出 */
+          results: r.results,
+          trafficLikeKeys: (r.results || [])
+            .filter((x) => x.trafficLikeKeys && x.trafficLikeKeys.length)
+            .map((x) => ({ mode: x.mode, keys: x.trafficLikeKeys })),
+          summary:
+            `试了 ${modes.length} 种出行方式，可用 ${okModes.length} 种：` +
+            (okModes.length ? okModes.join('、') : '(全部不可用，见各条 reason)') +
+            '。**结构清单在下方 results 里** —— 有没有路况字段，看 routeKeys / trafficLikeKeys。',
+        };
+      })
+    );
   }
 
   // 判据只看**关键用例**（①）；② 是信息项，③④⑤ 期望失败

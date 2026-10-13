@@ -53,6 +53,27 @@ function createFakeProvider(opts) {
     keyMasked: key ? `${key.slice(0, 4)}${'*'.repeat(Math.max(4, key.length - 8))}${key.slice(-4)}` : null,
     keyWasTrimmed,
 
+    /**
+     * 各出行方式探针的假实现。
+     *
+     * ⚠️ **假服务在这里只能返回"无数据"**，不能编造路况 ——
+     * 编一份"畅通/拥堵"的假结构，会让人以为这条链路已经实测过了。
+     * 而它的真实结构**恰恰是这次探针要去发现的东西**。
+     */
+    async probeDirections(input) {
+      input = input || {};
+      return {
+        ok: false,
+        provider: 'fake',
+        reason: 'FAKE_PROVIDER_HAS_NO_TRAFFIC',
+        message: '假地图服务没有真实路况数据',
+        hint:
+          '路况必须用真实 provider 探针确认（自检页的「地图接口探针」）。' +
+          '假服务编一份路况出来，只会让人以为这条链路已经验证过了。',
+        results: [],
+      };
+    },
+
     async walkingRoute(from, to) {
       const base = {
         provider: 'fake',

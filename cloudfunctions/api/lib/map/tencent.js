@@ -58,6 +58,44 @@ const DEFAULT_TIMEOUT_MS = 8000;
 /** 原始返回体的截断长度：够看清结构，又不至于把响应撑爆 */
 const RAW_HEAD_LIMIT = 1200;
 
+/** 各出行方式的端点 —— **只有步行实测过**，其余三个是待探针确认的候选 */
+const DIRECTION_ENDPOINTS = {
+  walking: 'https://apis.map.qq.com/ws/direction/v1/walking/',
+  bicycling: 'https://apis.map.qq.com/ws/direction/v1/bicycling/',
+  driving: 'https://apis.map.qq.com/ws/direction/v1/driving/',
+  transit: 'https://apis.map.qq.com/ws/direction/v1/transit/',
+};
+
+/**
+ * 把响应体的**结构**抽出来（键路径 + 样本值），不硬编码字段名。
+ *
+ * ⚠️ 探针的目的是**发现**结构，不是验证我猜的结构。
+ * 写死字段名的话，猜错了就什么都看不到 —— 那就不叫探针了。
+ */
+function describeShape(node, prefix, out, depth) {
+  out = out || [];
+  depth = depth || 0;
+  if (depth > 3 || out.length > 60) return out;
+  if (Array.isArray(node)) {
+    out.push(`${prefix}  [数组 ${node.length} 项]`);
+    if (node.length) describeShape(node[0], `${prefix}[0]`, out, depth + 1);
+    return out;
+  }
+  if (node && typeof node === 'object') {
+    for (const k of Object.keys(node)) {
+      const v = node[k];
+      const p = prefix ? `${prefix}.${k}` : k;
+      if (v && typeof v === 'object') describeShape(v, p, out, depth + 1);
+      else if (typeof v === 'string' && v.length > 48) out.push(`${p} = "${v.slice(0, 48)}…"`);
+      else out.push(`${p} = ${JSON.stringify(v)}`);
+      if (out.length > 60) return out;
+    }
+    return out;
+  }
+  out.push(`${prefix} = ${JSON.stringify(node)}`);
+  return out;
+}
+
 /**
  * 上游 status 码 → 可执行的下一步。
  *
@@ -274,11 +312,98 @@ function createTencentProvider(opts) {
          * 调用方要能分清"上游没给路径"与"我解不开"。
          */
         route: decodeRoute({ distance: distanceMeters, duration: durationRaw, polyline, steps, direction: route && route.direction }),
-
-        // ── 原始返回头部，供人工核对结构与坐标系 ──
+    // ── 原始返回头部，供人工核对结构与坐标系 ──
         rawHead: String(res.rawBody || '').slice(0, RAW_HEAD_LIMIT),
       });
     },
+
+
+    /**
+     * ── 各出行方式的方向接口探针（2026-10-13 新增）────────────────
+     *
+     * **为什么要有它**：用户希望"调取路况，动态调整出行方式"。
+     * 但**步行不受路况影响** —— 要看路况就必须支持骑行/驾车/公交，
+     * 而这三个端点**本项目从未实测过**。
+     *
+     * 按项目纪律：**不猜，先探针**。所以这里不解析字段，
+     * 而是把响应体的**结构清单**（键路径 + 样本值）原样带出来，
+     * 连同"名字里带 traffic/congest/duration 的字段"一起列出。
+     *
+     * 拿到真实结构之后再决定字段怎么解析 —— 猜错字段名，
+     * 会得到一个"看起来有值、其实是 undefined"的路况，而且**不报错**。
+     *
+     * ⚠️ 公交（transit）的入参与其他三种不同（要 `policy`、城市码等），
+     * 这里先用最朴素的参数试一次，**失败也是有用的结果**。
+     */
+    async probeDirections(input) {
+      input = input || {};
+      const from = input.from;
+      const to = input.to;
+      const results = [];
+
+      for (const mode of ['bicycling', 'driving', 'transit']) {
+        const url =
+          `${DIRECTION_ENDPOINTS[mode]}?from=${from.latitude},${from.longitude}` +
+          `&to=${to.latitude},${to.longitude}` +
+          `&key=${encodeURIComponent(key)}`;
+
+        if (!key) {
+          results.push({ mode, ok: false, reason: 'MAP_KEY_NOT_CONFIGURED', requestUrl: redact(url) });
+          continue;
+        }
+
+        const started = Date.now();
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          const res = await http(url, { timeoutMs });
+          const body = res.json || {};
+          const route = body.result && body.result.routes && body.result.routes[0];
+          results.push({
+            mode,
+            ok: body.status === 0 && Boolean(route),
+            status: body.status,
+            message: body.message || null,
+            httpStatus: res.httpStatus,
+            timingMs: Date.now() - started,
+            requestUrl: redact(url),
+            hasRoute: Boolean(route),
+            hasPolyline: Boolean(route && route.polyline),
+            durationRaw: route ? route.duration : null,
+            distanceMeters: route ? route.distance : null,
+            /** `routes[0]` 上的字段名 —— 看有没有路况相关的 */
+            routeKeys: route ? Object.keys(route) : [],
+            /** 名字里像路况/耗时的字段（**只做关键词筛选，不假设具体名字**） */
+            trafficLikeKeys: route
+              ? Object.keys(route).filter((k) =>
+                  /traffic|congest|jam|delay|light|duration|speed|eta/i.test(k)
+                )
+              : [],
+            /** 完整结构清单 —— 探针真正的产出 */
+            shape: describeShape(body, '', [], 0),
+          });
+        } catch (e) {
+          results.push({
+            mode,
+            ok: false,
+            reason: 'UPSTREAM_FAILED',
+            message: (e && e.message) || String(e),
+            requestUrl: redact(url),
+          });
+        }
+      }
+
+      return {
+        ok: true,
+        provider: 'tencent',
+        from: { latitude: from.latitude, longitude: from.longitude },
+        to: { latitude: to.latitude, longitude: to.longitude },
+        results,
+        note:
+          '探针只带出**结构**，不解析字段 —— 拿到真实结构再决定怎么用。' +
+          '猜错字段名会得到一个"看起来有值、其实是 undefined"的路况，而且不报错。',
+      };
+    },
+
 
     /**
      * 地点检索（WebServiceAPI · 搜索服务 `/ws/place/v1/search`）。
