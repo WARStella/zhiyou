@@ -1,0 +1,86 @@
+<view class="page">
+
+  <view class="mapwrap">
+    <map
+      id="tripmap"
+      class="map"
+      longitude="{{center.longitude}}"
+      latitude="{{center.latitude}}"
+      scale="{{scale}}"
+      markers="{{markers}}"
+      polyline="{{polyline}}"
+      show-location="{{false}}"
+      enable-zoom="{{true}}"
+      enable-scroll="{{true}}"
+      bindtap="onMapTap"
+    ></map>
+  </view>
+
+  <view class="body">
+
+    <view wx:if="{{loading}}" class="hint">正在加载地点数据…</view>
+    <view wx:if="{{loadError}}" class="err">地点加载失败：{{loadError}}</view>
+
+    <view class="card">
+      <view class="row">
+        <text class="k">我的位置</text>
+        <text class="v {{myPoint ? 'ok' : 'muted'}}">{{myPoint ? '已获取' : '未获取'}}</text>
+      </view>
+      <view wx:if="{{myPoint}}" class="sub">
+        来源：{{mySource === 'gps' ? '定位接口（GCJ-02）' : '手动选点'}}<block wx:if="{{myAccuracyM}}"> · 精度约 {{myAccuracyM}} 米</block>
+        · 经纬度 {{myPoint.latitude}}, {{myPoint.longitude}}
+      </view>
+      <view wx:else class="sub">
+        可自动获取当前位置；若定位不可用，也可在地图上手动点选。
+      </view>
+
+      <button class="btn" bindtap="useGps">获取我的位置</button>
+      <button class="btn ghost" bindtap="startPick">
+        {{pickMode ? '请点击地图上的位置…' : '手动选点（备用）'}}
+      </button>
+      <view wx:if="{{note}}" class="note">{{note}}</view>
+    </view>
+
+    <view class="card" wx:if="{{nearby.length}}">
+      <view class="row">
+        <text class="k">集合点候选</text>
+        <text class="v muted">按步行时间排序</text>
+      </view>
+      <view
+        wx:for="{{nearby}}"
+        wx:key="placeId"
+        class="item"
+        data-placeid="{{item.placeId}}"
+        bindtap="selectMeeting"
+      >
+        <view class="item-main">
+          <text class="item-name">{{item.name}}</text>
+          <text class="item-cat">{{item.category}}</text>
+        </view>
+        <view class="item-right">
+          <text class="mins">{{item.minutes}} 分钟</text>
+          <text class="meters">{{item.meters}} 米</text>
+        </view>
+      </view>
+      <view class="rule">排序规则：先让最远的成员步行时间最短（minimax），再比较平均值与差距</view>
+    </view>
+
+    <view wx:if="{{meetingPoint}}" class="card sel">
+      <view class="row">
+        <text class="k">已选集合点</text>
+        <text class="v ok">{{meetingPoint.name}}</text>
+      </view>
+      <view class="sub">地图上的橙针即该点，虚线为步行方向（正式版将显示后端计算的实际步行路径）</view>
+    </view>
+
+    <view wx:if="{{!places.length && !loading}}" class="card">
+      <view class="hint">
+        数据库里暂时没有地点数据。先回自检页点「初始化数据库」灌入种子地点。
+      </view>
+    </view>
+
+    <view class="foot">
+      演示用途 · 地点数据来自云数据库 places 集合（种子数据尚未实地核验）
+    </view>
+  </view>
+</view>

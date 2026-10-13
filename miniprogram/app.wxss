@@ -1,0 +1,8 @@
+/* 全局样式 —— 脚手架，A 接管后按设计稿替换 */
+
+page {
+  background: #f5f6f8;
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', sans-serif;
+  font-size: 28rpx;
+  color: #1f2933;
+}

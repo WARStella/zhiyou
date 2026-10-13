@@ -1,0 +1,16 @@
+{
+  "name": "zhiyou-lingdong",
+  "version": "0.1.0",
+  "private": true,
+  "description": "智游·灵动 — 后端（微信云开发：云函数 + 云数据库）",
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test test/",
+    "test:watch": "node --test --watch test/",
+    "verify:schema": "node scripts/verify-schema.mjs",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

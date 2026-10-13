@@ -1,0 +1,144 @@
+<view class="page">
+
+  <view class="hd">
+    <view class="title">后端联调自检</view>
+    <view class="sub">云函数 api · 三个运维接口</view>
+  </view>
+
+  <!-- 云开发初始化状态 -->
+  <view class="card">
+    <view class="row">
+      <text class="k">云开发初始化</text>
+      <text class="v {{cloudReady ? 'ok' : 'bad'}}">{{cloudReady ? '成功' : '未就绪'}}</text>
+    </view>
+    <view wx:if="{{cloudError}}" class="err">{{cloudError}}</view>
+  </view>
+
+  <!-- 三个操作 -->
+  <view class="btns">
+    <button class="btn" bindtap="runHealth" disabled="{{running}}">后端自检</button>
+    <button class="btn ghost" bindtap="runVerifyIndexes" disabled="{{running}}">唯一索引校验</button>
+    <button class="btn ghost" bindtap="runSelfTest" disabled="{{running}}">写入形态自检</button>
+    <button class="btn ghost" bindtap="initDb" disabled="{{running}}">初始化数据库</button>
+    <button class="btn ghost" bindtap="runMapProbe" disabled="{{running}}">地图接口探针（会真实调用）</button>
+  </view>
+  <view class="tip">顺序：后端自检 → 初始化数据库 → 唯一索引校验 → 写入形态自检 → 地图接口探针</view>
+
+  <button class="btn link-btn" bindtap="openMap">打开地图页面（位置接口申请材料）</button>
+
+  <view wx:if="{{running}}" class="running">正在执行「{{runningLabel}}」…</view>
+
+  <!-- 页面层异常（网络中断等）；云函数层面的失败会走下面的「后端响应」分支 -->
+  <view wx:if="{{callError}}" class="card bad">
+    <view class="row"><text class="k">页面调用异常</text></view>
+    <view class="err">{{callError.message}}</view>
+  </view>
+
+  <!-- 后端响应 -->
+  <view wx:if="{{result}}" class="card">
+    <view class="row">
+      <text class="k">后端响应</text>
+      <text class="v {{result.ok ? 'ok' : 'bad'}}">
+        {{result.ok ? 'ok: true' : result.error.code}}
+      </text>
+    </view>
+
+    <block wx:if="{{result.ok}}">
+      <!-- ops.health -->
+      <block wx:if="{{result.data.kind === 'health'}}">
+        <view class="kv"><text class="k2">环境</text><text class="v2">{{result.data.env}}</text></view>
+        <view class="kv"><text class="k2">仓储</text><text class="v2">{{result.data.repo}}</text></view>
+        <view class="kv"><text class="k2">算法版本</text><text class="v2">{{result.data.algoVersion}}</text></view>
+        <view class="kv"><text class="k2">地点数</text><text class="v2">{{result.data.data.places}}</text></view>
+        <view class="kv">
+          <text class="k2">已核验地点</text>
+          <text class="v2">{{result.data.data.verifiedPlaces}}</text>
+        </view>
+      </block>
+
+      <!-- ops.verifyIndexes -->
+      <block wx:if="{{result.data.kind === 'verifyIndexes'}}">
+        <view class="kv"><text class="k2">结论</text><text class="v2">{{result.data.verdict}}</text></view>
+        <view class="kv">
+          <text class="k2">通过 / 总数</text>
+          <text class="v2">{{result.data.passed}} / {{result.data.total}}</text>
+        </view>
+        <view class="kv">
+          <text class="k2">残留测试数据</text>
+          <text class="v2">{{result.data.leftover}}（应为 0）</text>
+        </view>
+        <view wx:if="{{result.data.fixHint.length}}" class="diag">
+          <view class="diag-hd">需要修的索引</view>
+          <view wx:for="{{result.data.fixHint}}" wx:key="*this" class="hint">{{item}}</view>
+        </view>
+      </block>
+
+      <!-- ops.selfTest -->
+      <block wx:if="{{result.data.kind === 'selfTest'}}">
+        <view class="kv"><text class="k2">结论</text><text class="v2">{{result.data.verdict}}</text></view>
+        <view class="kv">
+          <text class="k2">通过 / 总数</text>
+          <text class="v2">{{result.data.passed}} / {{result.data.total}}</text>
+        </view>
+        <view class="kv">
+          <text class="k2">阻断性失败</text>
+          <text class="v2">{{result.data.criticalFailureCount}}（应为 0）</text>
+        </view>
+        <view class="kv">
+          <text class="k2">已知限制</text>
+          <text class="v2">{{result.data.knownLimitations.length}}</text>
+        </view>
+      </block>
+
+      <!-- map.probe -->
+      <block wx:if="{{result.data.kind === 'mapProbe'}}">
+        <view class="kv"><text class="k2">地图服务</text><text class="v2">{{result.data.provider}}</text></view>
+        <view class="kv">
+          <text class="k2">Key 已配置</text>
+          <text class="v2">{{result.data.keyConfigured ? result.data.keyMasked : '否（需在云函数环境变量加 MAP_KEY）'}}</text>
+        </view>
+        <view class="kv">
+          <text class="k2">通过 / 总数</text>
+          <text class="v2">{{result.data.passed}} / {{result.data.total}}</text>
+        </view>
+        <view class="kv"><text class="k2">接口调用次数</text><text class="v2">{{result.data.mapApiCalls}}</text></view>
+        <view class="diag">
+          <view class="diag-hd">{{result.data.verdict}}</view>
+          <view wx:for="{{result.data.results}}" wx:key="name" class="hint">
+            {{item.ok ? '✓' : '✗'}} {{item.name}} — {{item.summary || item.message}}
+          </view>
+        </view>
+      </block>
+
+      <!-- ops.initDb -->
+      <block wx:if="{{result.data.kind === 'initDb'}}">
+        <view class="kv"><text class="k2">集合总数</text><text class="v2">{{result.data.collectionsEnsured}}</text></view>
+        <view class="kv"><text class="k2">本次新建</text><text class="v2">{{result.data.collectionsCreated.length}}</text></view>
+        <view class="kv"><text class="k2">灌入地点</text><text class="v2">{{result.data.seededPlaces}}</text></view>
+        <view class="kv"><text class="k2">地点总数</text><text class="v2">{{result.data.totalPlaces}}</text></view>
+      </block>
+
+      <view class="kv">
+        <text class="k2">耗时</text>
+        <text class="v2">{{result.meta.durationMs}} ms</text>
+      </view>
+    </block>
+
+    <block wx:else>
+      <view class="err">{{result.error.message}}</view>
+      <view wx:if="{{result.error.details.diagnosis}}" class="diag">
+        <view class="diag-hd">下一步</view>
+        <view class="hint">{{result.error.details.diagnosis}}</view>
+      </view>
+    </block>
+
+    <view class="row2">
+      <text class="link" bindtap="copyResult">复制完整返回</text>
+      <text wx:if="{{ranAt}}" class="time">{{ranAt}}</text>
+    </view>
+
+    <text class="json">{{pretty}}</text>
+  </view>
+
+  <view class="foot">脚手架页面，A 接管前端后可替换</view>
+</view>
