@@ -237,6 +237,66 @@ test('自动预选：绝不自动选交通设施', async () => {
   );
 });
 
+test('自动预选：「必去」也必须过类目这一关，交通设施不算', async () => {
+  /**
+   * ⚠️ **真实事故的回归**（2026-10-13 实测 DeepSeek 发现）。
+   *
+   * 用户说「我想先去**哈工大**玩一小时」，而"哈工大"是子串，
+   * 于是匹配上了「哈工大[地铁站]」「哈工大[公交站]」「哈工大-3口」，
+   * 全部被标成"必去" —— 系统一本正经地把一个地铁站排进了行程。
+   *
+   * **"名字里有这几个字"不等于"这就是那个地方"**，
+   * 与"民宿名字里嵌了地标名"是同一类错误。
+   */
+  const w = await makeWorld();
+
+  const first = expectOk(await w.A('place.search', Object.assign({ keyword: '', center: CENTER }, FAKE)));
+  const transit = first.candidates.filter((c) => c.visitable === false);
+  assert.ok(transit.length > 0, '夹具里必须有交通设施，否则这条测试是空的');
+
+  // 夹具里的交通设施名字里确实带着地标名（否则测不到这个场景）
+  const named = transit.filter((c) => c.name.indexOf('冰雪大世界') >= 0);
+  assert.ok(named.length > 0, '夹具里必须有"名字含地标名的交通设施"');
+
+  const res = expectOk(
+    await w.A(
+      'place.search',
+      Object.assign(
+        {
+          keyword: '',
+          center: CENTER,
+          autoPick: { pace: 'normal', mustVisitTexts: ['冰雪大世界'] },
+        },
+        FAKE
+      )
+    )
+  );
+
+  const byId = {};
+  res.candidates.forEach((c) => {
+    byId[c.placeId] = c;
+  });
+
+  for (const id of res.picked.placeIds) {
+    assert.equal(
+      byId[id].visitable,
+      true,
+      `必去也不能选交通设施，但它选了：${byId[id].name}`
+    );
+  }
+
+  // 真正的游览地点该被选中（必去规则本身仍然有效）
+  const real = first.candidates.find(
+    (c) => c.name.indexOf('冰雪大世界') >= 0 && c.visitable === true
+  );
+  if (real) {
+    assert.ok(
+      res.picked.placeIds.includes(real.placeId),
+      '真正的冰雪大世界应该因"必去"被选中'
+    );
+  }
+});
+
 test('自动预选：说明里要写清选了谁、为什么', async () => {
   const w = await makeWorld();
   const res = expectOk(

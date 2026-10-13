@@ -661,27 +661,60 @@ function toStructured(parsed, opts) {
   return { structured, constraints };
 }
 
-/** 面向用户的解析说明 —— 界面直接展示，不藏依据。 */
+/**
+ * 面向用户的解析说明 —— 界面直接展示，不藏依据。
+ *
+ * ⚠️ **不能只依赖 `matched`**（2026-10-13 修正）。
+ * `matched` 是"解析过程记录"，模型不一定填——实测 DeepSeek 返回了正确的
+ * `endClock` / `pace` / `mustVisitTexts`，却把 `matched` 留空，
+ * 于是界面显示「没有能确定的项」，而实际上解析出了一堆东西。
+ *
+ * 所以这里**以结构化字段为准**：先取 `matched` 里的原文片段（有价值），
+ * 再为任何"有值但没被 matched 覆盖"的字段补一条。
+ */
 function explain(parsed) {
+  parsed = parsed || {};
   const lines = [];
-  for (const m of parsed.matched) {
-    const label = {
-      endAt: '结束时间',
-      startAt: '开始时间',
-      pace: '节奏',
-      anchor: '区域',
-      mustVisit: '必去',
-      avoid: '排除',
-      extendStay: '延长停留',
-      searchKeyword: '检索词',
-      stayMinutes: '每站停留',
-      goal: '目标地点',
-    }[m.field];
-    if (!label) continue;
-    // 带单位的字段要写清单位，否则「每站停留：60」看不出是分钟还是秒
-    const unit = m.field === 'stayMinutes' || m.field === 'extendStay' ? ' 分钟' : '';
-    lines.push(`${label}：${m.value}${unit}（来自「${m.text}」）`);
-  }
+  const seen = new Set();
+
+  const LABEL = {
+    endAt: '结束时间',
+    startAt: '开始时间',
+    pace: '节奏',
+    anchor: '区域',
+    mustVisit: '必去',
+    avoid: '排除',
+    extendStay: '延长停留',
+    searchKeyword: '检索词',
+    stayMinutes: '每站停留',
+    goal: '目标地点',
+  };
+  const UNIT = { stayMinutes: ' 分钟', extendStay: ' 分钟' };
+
+  const push = (field, value, text) => {
+    const label = LABEL[field];
+    if (!label || value == null || value === '') return;
+    const key = `${field}:${value}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const unit = UNIT[field] || '';
+    lines.push(text ? `${label}：${value}${unit}（来自「${text}」）` : `${label}：${value}${unit}`);
+  };
+
+  // 1) 解析过程记录：带原文片段，最有用
+  for (const m of parsed.matched || []) push(m.field, m.value, m.text);
+
+  // 2) 兜底：结构化字段里有值、但 matched 没提到的，补上
+  if (parsed.startClock) push('startAt', parsed.startClock.text);
+  if (parsed.endClock) push('endAt', parsed.endClock.text);
+  if (parsed.pace && parsed.pace !== 'normal') push('pace', parsed.pace);
+  if (parsed.anchorText) push('anchor', parsed.anchorText);
+  if (parsed.stayMinutes != null) push('stayMinutes', parsed.stayMinutes);
+  if (parsed.extendStayMin != null) push('extendStay', parsed.extendStayMin);
+  for (const n of parsed.mustVisitTexts || []) push('mustVisit', n);
+  for (const n of parsed.avoidTexts || []) push('avoid', n);
+  if (parsed.searchKeyword) push('searchKeyword', parsed.searchKeyword);
+
   return lines;
 }
 

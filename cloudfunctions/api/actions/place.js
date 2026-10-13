@@ -140,9 +140,21 @@ function autoPick(candidates, req) {
   const hitMust = (name) =>
     mustTexts.some((m) => m && name && (name.indexOf(m) >= 0 || m.indexOf(name) >= 0));
 
-  // ① 必去优先，不受数量限制
+  /**
+   * ① 必去优先，不受数量限制 —— **但同样要过"可游览"这一关**。
+   *
+   * ⚠️ 真实事故（2026-10-13）：用户说「我想先去**哈工大**玩一小时」，
+   * 而「哈工大」是子串，于是匹配上了
+   * **「哈工大[地铁站]」「哈工大[公交站]」「哈工大-3口」**，
+   * 全部被标成"必去" —— 系统一本正经地把一个地铁站安排进了行程。
+   *
+   * 教训：**"名字里有这几个字"不等于"这就是那个地方"**，
+   * 与之前"民宿名字里嵌了地标名"是同一类错误。
+   * 所以必去也必须过类目这一关：**交通设施再"必去"也不是游览地**。
+   */
   for (const c of candidates) {
-    if (!c.placeId) continue;
+    if (!c.placeId || seen.has(c.placeId)) continue;
+    if (c.visitable === false) continue;
     if (hitMust(c.name)) {
       picked.push({ placeId: c.placeId, name: c.name, reason: '必去' });
       seen.add(c.placeId);

@@ -230,6 +230,58 @@ test('两条停留规则不会互相干扰：「多待一会儿」是调整，�
   assert.equal(rb.parse('逛 20 分钟').extendStayMin, null);
 });
 
+test('解析说明不能只依赖 matched —— 模型常常不填它', () => {
+  /**
+   * ⚠️ **真实缺陷的回归**（2026-10-13 实测 DeepSeek 发现）。
+   *
+   * DeepSeek 返回了正确的 endClock / pace / mustVisitTexts，
+   * 却把 `matched` 留空 —— 于是界面显示「**没有能确定的项**」，
+   * 而实际上解析出了一堆东西。
+   *
+   * `matched` 是"解析过程记录"，模型不一定给；
+   * 所以说明必须以**结构化字段**为准，matched 只是补充原文片段。
+   */
+  const parsed = {
+    rawText: '我想先去哈工大玩一小时',
+    anchorText: '哈工大',
+    searchKeyword: '哈工大',
+    endClock: { hour: 17, minute: 0, text: '17:00' },
+    startClock: { hour: 14, minute: 0, text: '14:00' },
+    pace: 'relaxed',
+    mustVisitTexts: ['哈工大'],
+    avoidTexts: [],
+    stayMinutes: 60,
+    matched: [], // ← 模型没填
+    uncertainties: [],
+  };
+
+  const lines = rb.explain(parsed);
+  assert.ok(lines.length >= 5, `matched 为空也要能说明解析结果，实际只有 ${lines.length} 条`);
+
+  const joined = lines.join('\n');
+  assert.match(joined, /结束时间：17:00/);
+  assert.match(joined, /开始时间：14:00/);
+  assert.match(joined, /节奏：relaxed/);
+  assert.match(joined, /区域：哈工大/);
+  assert.match(joined, /必去：哈工大/);
+  assert.match(joined, /每站停留：60 分钟/, '带单位的字段必须写清单位');
+});
+
+test('解析说明：matched 有原文片段时优先用它', () => {
+  const parsed = {
+    rawText: '五点前结束',
+    endClock: { hour: 17, minute: 0, text: '17:00' },
+    matched: [{ field: 'endAt', text: '五点前', value: '17:00' }],
+    mustVisitTexts: [],
+    avoidTexts: [],
+    uncertainties: [],
+  };
+
+  const lines = rb.explain(parsed);
+  assert.equal(lines.length, 1, 'matched 已覆盖的字段不该重复输出');
+  assert.match(lines[0], /来自「五点前」/, '原文片段对用户理解最有价值');
+});
+
 test('含糊表达绝不能被换算成数值（§6.2）', () => {
   const r = rb.parse('有点累，尽量少走');
 

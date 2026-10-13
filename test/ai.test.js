@@ -108,7 +108,7 @@ test('模型解析：正常返回能解析出结构化需求', async () => {
   assert.equal(r.ok, true);
   assert.equal(r.parsed.anchorText, '中央大街');
   assert.equal(r.usage.total_tokens, 42, 'token 用量要带出来，供成本核算');
-  assert.equal(r.promptVersion, 'intent-v1', '提示词版本要随结果回传，否则评测无法归因');
+  assert.equal(r.promptVersion, 'intent-v2', '提示词版本要随结果回传，否则评测无法归因');
 
   // 请求要带上 Key 与 Key 不能出现在结果里
   assert.match(http.calls[0].url, /chat\/completions/);
@@ -128,6 +128,58 @@ test('模型解析：temperature 必须是 0 —— 评测要求可复现', asyn
   assert.equal(body.messages.length, 2);
   assert.equal(body.messages[0].role, 'system');
   assert.match(body.messages[0].content, /不猜/, '提示词的纪律要真的在请求里');
+});
+
+test('提示词 schema 必须覆盖解析器实际读取的每一个字段', async () => {
+  /**
+   * ⚠️ **真实缺陷的回归**（2026-10-13 实测 DeepSeek 发现）。
+   *
+   * v1 的 schema 里**没有 `stayMinutes`** —— 用户说「玩一小时」，
+   * 模型听懂了却无处可放，信息直接丢掉。
+   * **schema 与解析器的期望漂移，模型答对了也没用。**
+   *
+   * 这条测试把"提示词声明的字段"与"代码真正读取的字段"钉在一起。
+   */
+  const http = fakeTransport([okBody(JSON.stringify(VALID))]);
+  const p = createHttpParser({ key: 'sk-test', http: http });
+  await p.parse('x', {});
+
+  const prompt = JSON.parse(http.calls[0].opts.body).messages[0].content;
+
+  // 解析器（toStructured / explain）真正会读的字段
+  const READ_FIELDS = [
+    'rawText',
+    'anchorText',
+    'searchKeyword',
+    'startClock',
+    'endClock',
+    'pace',
+    'mustVisitTexts',
+    'avoidTexts',
+    'stayMinutes',
+    'extendStayMin',
+    'matched',
+    'uncertainties',
+  ];
+
+  for (const f of READ_FIELDS) {
+    assert.ok(prompt.includes(`"${f}"`), `提示词 schema 缺少字段 "${f}" —— 模型不知道要返回它`);
+  }
+});
+
+test('提示词必须说清"没说"不等于"不确定"', async () => {
+  /**
+   * 实测问题：v1 让模型把"用户没有提到出发时间"也报成 uncertainties，
+   * 界面上全是废话待确认项（"用户没有说几点开始""没有说几点结束"），
+   * 真正的待确认项被淹没。
+   */
+  const http = fakeTransport([okBody(JSON.stringify(VALID))]);
+  const p = createHttpParser({ key: 'sk-test', http: http });
+  await p.parse('x', {});
+
+  const prompt = JSON.parse(http.calls[0].opts.body).messages[0].content;
+  assert.match(prompt, /"没说"不等于"不确定"/, '这条区分必须显式写在提示词里');
+  assert.match(prompt, /正常情况/, '要说明"没提到"是正常的，不用报告');
 });
 
 test('模型解析：返回包着 markdown 也要能解析出来', async () => {
