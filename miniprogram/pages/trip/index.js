@@ -917,6 +917,9 @@ Page({
       /** 进度，界面直接显示，不用自己数 */
       reachedCount: reachedCount,
       totalCount: located.length,
+      /** 下一站的名字 —— 概览里显示"当前该去哪"，不用自己去时间轴上找 */
+      nextName:
+        lastReachedIdx + 1 < located.length ? located[lastReachedIdx + 1].placeName : null,
       legend:
         located.length >= 2
           ? '绿线为已走过的部分，蓝线为剩余路线；连线是顺序示意，不是逐段真实路径'
@@ -969,11 +972,13 @@ Page({
         }
         const d = res.data
         // trip.progress 只回传 nodes —— 把它合并进 rawNodes，其余信息保持不动
+        // ⚠️ 空数组也要当成"没给"：否则界面会被清空
+        const freshNodes = d.nodes && d.nodes.length ? d.nodes : that.data.rawNodes
         that.setData(
           {
             busy: '',
             trip: Object.assign({}, that.data.trip, { version: d.version }),
-            rawNodes: d.nodes || that.data.rawNodes,
+            rawNodes: freshNodes,
           },
           () => that.rebuildFromNodes()
         )

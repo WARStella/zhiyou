@@ -363,8 +363,7 @@
   margin-left: 10rpx;
 }
 
-/* ── 已到过的节点 ─────────────────────────── */
-.node.visited .dot {
+/* ── 已到过的节点 ─────────────────────────── */.node.visited .dot {
   background: #0f9d58;
   width: 22rpx;
   height: 22rpx;
@@ -693,3 +692,40 @@
 }
 
 
+
+/* ── 进度（概览卡片顶部）───────────────────── */
+/* 游玩时最常看的信息，放在最上面，不必去地图卡片上找 */
+.progress-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+  padding: 12rpx 0 4rpx;
+}
+.progress-main {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #0b3c6e;
+}
+.progress-next {
+  font-size: 24rpx;
+  color: #9aa5b1;
+}
+.progress-done {
+  font-size: 22rpx;
+  color: #0f9d58;
+  border: 2rpx solid #0f9d58;
+  border-radius: 6rpx;
+  padding: 1rpx 10rpx;
+}
+
+/* ── 出发段（时间轴里的第一段）───────────────── */
+/* 与站点之间的出行段同一套样式 —— 它们本来就是同一类东西 */
+.leg-start .leg-body {
+  background: #eef4fb;
+}
+.leg-from,
+.leg-to {
+  font-size: 22rpx;
+  color: #6b7785;
+  margin-right: 8rpx;
+}

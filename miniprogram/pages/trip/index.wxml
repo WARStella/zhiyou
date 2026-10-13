@@ -176,6 +176,15 @@
         <text class="k">路线概览</text>
         <text class="v muted">版本 v{{trip.version}}</text>
       </view>
+      <!--
+        进度放在最上面 —— "当前走到哪了"是游玩时最常看的信息，
+        「已走过 X / Y 站」在这里也更新一份，不必去地图卡片上找。
+      -->
+      <view wx:if="{{routeMap}}" class="progress-row">
+        <text class="progress-main">已走过 {{routeMap.reachedCount}} / {{routeMap.totalCount}} 站</text>
+        <text wx:if="{{routeMap.reachedCount >= routeMap.totalCount && routeMap.totalCount}}" class="progress-done">全部走完</text>
+        <text wx:elif="{{routeMap.nextName}}" class="progress-next">下一站：{{routeMap.nextName}}</text>
+      </view>
       <view class="sum-row">
         <view class="sum-item"><text class="sum-v">{{summary.nodeCount}}</text><text class="sum-k">个节点</text></view>
         <view class="sum-item"><text class="sum-v">{{summary.totalWalkMin}}</text><text class="sum-k">分钟步行</text></view>
@@ -185,18 +194,11 @@
       <button class="btn ghost" bindtap="resetTrip">重新选择地点</button>
     </view>
 
-    <!-- 出发段：从当前位置到第一站。不给它的话行程会假装人已在门口 -->
-    <view wx:if="{{startLeg}}" class="card start-leg">
-      <view class="row">
-        <text class="k">出发</text>
-        <text class="v muted">{{startLeg.label}} → {{startLeg.toName}}</text>
-      </view>
-      <view class="leg-line">
-        步行 {{startLeg.minutes}} 分钟 · {{startLeg.meters}} 米
-        <text wx:if="{{startLeg.warn}}" class="travel-warn">{{startLeg.warn}}</text>
-      </view>
-      <view class="sub">行程已把这段算进总时间</view>
-    </view>
+    <!--
+      出发段的卡片版已删 —— 它挪进时间轴了（见下方 .tl 的第一段）。
+      独立卡片放在概览与地图之间，离时间轴太远，读起来不像"第一站之前那一段"，
+      而站点之间是画在时间轴里的，两处不一致。
+    -->
 
     <!-- 路线地图：走到哪了一眼看得出 -->
     <view wx:if="{{routeMap}}" class="card map-card">
@@ -241,8 +243,28 @@
       <view wx:for="{{warnings}}" wx:key="code" class="warn-item">· {{item.message}}</view>
     </view>
 
-    <!-- 时间轴：节点之间插入独立的出行段 -->
+    <!-- 时间轴：出发段 + 节点与节点之间的出行段，都在这里 -->
     <view class="tl">
+      <!--
+        出发段：从当前位置到第一站。
+        **必须画在时间轴最前面** —— 它与站点之间的出行段是同一类东西，
+        分开放会让人以为"第一站之前没有路程"。不给它的话，
+        行程还会假装人已经在第一站门口。
+      -->
+      <view wx:if="{{startLeg}}" class="leg leg-start">
+        <view class="leg-rail">
+          <view class="leg-bar"></view>
+        </view>
+        <view class="leg-body">
+          <text class="leg-from">{{startLeg.label}}</text>
+          <text class="leg-mode">步行</text>
+          <text class="leg-time">{{startLeg.minutes}} 分钟</text>
+          <text class="leg-dist">{{startLeg.meters}} 米</text>
+          <text wx:if="{{startLeg.warn}}" class="leg-warn">{{startLeg.warn}}</text>
+          <text class="leg-to">{{startLeg.toName}}</text>
+        </view>
+      </view>
+
       <block wx:for="{{timeline}}" wx:key="nodeId">
         <view class="node {{item.isCurrent ? 'current' : ''}} {{item.status}} {{item.visited ? 'visited' : ''}} {{item.skipped ? 'skip' : ''}}">
           <view class="node-rail">
