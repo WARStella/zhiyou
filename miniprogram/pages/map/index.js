@@ -86,7 +86,10 @@ Page({
             category: p.category,
             latitude: p.location.latitude,
             longitude: p.location.longitude,
-            usable: p.usable,
+            // 准入分级：能游览 ≠ 能集合。地图上两者都要能看到，标注不同
+            tripNodeAllowed: p.tripNodeAllowed,
+            meetingPointAllowed: p.meetingPointAllowed,
+            verified: p.verified,
           }
         })
         that.setData({ places, loading: false, loadError: '' })
@@ -204,7 +207,7 @@ Page({
         width: p.placeId === meetingId ? 34 : 28,
         height: p.placeId === meetingId ? 42 : 35,
         callout: {
-          content: p.name + (p.usable ? '' : '（待核验）'),
+          content: p.name + (p.verified ? '' : '（未核验）'),
           color: '#1F2933',
           fontSize: 12,
           borderRadius: 6,

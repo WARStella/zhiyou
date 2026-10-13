@@ -12,6 +12,8 @@
  * 本模块是纯函数，可完整单测。
  */
 
+const authz = require('../lib/authz');
+
 const time = require('../lib/time');
 const geo = require('../lib/geo');
 const timelineMod = require('./timeline');
@@ -250,8 +252,13 @@ function recommendMeetPoints(p) {
   const candidates = [];
 
   for (const place of p.candidatePlaces || []) {
-    if (!place.verifiedAt || place.confidence === 'low') {
-      excluded.push({ placeId: place._id, reason: 'PLACE_UNVERIFIED', message: '该地点尚未完成实地核验' });
+    // 集合点准入从严：未核验地点**可以游览，不能在此集合**（分级见 lib/authz.js）
+    if (!authz.canBeMeetingPoint(place)) {
+      excluded.push({
+        placeId: place._id,
+        reason: 'PLACE_NOT_MEETING_POINT',
+        message: '该地点未完成实地核验，不能作为集合点（可安排为游览节点）',
+      });
       continue;
     }
 

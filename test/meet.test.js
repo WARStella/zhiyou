@@ -177,6 +177,12 @@ test('集合点推荐：minimax 规则，且返回候选排除原因', () => {
   // 防洪纪念塔位于三人之间，最远步行时间应最小
   assert.equal(r.candidates[0].placeId, 'p_fanghong', 'minimax 应选中三人中间的集合点');
 
+  // 未核验地点被排除，且**说明它还能用来做什么**（可作游览节点）
+  const why = r.excluded.find((x) => x.placeId === 'p_unverified');
+  assert.ok(why, '未核验地点必须出现在排除原因里，不能静默丢弃');
+  assert.equal(why.reason, 'PLACE_NOT_MEETING_POINT');
+  assert.match(why.message, /可安排为游览节点/);
+
   // 每个候选都要有各成员步行时间
   assert.equal(r.candidates[0].estimates.length, 3);
   // 最远步行时间单调不减
@@ -186,7 +192,8 @@ test('集合点推荐：minimax 规则，且返回候选排除原因', () => {
   // 排除原因必须给出，而不是静默丢弃
   const bad = r.excluded.find((e) => e.placeId === 'p_unverified');
   assert.ok(bad, '未核验地点应被排除');
-  assert.equal(bad.reason, 'PLACE_UNVERIFIED');
+  assert.equal(bad.reason, 'PLACE_NOT_MEETING_POINT');
+  assert.match(bad.message, /可安排为游览节点/, '要说清它还能用在哪，而不是只说不合格');
 });
 
 test('集合点推荐：位置过期时不给推荐，而是明确说明需要重新定位', () => {

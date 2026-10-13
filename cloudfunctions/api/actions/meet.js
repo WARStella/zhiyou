@@ -55,8 +55,15 @@ async function recommend(ctx) {
 
   await requireCrewMember(repo, p.crewId, openid);
 
-  const places = (await repo.find(C.PLACES, {}, { limit: 200 })).filter(
-    (pl) => MEET_CATEGORIES.includes(pl.category) && pl.verifiedAt && pl.confidence !== 'low'
+  /**
+   * 这里**只按类目筛**，准入判定交给 `domain/meet.js`。
+   *
+   * 原因：如果在 action 层就把不合格的地点滤掉，用户只会看到"候选里没有它"，
+   * 而**看不到为什么没有**。把它交给下层，排除原因才会出现在 `excluded` 里 ——
+   * 这正面服务 10/31 验收「失败原因可定位」。
+   */
+  const places = (await repo.find(C.PLACES, {}, { limit: 200 })).filter((pl) =>
+    MEET_CATEGORIES.includes(pl.category)
   );
 
   if (!places.length) {

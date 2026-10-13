@@ -134,9 +134,10 @@ test('幂等：同一 requestId 重复调用不会重复执行', async () => {
   assert.equal(count, 1, '数据库中只能有一条位置记录');
 });
 
-test('规划：未核验地点不进入规划，且不可行时不落库', async () => {
+test('规划：未核验地点可进路线（带标注），缺坐标的才拒绝，且不可行时不落库', async () => {
   const w = await makeWorld();
 
+  // 未核验但**有坐标** → 允许安排，随结果标注使用边界
   const res = expectOk(
     await w.A('trip.plan', {
       placeIds: ['p_zhongyang', 'p_unverified'],
@@ -144,12 +145,24 @@ test('规划：未核验地点不进入规划，且不可行时不落库', async
       constraints: [],
     })
   );
+  assert.equal(res.saved, true, '未核验地点应可作行程节点');
+  assert.equal(res.unverifiedNotice.count, 1);
+  assert.equal(res.unverifiedNotice.placeIds[0], 'p_unverified');
+  assert.equal(res.feasible, true);
 
-  assert.equal(res.feasible, false);
-  assert.equal(res.saved, false, '不可行方案绝不能保存为可执行行程');
-  assert.ok(res.conflicts.some((c) => c.code === 'INSUFFICIENT_DATA'));
-  assert.match(res.conflicts[0].message, /核验/);
-  assert.equal(await w.repo.count(C.TRIPS, {}), 0);
+  // 缺坐标 → 拒绝，且不落库（不可执行的东西绝不能保存成行程）
+  await w.repo.__seed(C.PLACES, [
+    { _id: 'p_noloc', name: '没有坐标的地点', category: 'sight', verifiedAt: new Date(NOW), confidence: 'high' },
+  ]);
+  const bad = expectOk(
+    await w.A('trip.plan', { placeIds: ['p_zhongyang', 'p_noloc'], startAt: NOW, constraints: [] })
+  );
+  assert.equal(bad.feasible, false);
+  assert.equal(bad.saved, false);
+  assert.equal(bad.reason, 'PLACE_NOT_LOCATABLE');
+  assert.ok(bad.conflicts.some((c) => c.code === 'INSUFFICIENT_DATA'));
+  assert.match(bad.conflicts[0].message, /坐标/);
+  assert.equal(await w.repo.count(C.TRIPS, {}), 1, '只有成功那次落库');
 });
 
 test('规划：硬约束不可行时返回冲突原因，且不保存', async () => {
@@ -495,50 +508,81 @@ test('业务异常不受影响：错误码与提示原样返回，且不带堆�
   assert.doesNotMatch(err.message, /stack|RangeError/i);
 });
 
-test('开发期放行开关：allowUnverified 仅 dev 有效，且必须显式标注', async () => {
-  const dev = await makeWorld();
+test('地点准入分级：未核验可作行程节点，但不能作集合点', async () => {
+  const w = await makeWorld();
 
-  // ① 不开开关 → 未核验地点被拒绝（§6.6「检索到资料 ≠ 资料可信」）
-  const rejected = expectOk(
-    await dev.A('trip.plan', { placeIds: ['p_unverified'], startAt: NOW, constraints: [] })
+  // ① 未核验地点**允许**进入行程。
+  //    首版把核验做成"全有或全无"，结果是地点检索回来的 POI 一个都用不了，
+  //    与「外部检索保证覆盖度、实地踏勘保证可信度」的目标直接矛盾。
+  const planned = expectOk(
+    await w.A('trip.plan', { placeIds: ['p_unverified'], startAt: NOW, constraints: [] })
   );
-  assert.equal(rejected.saved, false);
-  assert.equal(rejected.reason, 'PLACE_UNVERIFIED');
-  assert.match(rejected.hint, /allowUnverified/, '拒绝时要告诉开发者开发期怎么自测');
+  assert.equal(planned.saved, true, '未核验地点应可作行程节点');
+  assert.ok(planned.unverifiedNotice, '必须随结果标注，不得静默');
+  assert.equal(planned.unverifiedNotice.count, 1);
+  assert.equal(planned.unverifiedNotice.scope, 'tripNodeOnly', '要说明使用边界');
+  assert.match(planned.unverifiedNotice.warning, /不能作为集合点/);
+  assert.equal(planned.unverifiedNotice.places[0].placeId, 'p_unverified');
 
-  // ② dev 环境 + 显式开关 → 放行，但**必须随结果回传标注**
-  const bypass = expectOk(
-    await dev.A('trip.plan', {
-      placeIds: ['p_unverified'],
-      startAt: NOW,
-      constraints: [],
-      allowUnverified: true,
-    })
-  );
-  assert.equal(bypass.saved, true, 'dev 环境显式开关应放行');
-  assert.ok(bypass.unverifiedBypass, '放行必须显式标注，不得静默通过');
-  assert.equal(bypass.unverifiedBypass.count, 1);
-  assert.deepEqual(bypass.unverifiedBypass.placeIds, ['p_unverified']);
-  assert.match(bypass.unverifiedBypass.warning, /核验|开发调试/);
-
-  // ③ prod 环境 → 开关失效（正式实测不得使用未核验地点）
-  const prod = await makeWorld({ env: 'prod' });
-  const prodRes = expectOk(
-    await prod.A('trip.plan', {
-      placeIds: ['p_unverified'],
-      startAt: NOW,
-      constraints: [],
-      allowUnverified: true,
-    })
-  );
-  assert.equal(prodRes.saved, false, 'prod 环境必须忽略该开关');
-  assert.equal(prodRes.reason, 'PLACE_UNVERIFIED');
-
-  // ④ 全部地点都已核验时，不应出现标注
+  // ② 全部已核验时不得无端报警
   const clean = expectOk(
-    await dev.A('trip.plan', { placeIds: VALID_PLACES, startAt: NOW, constraints: [] })
+    await w.A('trip.plan', { placeIds: VALID_PLACES, startAt: NOW, constraints: [] })
   );
-  assert.equal(clean.unverifiedBypass, null, '没有未核验地点时不得无端报警');
+  assert.equal(clean.unverifiedNotice, null);
+
+  // ③ 缺坐标必须拒绝 —— 会让步行时间失真，整条时间线就没意义了
+  await w.repo.__seed(C.PLACES, [
+    {
+      _id: 'p_noloc',
+      name: '没有坐标的地点',
+      category: 'sight',
+      verifiedAt: new Date(NOW),
+      confidence: 'high',
+    },
+  ]);
+  const noLoc = expectOk(
+    await w.A('trip.plan', { placeIds: ['p_noloc'], startAt: NOW, constraints: [] })
+  );
+  assert.equal(noLoc.saved, false, '缺坐标必须拒绝');
+  assert.equal(noLoc.reason, 'PLACE_NOT_LOCATABLE');
+  assert.match(noLoc.conflicts[0].message, /坐标/);
+});
+
+test('place.list 按用途分别标注准入，而不是一个含糊的 usable', async () => {
+  const w = await makeWorld();
+  const res = expectOk(await w.A('place.list', {}));
+
+  const unverified = res.places.find((x) => x.placeId === 'p_unverified');
+  assert.equal(unverified.tripNodeAllowed, true, '未核验地点可作行程节点');
+  assert.equal(unverified.meetingPointAllowed, false, '未核验地点不可作集合点');
+  assert.equal(unverified.verified, false);
+
+  const verified = res.places.find((x) => x.placeId === 'p_zhongyang');
+  assert.equal(verified.tripNodeAllowed, true);
+  assert.equal(verified.meetingPointAllowed, true);
+  assert.equal(verified.verified, true);
+
+  // 计数便于界面直接展示，不用自己遍历
+  assert.equal(res.counts.tripNodeAllowed, fixtures.places.length);
+  assert.equal(res.counts.meetingPointAllowed, fixtures.places.length - 1);
+
+  // verifiedOnly 现在明确指"可作集合点"
+  const onlyMeet = expectOk(await w.A('place.list', { verifiedOnly: true }));
+  assert.equal(onlyMeet.total, fixtures.places.length - 1);
+  assert.equal(onlyMeet.places.every((x) => x.meetingPointAllowed), true);
+});
+
+test('集合点推荐必须排除未核验地点，并说明它可作为游览节点', async () => {
+  const w = await makeWorld();
+  const { crewId } = await makeCrew(w);
+
+  const res = expectOk(await w.A('meet.recommend', { crewId }));
+  const excludedIds = (res.excluded || []).map((x) => x.placeId);
+  assert.equal(excludedIds.includes('p_unverified'), true, '未核验地点不得作集合点');
+
+  const why = (res.excluded || []).find((x) => x.placeId === 'p_unverified');
+  assert.equal(why.reason, 'PLACE_NOT_MEETING_POINT');
+  assert.match(why.message, /可安排为游览节点/, '要说清它还能用来做什么，而不是只说不合格');
 });
 
 test('ops.selfTest：测量各类写入形态，并只写 selftest 集合', async () => {

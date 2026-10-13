@@ -70,9 +70,7 @@ Page({
     busy: '',
     error: '',
     note: '',
-    unverifiedBypass: null,
-    /** 开发期：允许未核验地点进入规划（仅 dev 环境后端才认这个开关） */
-    devAllowUnverified: true,
+    unverifiedNotice: null,
     actions: QUICK_ACTIONS,
   },
 
@@ -101,7 +99,11 @@ Page({
             placeId: p.placeId,
             name: p.name,
             category: p.category,
-            usable: p.usable,
+            // 准入按用途分级（见 lib/authz.js）：能游览 ≠ 能集合
+            tripNodeAllowed: p.tripNodeAllowed,
+            meetingPointAllowed: p.meetingPointAllowed,
+            verified: p.verified,
+            dataSource: p.dataSource,
             selected: false,
             order: 0,
           }
@@ -155,8 +157,6 @@ Page({
         placeIds: ids,
         startAt: this.data.startAt,
         constraints: [],
-        // 开发期开关：后端仅在 dev 环境认它，且会在响应里显式回传
-        allowUnverified: this.data.devAllowUnverified,
       })
       .then(function (res) {
         if (!res || res.ok !== true) {
@@ -215,7 +215,7 @@ Page({
       timeline,
       currentNodeIndex: currentIndex,
       summary: d.summary || null,
-      unverifiedBypass: d.unverifiedBypass || null,
+      unverifiedNotice: d.unverifiedNotice || null,
       proposal: null,
       proposalMode: null,
       candidates: [],
@@ -340,7 +340,7 @@ Page({
       trip: null,
       timeline: [],
       summary: null,
-      unverifiedBypass: null,
+      unverifiedNotice: null,
       proposal: null,
       proposalMode: null,
       candidates: [],

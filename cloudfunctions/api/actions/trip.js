@@ -2,7 +2,7 @@
 
 const resp = require('../lib/resp');
 const { CODES, require_fields, assert, fail } = require('../lib/errors');
-const { requireCrewMember, getMembership } = require('../lib/authz');
+const { requireCrewMember, getMembership, canBeTripNode, canBeMeetingPoint } = require('../lib/authz');
 const { resolveParams } = require('../lib/params');
 const timelineMod = require('../domain/timeline');
 const { checkFeasibility } = require('../domain/feasibility');
@@ -44,7 +44,7 @@ async function loadTripForRead(repo, tripId, openid) {
  * 这是"遇到异常不会悄悄执行错误安排"在规划入口的落地。
  */
 async function plan(ctx) {
-  const { repo, openid, env } = ctx;
+  const { repo, openid } = ctx;
   const p = ctx.payload || {};
   const started = Date.now();
   const now = new Date(ctx.now ? ctx.now : Date.now());
@@ -90,27 +90,22 @@ async function plan(ctx) {
   const { map: placesById, missing } = await loadPlaces(repo, spec.placeIds);
   assert(missing.length === 0, CODES.NOT_FOUND, `地点不存在：${missing.join(', ')}`);
 
-  // 未核验地点不得进入规划 —— §6.6「检索到资料 ≠ 资料可信」
-  const unverified = Object.values(placesById).filter(
-    (pl) => !pl.verifiedAt || pl.confidence === 'low'
-  );
   /**
-   * 开发期放行开关 —— 仅 `env === 'dev'` 有效。
+   * 行程节点准入：需要名称与坐标。
    *
-   * 为什么需要它：10/16 踏勘之前，库里只有未核验的占位地点，
-   * 页面与规划流程**完全无法自测**；而 W1 的交付恰恰是「单人路线可用」。
+   * **未核验不再是拒绝理由**（2026-10-13 修正）。首版把核验做成了"全有或全无"，
+   * 结果是地点检索回来的 POI 一个都用不了 —— 与「外部检索保证覆盖度、
+   * 实地踏勘保证可信度」的设计目标直接矛盾。
    *
-   * 为什么它是安全的：
-   *   · 由 `env === 'dev'` 把关，正式实测期（`ZY_ENV=prod`）失效；
-   *   · **放行时必须显式标注**（响应里的 `unverifiedBypass`），绝不静默通过；
-   *   · 决策记录里同样留痕，11/5 固定测试集能分辨哪些结果用了它。
+   * 正确的分级见 `lib/authz.js`：
+   *   · 行程节点：有名称与坐标即可（外部 POI 够用）
+   *   · 集合点：还必须实地核验（§7.1 可达性、辨识度、停留条件）
    *
-   * 与计划书 §14.2「体验版与正式发布是两件事」同一思路：
-   * 开发期的便利必须与正式期的严格**在配置上分开**，而不是靠自觉。
+   * 这里只拒绝**真正无法使用**的地点 —— 缺坐标会让时间线失真。
    */
-  const devBypass = p.allowUnverified === true && env === 'dev';
+  const notUsable = Object.values(placesById).filter((pl) => !canBeTripNode(pl));
 
-  if (unverified.length && !devBypass) {
+  if (notUsable.length) {
     // 拒绝也必须留痕：11/5 要能分清"正常拒绝、误拒绝和错误放行"
     await logDecision(repo, {
       ts: now,
@@ -123,38 +118,51 @@ async function plan(ctx) {
       durationMs: Date.now() - started,
       mapApiCalls: 0,
       result: 'insufficient_data',
-      excludedReasons: unverified.map((pl) => ({
+      excludedReasons: notUsable.map((pl) => ({
         placeId: pl._id,
-        reason: 'PLACE_UNVERIFIED',
-        message: `${pl.name} 尚未完成实地核验`,
+        reason: 'PLACE_NOT_LOCATABLE',
+        message: `${pl.name} 缺少可用坐标，无法计算步行时间`,
       })),
     });
     return resp.ok({
       feasible: false,
-      conflicts: unverified.map((pl) => ({
+      conflicts: notUsable.map((pl) => ({
         code: 'INSUFFICIENT_DATA',
-        message: `「${pl.name}」尚未完成实地核验，不能进入规划`,
+        message: `「${pl.name}」缺少坐标，无法计算前往它的步行时间`,
         placeId: pl._id,
         hardConstraintKey: null,
       })),
       nodes: [],
       saved: false,
-      reason: 'PLACE_UNVERIFIED',
-      hint: '请于 10/16 踏勘后由 C 录入核验信息；开发期可使用 allowUnverified:true 自测页面流程',
+      reason: 'PLACE_NOT_LOCATABLE',
+      hint: '请补全该地点的经纬度；地点检索入库时会一并取回坐标。',
     });
   }
 
-  /** 放行时**必须**随结果一起回传，界面要显著标注，不得静默 */
-  const unverifiedBypass =
-    devBypass && unverified.length
-      ? {
-          count: unverified.length,
-          placeIds: unverified.map((pl) => pl._id),
-          warning:
-            '本次规划使用了未经实地核验的地点，仅用于开发调试。' +
-            '正式实验（ZY_ENV=prod）会拒绝这些地点。',
-        }
-      : null;
+  /**
+   * 未核验地点：**允许安排进路线，但必须随结果标注**，不得静默。
+   * 标注同时说明它的使用边界（不能作为集合点），让界面能如实提示用户。
+   */
+  const unverifiedPlaces = Object.values(placesById)
+    .filter((pl) => !canBeMeetingPoint(pl))
+    .map((pl) => ({
+      placeId: pl._id,
+      name: pl.name,
+      dataSource: pl.dataSource || null,
+      confidence: pl.confidence || null,
+      verifiedAt: pl.verifiedAt || null,
+    }));
+
+  const unverifiedNotice = unverifiedPlaces.length
+    ? {
+        count: unverifiedPlaces.length,
+        placeIds: unverifiedPlaces.map((pl) => pl.placeId),
+        places: unverifiedPlaces,
+        scope: 'tripNodeOnly',
+        warning:
+          '本次路线含未核验地点：可以安排进游览顺序，但**不能作为集合点**（集合点要求实地核验）。',
+      }
+    : null;
 
   const items = spec.placeIds.map((placeId, i) => ({ nodeId: `n_${i}_${placeId}`, placeId }));
   const tl = timelineMod.buildTimeline({ startAt: spec.startAt, items, placesById, params });
@@ -262,8 +270,8 @@ async function plan(ctx) {
       totalWalkMeters: tl.totalWalkMeters,
       totalStayMin: tl.totalStayMin,
     },
-    /** 非 null 表示本次规划用了未核验地点 —— 界面必须显著标注，不得静默 */
-    unverifiedBypass,
+    /** 非 null 表示本次路线含未核验地点（可游览、不可作集合点）—— 界面必须显著标注 */
+    unverifiedNotice,
     saved: true,
   });
 }

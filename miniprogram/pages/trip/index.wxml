@@ -1,9 +1,9 @@
 <view class="page">
 
-  <!-- 开发期：使用了未核验地点时必须显著提示，不得静默 -->
-  <view wx:if="{{unverifiedBypass}}" class="warn">
-    ⚠️ 本次使用了 {{unverifiedBypass.count}} 个**未核验**地点，仅用于开发调试。
-    正式实验会拒绝这些地点。
+  <!-- 含未核验地点时必须显著提示：说明它能做什么、不能做什么 -->
+  <view wx:if="{{unverifiedNotice}}" class="warn">
+    ⚠️ 本次路线含 {{unverifiedNotice.count}} 个**未核验**地点。
+    可以安排进游览顺序，但**不能作为集合点** —— 集合点要求实地核验（入口位置、可达性、辨识度）。
   </view>
 
   <view wx:if="{{error}}" class="err">{{error}}</view>
@@ -52,7 +52,7 @@
           <view class="order {{item.selected ? 'on' : ''}}">{{item.order || ''}}</view>
           <view class="place-text">
             <text class="place-name">{{item.name}}</text>
-            <text class="place-meta">{{item.category}}{{item.usable ? '' : ' · 未核验'}}</text>
+            <text class="place-meta">{{item.category}}{{item.verified ? '' : ' · 未核验（可游览·不可集合）'}}</text>
           </view>
         </view>
         <text class="check">{{item.selected ? '✓' : ''}}</text>
