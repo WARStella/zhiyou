@@ -5,6 +5,7 @@ const { CODES, require_fields, fail } = require('../lib/errors');
 const { placeEligibility, canBeMeetingPoint } = require('../lib/authz');
 const { createMapProvider } = require('../lib/map');
 const { haversineMeters } = require('../lib/geo');
+const { isVisitableCategory } = require('../lib/ai/rulebased');
 const { logEvent } = require('../lib/trace');
 const C = require('../lib/repo/collections');
 
@@ -293,15 +294,31 @@ async function search(ctx) {
   let ranked;
   if (basis === 'relevance') {
     // `rows` 是按上游返回顺序推入的，所以下标就是上游的相关性名次
-    ranked = rows.map((r, i) => {
+    const withIdx = rows.map((r, i) => {
       const straight =
         center && r.location ? Math.round(haversineMeters(center, r.location)) : null;
       return Object.assign({}, r, {
         upstreamIndex: i,
         straightLineMeters: straight,
         verified: verifiedIds.has(r.placeId),
+        /**
+         * 能不能作为**游览地点**。
+         *
+         * ⚠️ 实测踩到的坑：搜「冰雪大世界」，上游把「冰雪大世界[公交站]」
+         * 排在前面 —— 类目是 `基础设施;交通设施:公交车站`。
+         * 它是公交站，不是那个冰雪乐园。
+         *
+         * 这里**不硬过滤**（用户也可能真的在找某个交通设施），
+         * 而是把不可游览的**稳定地排到后面**，并打上标记让界面能说明。
+         */
+        visitable: isVisitableCategory(r.category),
       });
     });
+
+    // 稳定分区：可游览的在前，各自保持上游的相对顺序
+    ranked = withIdx
+      .filter((x) => x.visitable)
+      .concat(withIdx.filter((x) => !x.visitable));
   } else {
     ranked = rankByDistance(rows, center, basis, verifiedIds);
   }
@@ -364,7 +381,7 @@ async function search(ctx) {
         enriched > 0
           ? `前 ${enriched} 个已用真实步行时间精排（每项多消耗 1 次地图配额）`
           : basis === 'relevance'
-            ? '按检索结果的相关性排序（上游顺序），距离仅作参考。' +
+            ? '按检索结果的相关性排序（上游顺序）；交通设施等不可游览地点排在最后，距离仅作参考。' +
               '需要"离我最近"时传 rankBy: "distance"；开启 enrichWalk 可用真实步行时间精排' +
               '（直线距离在短距离下不可靠：实测直线 10 米对应实际步行 76 米）'
             : basis === 'distance'

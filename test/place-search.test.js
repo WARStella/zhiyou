@@ -143,6 +143,39 @@ test('地点检索：save:false 只给候选，不写库', async () => {
 
 // ── 排序 ──────────────────────────────────────────────────
 
+test('地点检索：交通设施排在最后，并被标记为不可游览', async () => {
+  /**
+   * 真实事故：搜「冰雪大世界」，上游把「冰雪大世界[公交站]」排在前面。
+   * 它是公交站，不是那个冰雪乐园。
+   *
+   * 这里**不硬过滤**（用户也可能真的在找某个交通设施），
+   * 而是稳定地排到后面并打上标记。
+   */
+  const w = await makeWorld();
+  const res = expectOk(await w.A('place.search', Object.assign({ keyword: '', center: CENTER }, FAKE)));
+
+  const flags = res.candidates.map((c) => c.visitable);
+  assert.ok(flags.includes(false), '夹具里必须有不可游览的地点，否则这条测试没覆盖到');
+  assert.ok(flags.includes(true));
+
+  const firstNon = flags.indexOf(false);
+  const lastVis = flags.lastIndexOf(true);
+  assert.ok(firstNon > lastVis, '可游览的必须全部排在不可游览之前');
+
+  // 上游相对顺序在两组内部仍要保持
+  const visIdx = res.candidates.filter((c) => c.visitable).map((c) => c.upstreamIndex);
+  for (let i = 1; i < visIdx.length; i++) {
+    assert.ok(visIdx[i] > visIdx[i - 1], '同组内必须保持上游顺序');
+  }
+
+  // 那条公交站确实被判为不可游览
+  const stop = res.candidates.find((c) => String(c.name).indexOf('公交站') >= 0);
+  assert.ok(stop, '夹具里的公交站应当出现在结果里（只是排在后面）');
+  assert.equal(stop.visitable, false);
+
+  assert.match(res.ranking.note, /交通设施/);
+});
+
 test('地点检索：默认按上游相关性排序，而不是按距离重排', async () => {
   const w = await makeWorld();
   const res = expectOk(await w.A('place.search', Object.assign({ keyword: '', center: CENTER }, FAKE)));

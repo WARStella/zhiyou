@@ -151,17 +151,32 @@ function cleanPlacePhrase(s) {
 /**
  * 不适合作为"游览地点"的 POI 类目。
  *
- * ⚠️ **实测踩到的坑**：用户说「我想去冰雪大世界」，而库里有一条早先检索回来的
- * POI 叫「冰雪大世界[地铁站]」，类目是 `基础设施;交通设施:地铁站`。
- * 它是**地铁站**，不是那个冰雪乐园。
+ * ⚠️ **实测踩到的坑（两次）**：
  *
- * 把它当已知地点参与匹配的后果：用户想去的地方被替换成一个地铁站，
- * 检索词也跟着变成「冰雪大世界[地铁站]」—— 搜出来自然全是地铁站。
+ * 第一次：用户说「我想去冰雪大世界」，库里有一条 POI 叫「冰雪大世界[地铁站]」，
+ * 类目 `基础设施;交通设施:地铁站`。它是**地铁站**，不是那个冰雪乐园。
  *
- * 腾讯的 POI 类目是「大类;中类:小类」这种自由文本，所以这里用关键词排除。
+ * 第二次：修完第一版之后仍然出错 —— 因为真实类目是
+ * `基础设施;交通设施:公交车站`，而我的正则写的是「公交站」：
+ *
+ *     /公交站/.test('基础设施;交通设施:公交车站')  // → false ❌
+ *     「公交车站」里没有连续的「公交站」三个字（公交-车-站）
+ *
+ * 而当时的测试用的是**我自己编的**类目字符串（`…:地铁站`），恰好能匹配，
+ * 所以测试是绿的。**用自己编的数据测自己写的规则，等于没测。**
+ *
+ * 因此这里改用**词干**匹配（`公交` 而不是 `公交站`），
+ * 并且测试必须使用真实返回过的类目字符串。
+ *
+ * 腾讯的 POI 类目格式是「大类;中类:小类」这种自由文本，只能用关键词排除。
  */
 const NON_VISITABLE_CATEGORY_RE =
-  /地铁站|公交站|停车场|加油站|充电站|收费站|服务区|道路|路口|门牌|出入口|天桥|隧道|卫生间|公共厕所|ATM|营业厅|售票处|咨询处/;
+  /地铁|轻轨|公交|巴士|车站|火车站|汽车站|机场|码头|港口|停车场|加油|加气|充电站|收费站|服务区|高速|道路|路口|门牌|出入口|天桥|地下通道|隧道|卫生间|公共厕所|厕所|ATM|银行|营业厅|售票处|咨询处|派出所|岗亭/;
+
+/** 这条类目是否**可以**作为游览地点（交通设施、公共设施一律不算） */
+function isVisitableCategory(category) {
+  return !NON_VISITABLE_CATEGORY_RE.test(String(category || ''));
+}
 
 /** 去掉 POI 名里的类别或门店后缀：「冰雪大世界[地铁站]」→「冰雪大世界」 */
 function baseName(name) {
@@ -178,7 +193,7 @@ function baseName(name) {
  */
 function pickKnownPlaceNames(places) {
   return (places || [])
-    .filter((p) => p && p.name && !NON_VISITABLE_CATEGORY_RE.test(String(p.category || '')))
+    .filter((p) => p && p.name && isVisitableCategory(p.category))
     .map((p) => p.name);
 }
 
@@ -615,6 +630,7 @@ module.exports = {
   matchKnown,
   baseName,
   pickKnownPlaceNames,
+  isVisitableCategory,
   cleanPlacePhrase,
   NON_VISITABLE_CATEGORY_RE,
   _rules: { END_TIME_RES, START_TIME_RES, PACE_RULES, VAGUE_RULES, ANCHOR_RES, GOAL_RE },

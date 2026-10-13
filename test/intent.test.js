@@ -129,20 +129,45 @@ test('交通设施不得被当作"用户想去的地方"', () => {
    * （类目 `基础设施;交通设施:地铁站`）。它是**地铁站**，不是那个冰雪乐园。
    * 让它参与匹配，用户想去的地方会被替换成一个地铁站，
    * 检索词也跟着变成「冰雪大世界[地铁站]」—— 搜出来全是地铁站。
+   *
+   * ⚠️ **类目字符串必须用真实返回过的值**。第一版修复时我用了自己编的
+   * `…:地铁站`，它恰好能匹配，测试是绿的；而线上真实的
+   * `…:公交车站` 匹配不上（「公交车站」里没有连续的「公交站」三个字），
+   * 于是同一个 bug 又犯了第二次。
    */
   const places = [
     { name: '中央大街', category: '旅游景点:景点' },
     { name: '冰雪大世界[地铁站]', category: '基础设施;交通设施:地铁站' },
+    { name: '冰雪大世界[公交站]', category: '基础设施;交通设施:公交车站' },
     { name: '哈尔滨站[地铁站]', category: '基础设施;交通设施:地铁站' },
   ];
   const known = rb.pickKnownPlaceNames(places);
 
-  assert.deepEqual(known, ['中央大街'], '地铁站必须被排除');
-  assert.equal(rb.NON_VISITABLE_CATEGORY_RE.test('基础设施;交通设施:地铁站'), true);
+  assert.deepEqual(known, ['中央大街'], '交通设施必须被排除');
+  assert.equal(rb.isVisitableCategory('旅游景点:公园'), true);
+  assert.equal(rb.isVisitableCategory('基础设施;交通设施:公交车站'), false);
+  assert.equal(rb.isVisitableCategory('基础设施;交通设施:地铁站'), false);
 
   const r = rb.parse('我想去冰雪大世界', { knownPlaceNames: known });
-  assert.deepEqual(r.mustVisitTexts, [], '不得把地铁站当成必去');
+  assert.deepEqual(r.mustVisitTexts, [], '不得把交通设施当成必去');
   assert.equal(r.searchKeyword, '冰雪大世界', '检索词必须是用户说的那个地标');
+});
+
+test('不可游览类目的关键词覆盖真实返回的写法', () => {
+  // 这些字符串都取自真实返回，不要改成自己编的写法
+  const real = [
+    '基础设施;交通设施:公交车站',
+    '基础设施;交通设施:地铁站',
+    '基础设施;交通设施:停车场',
+    '生活服务:公共厕所',
+  ];
+  for (const c of real) {
+    assert.equal(rb.isVisitableCategory(c), false, `${c} 应当被判为不可游览`);
+  }
+  const visitable = ['旅游景点:景点', '旅游景点:公园', '旅游景点:教堂', '餐饮服务:中餐厅', '购物服务:商场'];
+  for (const c of visitable) {
+    assert.equal(rb.isVisitableCategory(c), true, `${c} 应当可游览`);
+  }
 });
 
 test('匹配时要去掉名字里的门店后缀', () => {

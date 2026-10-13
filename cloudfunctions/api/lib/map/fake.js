@@ -182,6 +182,14 @@ function createFakeProvider(opts) {
         { poiId: 'fake_poi_3', title: '兆麟公园', category: '旅游景点:公园', address: '森林街41号', latitude: 45.7749, longitude: 126.624 },
         { poiId: 'fake_poi_4', title: '老道外中华巴洛克', category: '旅游景点:历史街区', address: '靖宇街', latitude: 45.757, longitude: 126.642 },
         { poiId: 'fake_poi_5', title: '斯大林公园', category: '旅游景点:公园', address: '斯大林街', latitude: 45.783, longitude: 126.619 },
+        /**
+         * ⚠️ 这条是**真实事故的复现**，不要删。
+         * 用户搜「冰雪大世界」，上游把「冰雪大世界[公交站]」排在前面，
+         * 类目是 `基础设施;交通设施:公交车站` —— 它是公交站，不是那个冰雪乐园。
+         * 类目字符串取自真实返回，**不要改成自己编的写法**。
+         */
+        { poiId: 'fake_poi_6', title: '冰雪大世界[公交站]', category: '基础设施;交通设施:公交车站', address: '松北区', latitude: 45.7901, longitude: 126.59 },
+        { poiId: 'fake_poi_7', title: '冰雪大世界[地铁站]', category: '基础设施;交通设施:地铁站', address: '松北区', latitude: 45.7895, longitude: 126.5885 },
       ];
 
       // 关键词过滤：空关键词返回全部（真实上游要求关键词，这里放宽以便测试排序）
