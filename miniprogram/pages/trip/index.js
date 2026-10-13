@@ -253,7 +253,12 @@ Page({
           },
         }
 
-        // 解析出的结束时间填进表单 —— 但要让用户看得见它是解析来的
+        // 解析出的时间填进表单 —— 但要让用户看得见它是解析来的
+        if (d.structured && d.structured.startAt) {
+          const st = new Date(d.structured.startAt)
+          patch.startAtText = timeText(st)
+          patch.startAt = st.toISOString()
+        }
         if (d.structured && d.structured.endAt) {
           const end = new Date(d.structured.endAt)
           patch.endAtText = timeText(end)
@@ -271,7 +276,8 @@ Page({
           })
           return null
         }
-        return that.runPlaceSearch(kw)
+        // 传 d 进去 → 检索完会**自动预选**，用户可以直接生成路线
+        return that.runPlaceSearch(kw, d)
       })
       .catch(function (err) {
         that.setData({ note: '理解失败，已按地点名称直接搜索' })
@@ -280,8 +286,45 @@ Page({
       })
   },
 
-  /** 用关键词检索外部地点（原来的搜索逻辑） */
-  runPlaceSearch(keyword) {
+  /**
+   * 按解析出的需求**预选**地点。
+   *
+   * ⚠️ 规则本身在**服务端**（`place.search` 的 `autoPick`），不在这里。
+   * 这里是业务规则（节奏决定选几个、必去必选、不自动选公交站），
+   * 而小程序端没有测试环境 —— 规则写在这儿等于没测过。
+   * 这里只负责把结果渲染出来。
+   */
+  applyAutoSelect(candidates, picked) {
+    if (!picked || !picked.placeIds || !picked.placeIds.length) {
+      this.setData({
+        selected: [],
+        candidates: candidates.map((x) => Object.assign({}, x, { selected: false })),
+        note: (picked && picked.note) || '按你的需求没找到合适的地点，请换个说法或直接搜索',
+      })
+      return
+    }
+
+    const ids = picked.placeIds
+    const selected = candidates
+      .filter((x) => ids.indexOf(x.placeId) >= 0)
+      .map((x) => ({
+        placeId: x.placeId,
+        name: x.name,
+        category: x.category,
+        verified: x.verified,
+      }))
+
+    this.setData({
+      selected: selected,
+      candidates: candidates.map((x) =>
+        Object.assign({}, x, { selected: ids.indexOf(x.placeId) >= 0 })
+      ),
+      note: picked.note + '。可以直接生成路线，也可以自己增减。',
+    })
+  },
+
+  /** 用关键词检索外部地点。`autoFrom` 给出解析结果时，检索完会**自动预选**。 */
+  runPlaceSearch(keyword, autoFrom) {
     const that = this
     this.setData({ loading: true, error: '' })
 
@@ -292,6 +335,13 @@ Page({
           center: center || undefined,
           radius: 5000,
           enrichWalk: that.data.enrichWalk,
+          // 自动预选交给服务端做 —— 规则在那儿才测得到
+          autoPick: autoFrom
+            ? {
+                pace: autoFrom.parsed && autoFrom.parsed.pace,
+                mustVisitTexts: (autoFrom.parsed && autoFrom.parsed.mustVisitTexts) || [],
+              }
+            : undefined,
         })
         .then(function (res) {
           if (!res || res.ok !== true) {
@@ -310,35 +360,35 @@ Page({
             return
           }
 
-          that.setCandidates(
-            (d.candidates || []).map(function (c) {
-              return {
-                placeId: c.placeId,
-                name: c.name,
-                category: c.category,
-                verified: c.verified,
-                tripNodeAllowed: c.placeId ? true : false,
-                meetingPointAllowed: false,
-                distanceText:
-                  typeof c.straightLineMeters === 'number' ? `直线 ${c.straightLineMeters} 米` : '',
-                durationText:
-                  typeof c.walkMinutes === 'number'
-                    ? `步行 ${c.walkMinutes} 分钟`
-                    : c.walkSource === 'unavailable'
-                      ? '步行时间未取到'
-                      : '',
-              }
-            }),
-            'search',
-            d.ranking ? d.ranking.note : ''
-          )
+          const mapped = (d.candidates || []).map(function (c) {
+            return {
+              placeId: c.placeId,
+              name: c.name,
+              category: c.category,
+              verified: c.verified,
+              /** 交通设施等不可游览项 —— 系统不自动选它 */
+              visitable: c.visitable !== false,
+              tripNodeAllowed: c.placeId ? true : false,
+              meetingPointAllowed: false,
+              distanceText:
+                typeof c.straightLineMeters === 'number' ? `直线 ${c.straightLineMeters} 米` : '',
+              durationText:
+                typeof c.walkMinutes === 'number'
+                  ? `步行 ${c.walkMinutes} 分钟`
+                  : c.walkSource === 'unavailable'
+                    ? '步行时间未取到'
+                    : '',
+            }
+          })
+
+          that.setCandidates(mapped, 'search', d.ranking ? d.ranking.note : '')
           that.setData({
             loading: false,
-            note:
-              center || that.data.intent
-                ? ''
-                : '未取得当前位置，按默认中心（哈尔滨）排序',
+            note: center || that.data.intent ? '' : '未取得当前位置，按默认中心（哈尔滨）排序',
           })
+
+          // 来自"理解"的检索 → 用服务端给的预选结果，让用户可以直接生成路线
+          if (autoFrom) that.applyAutoSelect(mapped, d.picked)
         })
         .catch(function (err) {
           that.setData({ loading: false, error: (err && err.errMsg) || '搜索失败' })

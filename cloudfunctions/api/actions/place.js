@@ -99,6 +99,70 @@ async function detail(ctx) {
   });
 }
 
+/**
+ * 按需求**自动预选**地点。
+ *
+ * ── 这一步是"AI 生成路线"与"AI 帮你搜"的分界 ──────────────
+ * 只搜不选，用户仍要一个个勾；预选之后他可以直接生成、再微调。
+ *
+ * 规则都可解释，不神秘：
+ *   ① 命中「必去」的地点**一定选上**，且不被数量上限约束；
+ *   ② 其余按检索相关性顺序取，**跳过不可游览的类目**（地铁站、公交站…）——
+ *      谁也不想被系统自动安排去一个公交站；
+ *   ③ 数量由**节奏**决定：轻松 3、正常 4、紧凑 5 ——
+ *      说了"少走点路"的人不该被塞五个景点。
+ *
+ * 放在服务端（而不是小程序里）的理由：**这里是业务规则，必须能被测试**。
+ * 小程序端没有测试环境，规则写在那里等于没测过。
+ */
+const PACE_LIMITS = { relaxed: 3, normal: 4, packed: 5 };
+
+function autoPick(candidates, req) {
+  req = req || {};
+  const pace = PACE_LIMITS[req.pace] ? req.pace : 'normal';
+  const limit = PACE_LIMITS[pace];
+  const mustTexts = Array.isArray(req.mustVisitTexts) ? req.mustVisitTexts : [];
+
+  const picked = [];
+  const seen = new Set();
+  const hitMust = (name) =>
+    mustTexts.some((m) => m && name && (name.indexOf(m) >= 0 || m.indexOf(name) >= 0));
+
+  // ① 必去优先，不受数量限制
+  for (const c of candidates) {
+    if (!c.placeId) continue;
+    if (hitMust(c.name)) {
+      picked.push({ placeId: c.placeId, name: c.name, reason: '必去' });
+      seen.add(c.placeId);
+    }
+  }
+
+  // ② 其余按相关性顺序补足，跳过不可游览的
+  for (const c of candidates) {
+    if (picked.length >= limit + mustTexts.length) break;
+    if (!c.placeId || seen.has(c.placeId)) continue;
+    if (c.visitable === false) continue;
+    picked.push({
+      placeId: c.placeId,
+      name: c.name,
+      reason: pace === 'relaxed' ? '按「少走路」少选几个' : '相关性靠前',
+    });
+    seen.add(c.placeId);
+  }
+
+  return {
+    placeIds: picked.map((x) => x.placeId),
+    items: picked,
+    limit,
+    pace,
+    note: picked.length
+      ? `按「${pace === 'relaxed' ? '轻松' : pace === 'packed' ? '紧凑' : '正常'}」节奏预选 ` +
+        `${picked.length} 个地点：` +
+        picked.map((x) => `${x.name}（${x.reason}）`).join('、')
+      : '按当前需求没找到合适的地点，请换个说法或直接搜索',
+  };
+}
+
 // ─────────────────────────────────────────────────────────
 // 检索（外部 POI → 候选池 → 入库）
 // ─────────────────────────────────────────────────────────
@@ -354,6 +418,12 @@ async function search(ctx) {
   const limit = Math.min(Math.max(p.limit || 20, 1), 50);
   const candidates = ranked.slice(0, limit);
 
+  /**
+   * 自动预选：调用方（行程页的"理解"入口）给出节奏与必去，
+   * 这里返回"该选哪些、为什么"。规则在服务端，所以能被测试。
+   */
+  const picked = p.autoPick ? autoPick(candidates, p.autoPick) : null;
+
   await logEvent(repo, {
     ts: now,
     type: 'upstream_call',
@@ -400,7 +470,9 @@ async function search(ctx) {
     parsedVia: upstream.parsedVia,
     rawHead: upstream.rawHead,
     mapApiCalls,
+    /** 非 null 表示调用方要求了自动预选（"AI 生成路线"的关键一步） */
+    picked,
   });
 }
 
-module.exports = { list, detail, search };
+module.exports = { list, detail, search, autoPick };

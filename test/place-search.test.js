@@ -143,6 +143,110 @@ test('地点检索：save:false 只给候选，不写库', async () => {
 
 // ── 排序 ──────────────────────────────────────────────────
 
+// ── 自动预选（"AI 生成路线"的关键一步） ────────────────────
+
+test('自动预选：节奏决定选几个 —— 说了少走路就不该被塞五个景点', async () => {
+  const w = await makeWorld();
+  const pick = async (pace) =>
+    expectOk(
+      await w.A(
+        'place.search',
+        Object.assign({ keyword: '', center: CENTER, autoPick: { pace: pace } }, FAKE)
+      )
+    ).picked;
+
+  assert.equal((await pick('relaxed')).limit, 3);
+  assert.equal((await pick('normal')).limit, 4);
+  assert.equal((await pick('packed')).limit, 5);
+
+  assert.equal((await pick('relaxed')).placeIds.length, 3, '轻松节奏只选 3 个');
+  assert.equal((await pick('packed')).placeIds.length, 5, '紧凑节奏选 5 个');
+
+  // 非法节奏按 normal 处理，不报错也不乱选
+  assert.equal((await pick('随便')).limit, 4);
+  assert.equal((await pick(undefined)).limit, 4);
+});
+
+test('自动预选：必去一定选上，且不被数量上限挤掉', async () => {
+  const w = await makeWorld();
+
+  // 先让夹具里的景点进库
+  const first = expectOk(await w.A('place.search', Object.assign({ keyword: '', center: CENTER }, FAKE)));
+  const target = first.candidates.find((c) => c.name === '老道外中华巴洛克');
+  assert.ok(target, '夹具里应当有这一条');
+
+  const res = expectOk(
+    await w.A(
+      'place.search',
+      Object.assign(
+        {
+          keyword: '',
+          center: CENTER,
+          autoPick: { pace: 'relaxed', mustVisitTexts: ['老道外中华巴洛克'] },
+        },
+        FAKE
+      )
+    )
+  );
+
+  const ids = res.picked.placeIds;
+  assert.ok(ids.includes(target.placeId), '必去的地点必须在预选里 —— 这是用户明说要去的地方');
+  assert.equal(
+    res.picked.items.find((x) => x.placeId === target.placeId).reason,
+    '必去',
+    '要能说明为什么选它'
+  );
+  assert.ok(ids.length >= 3, '必去不占用普通名额');
+});
+
+test('自动预选：绝不自动选交通设施', async () => {
+  const w = await makeWorld();
+  const res = expectOk(
+    await w.A(
+      'place.search',
+      Object.assign({ keyword: '', center: CENTER, autoPick: { pace: 'packed' } }, FAKE)
+    )
+  );
+
+  const byId = {}
+  res.candidates.forEach((c) => {
+    byId[c.placeId] = c
+  })
+  for (const id of res.picked.placeIds) {
+    assert.equal(
+      byId[id].visitable,
+      true,
+      `预选里不该出现不可游览的地点：${byId[id].name}`
+    )
+  }
+
+  // 夹具里确实有不可游览项，否则这条测试没覆盖到
+  assert.ok(
+    res.candidates.some((c) => c.visitable === false),
+    '夹具里必须有交通设施，否则这条断言是空的'
+  );
+});
+
+test('自动预选：说明里要写清选了谁、为什么', async () => {
+  const w = await makeWorld();
+  const res = expectOk(
+    await w.A(
+      'place.search',
+      Object.assign({ keyword: '', center: CENTER, autoPick: { pace: 'normal' } }, FAKE)
+    )
+  );
+
+  assert.match(res.picked.note, /预选 \d+ 个地点/);
+  assert.match(res.picked.note, /（/, '每一项都要带理由');
+  assert.equal(res.picked.items.length, res.picked.placeIds.length);
+});
+
+test('自动预选：不传 autoPick 时不做预选', async () => {
+  const w = await makeWorld();
+  const res = expectOk(await w.A('place.search', Object.assign({ keyword: '', center: CENTER }, FAKE)));
+  assert.equal(res.picked, null, '没要求就不该擅自替用户选');
+});
+
 test('地点检索：交通设施排在最后，并被标记为不可游览', async () => {
   /**
    * 真实事故：搜「冰雪大世界」，上游把「冰雪大世界[公交站]」排在前面。
