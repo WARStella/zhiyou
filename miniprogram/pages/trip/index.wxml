@@ -182,8 +182,12 @@
       <view class="sub">行程已把这段算进总时间</view>
     </view>
 
-    <!-- 路线地图：把游览顺序连成一条线 -->
+    <!-- 路线地图：走到哪了一眼看得出 -->
     <view wx:if="{{routeMap}}" class="card map-card">
+      <view class="row">
+        <text class="k">路线地图</text>
+        <text class="v muted">已走过 {{routeMap.visitedCount}} / {{routeMap.totalCount}} 站</text>
+      </view>
       <map
         id="routeMap"
         class="route-map"
@@ -194,7 +198,7 @@
         include-points="{{routeMap.includePoints}}"
         show-location="{{false}}"
       ></map>
-      <view class="sub">{{routeMap.note}}</view>
+      <view class="sub">{{routeMap.legend}}</view>
     </view>
 
     <!-- 步行时间的来源构成：真实路线与估算必须能区分 -->
@@ -224,7 +228,7 @@
     <!-- 时间轴：节点之间插入独立的出行段 -->
     <view class="tl">
       <block wx:for="{{timeline}}" wx:key="nodeId">
-        <view class="node {{item.isCurrent ? 'current' : ''}} {{item.status}}">
+        <view class="node {{item.isCurrent ? 'current' : ''}} {{item.status}} {{item.visited ? 'visited' : ''}}">
           <view class="node-rail">
             <view class="dot"></view>
             <view wx:if="{{!item.isLast}}" class="line"></view>
@@ -244,10 +248,24 @@
               <text class="t">离开 {{item.leave}}</text>
             </view>
 
+            <!-- 进度：记录实际发生的事，不改路线 -->
+            <view class="acts progress-acts">
+              <view
+                wx:for="{{item.progressActions}}"
+                wx:for-item="pa"
+                wx:key="status"
+                class="act progress-act"
+                data-nodeid="{{item.nodeId}}"
+                data-status="{{pa.status}}"
+                bindtap="nodeProgress"
+              >{{pa.label}}</view>
+            </view>
+
+            <!-- 调整：改计划，会重算后续 -->
             <view class="acts">
               <view class="act" data-nodeid="{{item.nodeId}}" data-key="extend" bindtap="nodeAction">多停 10 分钟</view>
               <view class="act" data-nodeid="{{item.nodeId}}" data-key="shorten" bindtap="nodeAction">少停 10 分钟</view>
-              <view class="act warn-act" data-nodeid="{{item.nodeId}}" data-key="skip" bindtap="nodeAction">跳过</view>
+              <view class="act warn-act" data-nodeid="{{item.nodeId}}" data-key="skip" bindtap="nodeAction">不去了</view>
             </view>
           </view>
         </view>
@@ -257,7 +275,7 @@
           放在这里而不是塞进节点卡片里 —— 塞进去会读成"到了这里之后要走 8 分钟"，
           而它的意思是"从上一站走过来要 8 分钟"。
         -->
-        <view wx:if="{{item.legToNext}}" class="leg {{item.legToNext.warn ? 'leg-estimated' : ''}}">
+        <view wx:if="{{item.legToNext}}" class="leg {{item.legToNext.warn ? 'leg-estimated' : ''}} {{item.legToNext.visited ? 'leg-visited' : ''}}">
           <view class="leg-rail">
             <view class="leg-bar"></view>
           </view>
@@ -266,6 +284,7 @@
             <text class="leg-time">{{item.legToNext.minutes}} 分钟</text>
             <text class="leg-dist">{{item.legToNext.meters}} 米</text>
             <text wx:if="{{item.legToNext.warn}}" class="leg-warn">{{item.legToNext.warn}}</text>
+            <text wx:if="{{item.legToNext.visited}}" class="leg-done">已走过</text>
           </view>
         </view>
       </block>

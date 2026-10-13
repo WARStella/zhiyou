@@ -28,6 +28,23 @@ const STATUS_LABEL = {
   skipped: '已跳过',
 }
 
+/**
+ * 进度操作 —— **记录事实**，不重新规划。
+ *
+ * 与 `多停/少停/不去了` 那组（走 trip.adjust，会重新规划行程）是两回事：
+ *   · 进度：我到了 / 我逛完了 / 我其实没去   → 记录实际发生的事
+ *   · 调整：多待一会儿 / 不去了             → 改计划，要重算后续
+ *
+ * 混在一起会让人以为"标记已到达"也会改路线 —— 那是两件不同的事。
+ */
+const PROGRESS_ACTIONS = {
+  pending: [{ status: 'arrived', label: '到了' }],
+  arrived: [{ status: 'done', label: '逛完了' }],
+  // 允许撤销：点错了要能改回来，否则只能重新生成行程
+  done: [{ status: 'pending', label: '撤销' }],
+  skipped: [{ status: 'pending', label: '撤销' }],
+}
+
 function hhmm(value) {
   if (!value) return '--:--'
   const d = new Date(value)
@@ -72,6 +89,8 @@ Page({
 
     // ── 行程 ──
     trip: null,
+    /** 后端原样的节点数组 —— 记录进度后要拿它重建界面 */
+    rawNodes: [],
     timeline: [],
     summary: null,
     routeMap: null,
@@ -473,6 +492,81 @@ Page({
     })
   },
 
+  /** 当前节点 = 第一个未走完的节点 */
+  currentIndexOf(nodes) {
+    const i = (nodes || []).findIndex((n) => n.status !== 'done' && n.status !== 'skipped')
+    return i < 0 ? Math.max(0, (nodes || []).length - 1) : i
+  },
+
+  /**
+   * 由后端节点数组构建时间轴视图。
+   *
+   * ⚠️ 路段的位置很要紧（2026-10-13 修正）：
+   *   后端给的 `travelFromPrevMin` 是**从上一节点到本节点**的时间，
+   *   首版把它渲染在**本节点的卡片里**，读起来像"到了这里之后要走 8 分钟"，
+   *   而实际意思是"从上一站走过来要 8 分钟"。
+   *
+   *   所以这里把它挪到**两个节点之间**：`legToNext` 表示"本节点 → 下一节点"。
+   *
+   * 抽成独立方法是为了让"记录进度"也能重算它 —— 那条路径只回传 nodes。
+   */
+  buildTimelineView(nodes) {
+    const currentIndex = this.currentIndexOf(nodes)
+    return (nodes || []).map((n, i) => {
+      const next = nodes[i + 1] || null
+      const visited = n.status === 'done' || n.status === 'skipped'
+      return {
+        nodeId: n.nodeId,
+        seq: i + 1,
+        placeName: n.placeName,
+        arrive: hhmm(n.plannedArriveAt),
+        leave: hhmm(n.plannedLeaveAt),
+        stayMin: n.plannedStayMin,
+        verified: n.verified,
+        statusLabel: STATUS_LABEL[n.status] || n.status,
+        status: n.status,
+        /** 已到过 —— 时间轴上也变绿，与地图一致 */
+        visited: visited,
+        isCurrent: i === currentIndex,
+        isLast: i === nodes.length - 1,
+        /** 该站可做的进度操作（记录事实，不重新规划） */
+        progressActions: PROGRESS_ACTIONS[n.status] || PROGRESS_ACTIONS.pending,
+        /** 本节点 → 下一节点之间的出行段；末节点为 null */
+        legToNext: next
+          ? {
+              mode: next.travelMode === 'walking' ? '步行' : '',
+              minutes: next.travelFromPrevMin,
+              meters: next.travelFromPrevMeters,
+              // 只有"直线估算"需要提醒 —— 它与真实路线在短距离下能差 7 倍
+              warn: next.travelSource === 'estimated' ? '估算' : '',
+              source: next.travelSource,
+              /** 这一段的起点已走过 → 整段都可以算走过 */
+              visited: visited,
+            }
+          : null,
+      }
+    })
+  },
+
+  /**
+   * 从 `rawNodes` 重建时间轴与地图。
+   *
+   * `trip.progress` 只回传 nodes（不含 summary / walkTimes / startLeg），
+   * 所以这里**只重算随状态变化的部分**，其余保持不动 ——
+   * 否则记录一次进度会把总步行时间、出发段这些信息清掉。
+   */
+  rebuildFromNodes() {
+    const nodes = this.data.rawNodes || []
+    this.setData(
+      {
+        timeline: this.buildTimelineView(nodes),
+        currentNodeIndex: this.currentIndexOf(nodes),
+        routeMap: this.buildRouteMap(nodes, this.data.startPoint),
+      },
+      () => this.fitRouteMap()
+    )
+  },
+
   /** 用后端返回的行程刷新界面（生成与确认变更都走这里） */
   applyTrip(d, note) {
     const nodes = d.nodes || []
@@ -491,39 +585,15 @@ Page({
      *
      *   所以这里把它挪到**两个节点之间**：`legToNext` 表示"本节点 → 下一节点"。
      */
-    const timeline = nodes.map((n, i) => {
-      const next = nodes[i + 1] || null
-      return {
-        nodeId: n.nodeId,
-        seq: i + 1,
-        placeName: n.placeName,
-        arrive: hhmm(n.plannedArriveAt),
-        leave: hhmm(n.plannedLeaveAt),
-        stayMin: n.plannedStayMin,
-        verified: n.verified,
-        statusLabel: STATUS_LABEL[n.status] || n.status,
-        status: n.status,
-        isCurrent: i === currentIndex,
-        isLast: i === nodes.length - 1,
-        /** 本节点 → 下一节点之间的出行段；末节点为 null */
-        legToNext: next
-          ? {
-              mode: next.travelMode === 'walking' ? '步行' : '',
-              minutes: next.travelFromPrevMin,
-              meters: next.travelFromPrevMeters,
-              // 只有"直线估算"需要提醒 —— 它与真实路线在短距离下能差 7 倍
-              warn: next.travelSource === 'estimated' ? '估算' : '',
-              source: next.travelSource,
-            }
-          : null,
-      }
-    })
+    const timeline = this.buildTimelineView(nodes)
 
     this.setData({
       loading: false,
       trip: d.tripId ? { tripId: d.tripId, version: d.version } : this.data.trip,
+      /** 保留原始节点 —— 记录进度时只回传 nodes，要拿它重建界面 */
+      rawNodes: nodes,
       timeline,
-      currentNodeIndex: currentIndex,
+      currentNodeIndex: this.currentIndexOf(nodes),
       // ⚠️ 后端给的是 ISO 字符串，这里必须格式化 —— 否则界面会显示
       //    「预计结束 2026-10-14T03:37:41.233Z」这种没法看的东西
       summary: d.summary
@@ -596,48 +666,90 @@ Page({
   /**
    * 把节点连成一条线，画在地图上。
    *
-   * ⚠️ 这是**游览顺序连线**，不是逐段真实步行路径。
+   * ── 走到哪了要看得见（2026-10-13 用户要求）──────────────
+   *   · **路线在游玩全程保留**，不会因为"走过了"就消失；
+   *   · 已到过的部分变**绿色**（marker 与连线同时变），
+   *     这样一眼能看出"还剩几站、现在在哪"；
+   *   · 未走的部分是深蓝，当前站橙色。
    *
-   * 腾讯步行路线接口返回的 `polyline` 是**差分压缩格式**：
-   * 首对是绝对坐标，其后每对是相对前一点的增量。解码规则需以官方文档为准，
-   * **不靠观察猜**（工作日志里记了这件事）。顺序连线已经能表达
-   * "去哪几个地方、什么顺序、大概什么走向"，而真实路径留到有余力时再做。
+   * ⚠️ 连线是**游览顺序示意**，不是逐段真实步行路径。
+   * 腾讯返回的 `polyline` 是差分压缩格式（首对绝对坐标、其后为相对增量），
+   * 解码规则需以官方文档为准，不靠观察猜。
    */
   buildRouteMap(nodes, startPoint) {
-    const nodePts = nodes
-      .map((n) => n.location)
-      .filter((p) => p && typeof p.latitude === 'number' && typeof p.longitude === 'number')
-    // 只有一个目的地时也画地图 —— 让用户先看清它在哪，而不是只给个名字
-    if (nodePts.length < 1) return null
+    const located = (nodes || []).filter(
+      (n) =>
+        n.location &&
+        typeof n.location.latitude === 'number' &&
+        typeof n.location.longitude === 'number'
+    )
+    if (!located.length) return null
 
     const startPt = startPoint && typeof startPoint.latitude === 'number' ? startPoint : null
+    const isVisited = (s) => s === 'done' || s === 'skipped'
 
-    // 有出发位置就把它接到线头上 —— 这样地图上看到的是
-    // 「我的位置 → 第一站 → 第二站 …」，而不是从第一个景点凭空开始
-    const all = startPt ? [startPt].concat(nodePts) : nodePts
-    const points = all.map((p) => ({ latitude: p.latitude, longitude: p.longitude }))
+    /** 已走过 = 最后一个 done/skipped 节点（含）之前的部分 */
+    let lastVisitedIdx = -1
+    located.forEach((n, i) => {
+      if (isVisited(n.status)) lastVisitedIdx = i
+    })
+    const visitedCount = located.filter((n) => isVisited(n.status)).length
 
-    const markers = nodes
-      .filter((n) => n.location)
-      .map((n, i) => ({
+    const header = startPt ? [startPt] : []
+    const full = header.concat(
+      located.map((n) => ({ latitude: n.location.latitude, longitude: n.location.longitude }))
+    )
+    const splitAt = header.length + lastVisitedIdx
+
+    // 绿线：起点 → 最后一个已到过的节点
+    // 蓝线：从那个节点继续往后（**与绿线首尾相接**，视觉上是连续的一条路）
+    const donePts = lastVisitedIdx >= 0 ? full.slice(0, splitAt + 1) : []
+    const restPts = lastVisitedIdx >= 0 ? full.slice(splitAt) : full
+
+    const lines = []
+    if (donePts.length >= 2) {
+      lines.push({
+        points: donePts,
+        color: '#0F9D58',
+        width: 5,
+        borderColor: '#FFFFFF',
+        borderWidth: 2,
+      })
+    }
+    if (restPts.length >= 2) {
+      lines.push({
+        points: restPts,
+        color: '#0B3C6E',
+        width: 4,
+        arrowLine: true, // 未走的部分带方向箭头
+        borderColor: '#FFFFFF',
+        borderWidth: 2,
+      })
+    }
+
+    const markers = located.map((n, i) => {
+      const visited = isVisited(n.status)
+      const arrived = n.status === 'arrived'
+      return {
         id: i + 1,
         latitude: n.location.latitude,
         longitude: n.location.longitude,
-        iconPath: '/assets/pin-place.png',
+        // 已到过 → 绿色图标；其余 → 深蓝
+        iconPath: visited ? '/assets/pin-done.png' : '/assets/pin-place.png',
         width: 28,
         height: 35,
-        // 序号与下方时间轴一一对应
         callout: {
           content: String(i + 1),
           color: '#FFFFFF',
-          bgColor: n.verified ? '#0B3C6E' : '#9AA5B1',
+          bgColor: visited ? '#0F9D58' : arrived ? '#FF7A45' : '#0B3C6E',
           fontSize: 11,
           borderRadius: 10,
           padding: 5,
           display: 'ALWAYS',
           textAlign: 'center',
         },
-      }))
+      }
+    })
 
     if (startPt) {
       markers.unshift({
@@ -661,28 +773,77 @@ Page({
     }
 
     return {
-      center: points[0],
-      includePoints: points,
-      // 只有一个点时不画折线（两端重合的线没有意义，部分机型还会告警）
-      polyline:
-        points.length >= 2
-          ? [
-              {
-                points: points,
-                color: '#0B3C6E',
-                width: 4,
-                arrowLine: true,
-                borderColor: '#FFFFFF',
-                borderWidth: 2,
-              },
-            ]
-          : [],
+      center: full[0],
+      includePoints: full,
+      polyline: lines,
       markers: markers,
-      note:
-        points.length >= 2
-          ? '连线为游览顺序示意，不是逐段真实步行路径'
+      /** 进度，界面直接显示，不用自己数 */
+      visitedCount: visitedCount,
+      totalCount: located.length,
+      legend:
+        located.length >= 2
+          ? '绿线为已走过的部分，蓝线为剩余路线；连线是顺序示意，不是逐段真实路径'
           : '只有一个目的地，暂无可连的路线',
     }
+  },
+
+  // ══════════ 进度 ══════════
+
+  /**
+   * 记录实际进度（到了 / 逛完了 / 撤销）。
+   *
+   * 这是**事实记录**，不重新规划 —— 已到过的节点在地图与时间轴上变绿，
+   * 路线全程保留，让人一眼看出还剩几站。
+   */
+  nodeProgress(e) {
+    const that = this
+    const { nodeid: nodeId, status } = e.currentTarget.dataset
+    if (!this.data.trip || !status) return
+
+    this.setData({ busy: 'progress', error: '' })
+
+    api
+      /**
+       * ⚠️ `expectedVersion` 必须放在**第三个参数**（信封层），不能写进 payload。
+       *
+       * 2026-10-13 发现的真实缺陷：三个写操作都把它写进了 payload，
+       * 而 api.js 与后端都只从信封层读 → 它被静默忽略 →
+       * 服务端回落到"当前版本" → **版本校验恒等于通过**。
+       * 「旧版本确认不得使新方案生效」这条 11/5 验收项当时根本没生效。
+       *
+       * 现在后端改成必填了：传错位置会直接报错，不会再静默放行。
+       */
+      .callApi(
+        'trip.progress',
+        { tripId: this.data.trip.tripId, nodeId: nodeId, status: status },
+        { expectedVersion: this.data.trip.version }
+      )
+      .then(function (res) {
+        if (!res || res.ok !== true) {
+          const e2 = res && res.error
+          that.setData({
+            busy: '',
+            error:
+              e2 && e2.code === 'VERSION_CONFLICT'
+                ? '行程已被更新，请重新生成后再标记进度'
+                : (e2 && e2.message) || '记录进度失败',
+          })
+          return
+        }
+        const d = res.data
+        // trip.progress 只回传 nodes —— 把它合并进 rawNodes，其余信息保持不动
+        that.setData(
+          {
+            busy: '',
+            trip: Object.assign({}, that.data.trip, { version: d.version }),
+            rawNodes: d.nodes || that.data.rawNodes,
+          },
+          () => that.rebuildFromNodes()
+        )
+      })
+      .catch(function (err) {
+        that.setData({ busy: '', error: (err && err.errMsg) || '记录进度失败' })
+      })
   },
 
   // ══════════ 调整 ══════════
@@ -704,11 +865,12 @@ Page({
     this.setData({ busy: 'adjust', error: '' })
 
     api
-      .callApi('trip.adjust', {
-        tripId: this.data.trip.tripId,
-        expectedVersion: this.data.trip.version,
-        trigger,
-      })
+      // expectedVersion 走第三个参数（信封层），见 trip.progress 处的说明
+      .callApi(
+        'trip.adjust',
+        { tripId: this.data.trip.tripId, trigger },
+        { expectedVersion: this.data.trip.version }
+      )
       .then(function (res) {
         if (!res || res.ok !== true) {
           that.setData({ busy: '', error: (res && res.error && res.error.message) || '调整失败' })
@@ -797,11 +959,12 @@ Page({
     this.setData({ busy: 'confirm', error: '' })
 
     api
-      .callApi('trip.confirmChange', {
-        proposalId: proposal.proposalId,
-        candidateId,
-        expectedVersion: proposal.baseVersion,
-      })
+      // expectedVersion 走第三个参数（信封层）—— 传错位置会让版本校验静默失效
+      .callApi(
+        'trip.confirmChange',
+        { proposalId: proposal.proposalId, candidateId: candidateId },
+        { expectedVersion: proposal.baseVersion }
+      )
       .then(function (res) {
         if (!res || res.ok !== true) {
           const e2 = res && res.error
@@ -823,6 +986,7 @@ Page({
   resetTrip() {
     this.setData({
       trip: null,
+      rawNodes: [],
       timeline: [],
       summary: null,
       unverifiedNotice: null,

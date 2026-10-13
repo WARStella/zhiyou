@@ -343,6 +343,48 @@
 .leg-estimated .leg-body {
   background: #fff8ed;
 }
+
+/* 已走过的路段：变绿，与地图上的绿线一致 */
+.leg-visited .leg-bar {
+  background: #0f9d58;
+}
+.leg-visited .leg-body {
+  background: #eef8f2;
+}
+.leg-visited .leg-time {
+  color: #0f9d58;
+}
+.leg-done {
+  font-size: 20rpx;
+  color: #0f9d58;
+  border: 2rpx solid #0f9d58;
+  border-radius: 6rpx;
+  padding: 1rpx 10rpx;
+  margin-left: 10rpx;
+}
+
+/* ── 已到过的节点 ─────────────────────────── */
+.node.visited .dot {
+  background: #0f9d58;
+  width: 22rpx;
+  height: 22rpx;
+}
+.node.visited .node-body {
+  border-left: 8rpx solid #0f9d58;
+}
+.node.visited .node-name {
+  color: #0f9d58;
+}
+
+/* ── 进度操作 ─────────────────────────────── */
+.progress-acts {
+  border-top: none;
+  padding-top: 12rpx;
+}
+.progress-act {
+  color: #0f9d58;
+  font-weight: 600;
+}
 .acts {
   display: flex;
   margin-top: 18rpx;

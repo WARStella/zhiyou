@@ -234,7 +234,11 @@ test('规划 → 调整 → 确认：版本推进且旧版本确认失效', asyn
   // 3) 确认第一个提案 → 版本推进到 2
   const feasibleCand = p1.candidates.find((c) => c.feasible);
   const applied = expectOk(
-    await w.A('trip.confirmChange', { proposalId: p1.proposalId, candidateId: feasibleCand.candidateId })
+    await w.A(
+      'trip.confirmChange',
+      { proposalId: p1.proposalId, candidateId: feasibleCand.candidateId },
+      { expectedVersion: 1 }
+    )
   );
   assert.equal(applied.applied, true);
   assert.equal(applied.version, 2);
@@ -242,7 +246,11 @@ test('规划 → 调整 → 确认：版本推进且旧版本确认失效', asyn
 
   // 4) 用基于旧版本的第二个提案确认 → 必须失败
   const conflict = expectFail(
-    await w.A('trip.confirmChange', { proposalId: p2.proposalId, candidateId: p2.candidates[0].candidateId }),
+    await w.A(
+      'trip.confirmChange',
+      { proposalId: p2.proposalId, candidateId: p2.candidates[0].candidateId },
+      { expectedVersion: 2 }
+    ),
     'VERSION_CONFLICT'
   );
   assert.equal(conflict.details.currentVersion, 2);
@@ -803,6 +811,104 @@ test('团队行程一律要求确认，不能被"无取舍"简化掉', async () 
 
   assert.equal(res.applied, false, '团队行程必须由成员确认（§8.1）');
   assert.match(res.confirmationRule, /团队/);
+});
+
+test('记录进度：到了 / 逛完了 / 撤销，且不影响既有安排', async () => {
+  const w = await makeWorld();
+  const trip = expectOk(
+    await w.A('trip.plan', { placeIds: VALID_PLACES, startAt: NOW, constraints: [] })
+  );
+  const n0 = trip.nodes[0].nodeId;
+  const n1 = trip.nodes[1].nodeId;
+
+  const statusOf = (res, id) => res.nodes.find((n) => n.nodeId === id).status;
+  const plannedLeave = (res, id) => res.nodes.find((n) => n.nodeId === id).plannedLeaveAt;
+
+  /**
+   * ⚠️ `expectedVersion` 走**第三个参数**（信封层），不是 payload。
+   * 传错位置它会被静默忽略，服务端回落到"当前版本"，
+   * **版本校验就恒等于通过了** —— 前端三个写操作都犯过这个错，见下面的回归断言。
+   */
+  const progress = (nodeId, status, expectedVersion) =>
+    w.A('trip.progress', { tripId: trip.tripId, nodeId, status }, { expectedVersion });
+
+  // ① 到了
+  const arrived = expectOk(await progress(n0, 'arrived', trip.version));
+  assert.equal(statusOf(arrived, n0), 'arrived');
+  assert.ok(arrived.version > trip.version, '进度推进也要涨版本');
+  const node0 = arrived.nodes.find((n) => n.nodeId === n0);
+  assert.ok(node0.actualArriveAt, '到达要记实际时间');
+
+  // ② 逛完了 —— 实际时间与计划时间**分开记录**
+  const done = expectOk(await progress(n0, 'done', arrived.version));
+  assert.equal(statusOf(done, n0), 'done');
+  const d0 = done.nodes.find((n) => n.nodeId === n0);
+  assert.ok(d0.actualLeaveAt, '离开要记实际时间');
+  assert.equal(
+    d0.plannedLeaveAt !== null && d0.plannedLeaveAt !== undefined,
+    true,
+    '**计划时间必须保留** —— 记录实际进度不该抹掉原计划（§7.3 三时间分离）'
+  );
+  /**
+   * ⚠️ 用时间戳比较，不能直接比对象：
+   *   `trip.plan` 的响应走过幂等缓存（JSON 序列化），Date 变成了字符串；
+   *   `trip.progress` 的响应没进缓存，还是 Date 对象。
+   * 线上不存在这个问题（云函数出口统一 JSON 化），是内存测试环境的类型差异。
+   */
+  assert.equal(
+    new Date(d0.plannedLeaveAt).getTime(),
+    new Date(plannedLeave(trip, n0)).getTime(),
+    '计划时间不得被实际时间覆盖'
+  );
+
+  // ③ 后面的节点不受影响
+  assert.equal(statusOf(done, n1), 'pending', '标记前一站不应改到后一站');
+
+  // ④ 撤销
+  const undone = expectOk(await progress(n0, 'pending', done.version));
+  assert.equal(statusOf(undone, n0), 'pending', '点错了要能撤销');
+
+  // ⑤ 非法状态必须拒绝
+  expectFail(await progress(n0, 'finished', undone.version), 'INVALID_PARAM');
+
+  // ⑥ 旧版本提交必须被拒 —— §8.1、11/5 验收项
+  expectFail(await progress(n0, 'arrived', trip.version), 'VERSION_CONFLICT');
+});
+
+test('版本一致性：写操作漏传 expectedVersion 必须被拒绝，不能静默放行', async () => {
+  /**
+   * **真实缺陷的回归**（2026-10-13 发现）。
+   *
+   * 前端曾把 `expectedVersion` 传进 payload，而信封层与 api.js 都只看第三个参数。
+   * 结果 `ctx.expectedVersion` 永远是 undefined，服务端回落到"当前版本"，
+   * **版本校验恒等于通过** —— 「旧版本确认不得使新方案生效」这条 11/5 验收项
+   * 在实际使用中根本没生效。
+   *
+   * 修法不只是改前端：服务端**不再提供"没给就用当前版本"的兜底**，
+   * 因为那个兜底正是让校验静默失效的原因（与 meet.confirm 的写法对齐）。
+   */
+  const w = await makeWorld();
+  const trip = expectOk(
+    await w.A('trip.plan', { placeIds: VALID_PLACES, startAt: NOW, constraints: [] })
+  );
+
+  // 不传 expectedVersion → 必须显式拒绝
+  const e = expectFail(
+    await w.A('trip.progress', { tripId: trip.tripId, nodeId: trip.nodes[0].nodeId, status: 'arrived' }),
+    'INVALID_PARAM'
+  );
+  assert.match(e.message, /expectedVersion/, '错误信息要指出是哪个字段');
+
+  // 传成 payload 字段（即写错位置）同样必须被拒绝 —— 这正是前端踩过的坑
+  expectFail(
+    await w.A('trip.progress', {
+      tripId: trip.tripId,
+      nodeId: trip.nodes[0].nodeId,
+      status: 'arrived',
+      expectedVersion: trip.version,
+    }),
+    'INVALID_PARAM'
+  );
 });
 
 test('ops.selfTest：测量各类写入形态，并只写 selftest 集合', async () => {

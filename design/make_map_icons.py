@@ -5,7 +5,8 @@
 没有图标文件标记不会渲染。所以这几个小图是页面能跑起来的前提。
 
 输出到 ../miniprogram/assets/
-  pin-place.png    景点/服务点（蓝）
+  pin-place.png    未去的景点（蓝）
+  pin-done.png     已到过的景点（绿）—— 游玩过程中一眼看出走到哪了
   pin-meeting.png  集合点（橙，稍大）
   dot-me.png       我的位置（绿点，带白描边）
 """
@@ -63,7 +64,8 @@ def save(img, name):
 
 
 print('生成地图标记图标：')
-save(pin(32, 40, (11, 60, 110)), 'pin-place.png')       # 深蓝：景点
-save(pin(34, 42, (255, 122, 69)), 'pin-meeting.png')    # 橙：集合点
-save(ring(26, (15, 157, 88)), 'dot-me.png')             # 绿：我的位置
+save(pin(32, 40, (11, 60, 110)), 'pin-place.png')        # 深蓝：未去
+save(pin(32, 40, (15, 157, 88)), 'pin-done.png')         # 绿：已到过
+save(pin(34, 42, (255, 122, 69)), 'pin-meeting.png')     # 橙：集合点
+save(ring(26, (15, 157, 88)), 'dot-me.png')              # 绿：我的位置
 print('完成 → miniprogram/assets/')

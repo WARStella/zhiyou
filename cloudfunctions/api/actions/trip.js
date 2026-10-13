@@ -779,9 +779,26 @@ async function confirmChange(ctx) {
   }
 
   const nodes = (candidate.nodes || []).map((n, i) => Object.assign({}, n, { seq: i }));
-  const expectedVersion = ctx.expectedVersion == null ? trip.version : ctx.expectedVersion;
 
-  const res = await repo.updateCas(C.TRIPS, trip._id, expectedVersion, {    nodes,
+  /**
+   * ⚠️ **必须显式给版本号，不提供"没给就用当前版本"的兜底。**
+   *
+   * 那个兜底正是让版本校验静默失效的原因：前端把 expectedVersion 传进了 payload，
+   * 信封层读不到 → undefined → 回落成"当前版本" → 校验恒等于通过。
+   * 而「旧版本确认不得使新方案生效」是 11/5 的验收项。
+   *
+   * 注意：这里校验的是**确认时的版本**，与上面 `proposal.baseVersion !== trip.version`
+   * 是两道不同的闸 —— 前者防"提案过期"，后者防"并发写入"。
+   */
+  assert(
+    ctx.expectedVersion != null,
+    CODES.INVALID_PARAM,
+    '缺少 expectedVersion：确认变更必须基于明确的版本号（它属于请求信封，不在 payload 里）'
+  );
+  const expectedVersion = ctx.expectedVersion;
+
+  const res = await repo.updateCas(C.TRIPS, trip._id, expectedVersion, {
+    nodes,
     plannedEndAt: candidate.impact.changedEndAt,
     status: 'active',
   });
@@ -872,7 +889,25 @@ async function progress(ctx) {
   });
   assert(found, CODES.NOT_FOUND, '节点不存在');
 
-  const res = await repo.updateCas(C.TRIPS, trip._id, ctx.expectedVersion == null ? trip.version : ctx.expectedVersion, {
+  /**
+   * ⚠️ **必须显式给版本号，不提供"没给就用当前版本"的兜底。**
+   *
+   * 2026-10-13 发现的真实缺陷：前端把 `expectedVersion` 传进了 payload，
+   * 而信封层与 api.js 都只看第三个参数 → `ctx.expectedVersion` 永远是 undefined
+   * → 回落成"当前版本" → **版本校验恒等于通过**。
+   * 「旧版本确认不得使新方案生效」这条 11/5 验收项在实际使用中根本没生效。
+   *
+   * 所以这里改成必填（与 meet.confirm 的写法对齐）：
+   * 漏传会被明确拒绝，而不是静默放行。
+   */
+  assert(
+    ctx.expectedVersion != null,
+    CODES.INVALID_PARAM,
+    '缺少 expectedVersion：进度更新必须基于明确的版本号，否则无法防止"用旧状态覆盖新状态"。' +
+      '注意它属于请求信封，不在 payload 里（见 docs/02 §1）。'
+  );
+
+  const res = await repo.updateCas(C.TRIPS, trip._id, ctx.expectedVersion, {
     nodes,
   });
   if (!res.updated) {
