@@ -3,14 +3,25 @@
 /**
  * 假地图服务 —— 供本地测试使用，**绝不在生产环境启用**。
  *
- * 为什么需要：外部 HTTP 接口不该出现在单元测试里（慢、不稳定、要花钱）。
- * 但"规划器如何在拿到路线时间后工作"必须被测到 —— 否则本地测不到任何东西。
+ * 职责边界（2026-10-13 明确）：
+ *   · **本文件只负责"行为"** —— Key 语义、错误码、返回结构、坐标与时间的量纲。
+ *     铁律是**必须与真服务遵守同一契约**；替身比真身宽松，缺陷就测不出来
+ *     （这一点今天栽过两次：缺 Key 没有修复指引、起终点相同却返回成功）。
+ *   · **数据在 `fake-data.js`** —— "有哪些地点"不承载任何断言，
+ *     免得本文件看起来像"为了通过某些测试而凑的一堆特判"。
+ *
+ * 为什么需要替身：外部 HTTP 不该出现在单元测试里（慢、不稳定、要花钱），
+ * 但"规划器拿到路线时间之后怎么工作"必须被测到。
+ *
+ * ⚠️ 本文件**不读任何测试专用的环境变量**。测试通过 `ctx.createMapProvider`
+ * 注入工厂（见 lib/invoke.js 的说明），产品代码里不留后门。
  *
  * 输出参数与 lib/geo.js 保持一致（绕行系数 1.3、步速 75 米/分），
- * 因此假服务算出的时间与真实估值同量级，便于对照。
+ * 因此算出的时间与真实估值同量级，便于对照。
  */
 
 const { haversineMeters, DETOUR_FACTOR } = require('../geo');
+const { PLACE_POOL } = require('./fake-data');
 
 const WALK_SPEED_M_PER_MIN = 75;
 
@@ -18,17 +29,15 @@ function createFakeProvider(opts) {
   opts = opts || {};
   const speed = opts.walkSpeedMPerMin || WALK_SPEED_M_PER_MIN;
   /**
-   * 让测试可以模拟"地图服务挂了"。
+   * 让测试模拟"地图服务挂了"。
    *
-   * 也支持用环境变量注入（`MAP_FAKE_FAIL=walk`）—— 因为有些调用方
-   * （如 `trip.plan`）在模块加载时就解构捕获了 provider 工厂，
-   * 测试无法通过替换模块来注入故障。环境变量是唯一可靠的入口。
+   * ⚠️ 只通过**显式参数**注入，不读环境变量。
+   * 这里曾经有一个 `MAP_FAKE_FAIL=walk` 的后门 —— 那是为了绕开
+   * "调用方在模块加载时就解构了 provider 工厂"这个约束。
+   * 现在调用方改从 `ctx.createMapProvider` 取工厂，测试直接注入即可，
+   * **产品代码里不留测试钩子**。
    */
-  const failWith =
-    opts.failWith ||
-    (process.env.MAP_FAKE_FAIL === 'walk'
-      ? { reason: 'UPSTREAM_FAILED', message: '模拟地图上游故障（MAP_FAKE_FAIL=walk）' }
-      : null);
+  const failWith = opts.failWith || null;
   /**
    * 假服务也遵守 Key 语义 —— 包括**前后空白要 trim**。
    * 否则真实世界最常见的粘贴错误（`"\t KEY"`）在本地测不到。
@@ -176,21 +185,7 @@ function createFakeProvider(opts) {
         ? `nearby(${center.latitude},${center.longitude},${input.radius || 5000})`
         : `region(${input.region},0)`;
 
-      const POOL = [
-        { poiId: 'fake_poi_1', title: '圣索菲亚教堂', category: '旅游景点:教堂', address: '透笼街88号', latitude: 45.7703, longitude: 126.6206 },
-        { poiId: 'fake_poi_2', title: '防洪纪念塔', category: '旅游景点:景点', address: '中央大街尽头', latitude: 45.781, longitude: 126.6185 },
-        { poiId: 'fake_poi_3', title: '兆麟公园', category: '旅游景点:公园', address: '森林街41号', latitude: 45.7749, longitude: 126.624 },
-        { poiId: 'fake_poi_4', title: '老道外中华巴洛克', category: '旅游景点:历史街区', address: '靖宇街', latitude: 45.757, longitude: 126.642 },
-        { poiId: 'fake_poi_5', title: '斯大林公园', category: '旅游景点:公园', address: '斯大林街', latitude: 45.783, longitude: 126.619 },
-        /**
-         * ⚠️ 这条是**真实事故的复现**，不要删。
-         * 用户搜「冰雪大世界」，上游把「冰雪大世界[公交站]」排在前面，
-         * 类目是 `基础设施;交通设施:公交车站` —— 它是公交站，不是那个冰雪乐园。
-         * 类目字符串取自真实返回，**不要改成自己编的写法**。
-         */
-        { poiId: 'fake_poi_6', title: '冰雪大世界[公交站]', category: '基础设施;交通设施:公交车站', address: '松北区', latitude: 45.7901, longitude: 126.59 },
-        { poiId: 'fake_poi_7', title: '冰雪大世界[地铁站]', category: '基础设施;交通设施:地铁站', address: '松北区', latitude: 45.7895, longitude: 126.5885 },
-      ];
+      const POOL = PLACE_POOL;
 
       // 关键词过滤：空关键词返回全部（真实上游要求关键词，这里放宽以便测试排序）
       const matched = keyword

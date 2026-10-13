@@ -63,7 +63,11 @@ async function probe(ctx) {
   assert(env === 'dev', CODES.FORBIDDEN_ENV, `当前环境为 ${env}，地图探针仅限 dev`);
 
   const providerName = p.provider || process.env.MAP_PROVIDER || 'tencent';
-  const provider = createMapProvider(providerName, {
+  // 与 trip / place 一致：工厂从 ctx 注入，生产代码里不留测试钩子
+  const makeProvider = (name, opts) =>
+    (ctx.createMapProvider || createMapProvider)(name || providerName, opts);
+
+  const provider = makeProvider(providerName, {
     // 只在显式传入时覆盖 Key（用于跑"无效 Key"情形），否则用环境变量
     key: p.overrideKey,
     timeoutMs: p.timeoutMs,
@@ -128,7 +132,7 @@ async function probe(ctx) {
     // ④ 无效 Key：确认鉴权失败被识别为失败，而不是当成"距离 0"
     results.push(
       await runCase('④ 无效 Key（鉴权失败情形）', async () => {
-        const bad = createMapProvider(providerName, {
+        const bad = makeProvider(providerName, {
           key: 'INVALID_KEY_PROBE_0000',
           timeoutMs: p.timeoutMs,
         });
@@ -145,7 +149,7 @@ async function probe(ctx) {
     // ⑤ Key 未配置：确认缺 Key 时给出可执行的修复指引，而不是含糊失败
     results.push(
       await runCase('⑤ 未配置 Key（缺失依赖情形）', async () => {
-        const none = createMapProvider(providerName, { key: '' });
+        const none = makeProvider(providerName, { key: '' });
         const r = await none.walkingRoute(from, to);
         return Object.assign({}, r, {
           expectedFailure: true,

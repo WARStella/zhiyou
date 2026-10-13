@@ -77,6 +77,16 @@ async function invoke(event, ctx) {
     expectedVersion: event.expectedVersion,
     payload: event.payload || {},
     action,
+    /**
+     * 外部服务工厂由调用方注入 —— 云函数入口不传（动作层回落到真实实现），
+     * 测试注入替身。
+     *
+     * ⚠️ **这里是白名单，新增注入点必须同时改这里**。
+     * 漏改的后果很隐蔽：动作层拿到 `undefined` 后回落到真实实现，
+     * 于是测试发真实 HTTP 或报一个看似无关的错误 —— 而不是"注入没生效"。
+     * 所以注入点放在入口这一处，产品代码里不留任何测试钩子。
+     */
+    createMapProvider: ctx.createMapProvider || null,
   };
 
   // 记录执行到了哪一步：定位"错误发生在幂等包装里还是业务里"往往是最关键的一步

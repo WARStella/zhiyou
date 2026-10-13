@@ -9,17 +9,21 @@
 
 const { createMemoryRepo } = require('../cloudfunctions/api/lib/repo/memory');
 const { invoke } = require('../cloudfunctions/api/lib/invoke');
+const { createMapProvider } = require('../cloudfunctions/api/lib/map');
 const C = require('../cloudfunctions/api/lib/repo/collections');
 const fixtures = require('./fixtures/places');
 
 /**
- * 测试环境一律使用**假地图服务**。
+ * 假地图服务的**默认工厂** —— 通过 ctx 注入，而不是设环境变量。
  *
- * 规划器现在会真的去调步行路线接口（`lib/map`），若不指定就会发真实 HTTP ——
- * 慢、不稳定、要花钱，而且不该出现在单元测试里。
- * 需要真实上游行为的测试（如 `map.test.js` 的探针）应在 payload 里显式传 `provider`。
+ * 为什么不用 `process.env.MAP_PROVIDER = 'fake'`：
+ *   那会让产品代码为了可测而读一个只对测试有意义的环境变量，
+ *   而且**注入不了"上游故障"这种状态**（只能靠再加一个
+ *   `MAP_FAKE_FAIL` 之类的后门 —— 那正是要避免的东西）。
+ *
+ * 注入工厂则可以表达任意情况：正常、故障、特定 Key、特定延迟。
  */
-process.env.MAP_PROVIDER = process.env.MAP_PROVIDER || 'fake';
+const defaultMapFactory = (name, opts) => createMapProvider(name || 'fake', opts);
 
 /** 固定基准时刻，保证测试可复现。 */
 const NOW = new Date('2026-10-20T01:00:00.000Z');
@@ -52,6 +56,8 @@ async function makeWorld(opts) {
         openid,
         env: opts.env || 'dev',
         now: o.now ? new Date(o.now) : base,
+        /** 动作层通过它拿到地图服务；测试可注入任意实现 */
+        createMapProvider: opts.createMapProvider || defaultMapFactory,
       }
     );
   };
@@ -96,4 +102,4 @@ const expectFail = (res, code) => {
   return res.error;
 };
 
-module.exports = { makeWorld, makeCrew, expectOk, expectFail, NOW, fixtures, C };
+module.exports = { makeWorld, makeCrew, expectOk, expectFail, NOW, fixtures, C, defaultMapFactory, createMapProvider };

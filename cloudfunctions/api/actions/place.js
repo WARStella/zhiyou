@@ -174,7 +174,7 @@ async function search(ctx) {
   const centerUsed = p.center || (p.region ? null : DEFAULT_CENTER);
   const center = centerUsed;
 
-  const provider = createMapProvider(p.provider || process.env.MAP_PROVIDER, {
+  const provider = (ctx.createMapProvider || createMapProvider)(p.provider || process.env.MAP_PROVIDER, {
     // 覆盖 Key 仅用于开发期自测（与 map.probe 同一约定），正式环境不可用
     key: env === 'dev' ? p.overrideKey : undefined,
     timeoutMs: p.timeoutMs,

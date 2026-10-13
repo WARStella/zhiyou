@@ -29,7 +29,7 @@ const C = require('../lib/repo/collections');
  * 但一律标记 `source: 'upstream'` —— **它不是踏勘实测**，可信度不同，不能混为一谈。
  */
 async function fillMissingWalkTimes(ctx) {
-  const { repo, placesById, placeIds, now } = ctx;
+  const { repo, placesById, placeIds, now, makeProvider } = ctx;
   const out = { fetched: 0, fromCache: 0, failed: 0, skipped: 0, mapApiCalls: 0, failures: [] };
 
   const legs = [];
@@ -49,7 +49,7 @@ async function fillMissingWalkTimes(ctx) {
   }
   if (!legs.length) return out;
 
-  const provider = createMapProvider(process.env.MAP_PROVIDER);
+  const provider = makeProvider();
 
   for (const leg of legs) {
     let r;
@@ -173,6 +173,16 @@ async function plan(ctx) {
   const params = resolveParams(spec.paramsInput);
   assert(Array.isArray(spec.placeIds) && spec.placeIds.length > 0, CODES.INVALID_PARAM, '至少需要一个地点');
 
+  /**
+   * 地图服务的取得方式：**通过 ctx 注入的工厂**。
+   *
+   * 生产代码里不留测试钩子（此前为了能注入"上游故障"，加过一个
+   * `MAP_FAKE_FAIL` 环境变量 —— 那等于给产品代码开后门）。
+   * 注入工厂可以表达任意状态：正常、故障、特定 Key、特定超时。
+   */
+  const makeProvider = (name, opts) =>
+    (ctx.createMapProvider || createMapProvider)(name || process.env.MAP_PROVIDER, opts);
+
   if (spec.crewId) await requireCrewMember(repo, spec.crewId, openid);
 
   const { map: placesById, missing } = await loadPlaces(repo, spec.placeIds);
@@ -258,6 +268,7 @@ async function plan(ctx) {
     placesById,
     placeIds: spec.placeIds,
     now,
+    makeProvider,
   });
 
   /**
@@ -282,7 +293,7 @@ async function plan(ctx) {
   if (startPoint) {
     const firstPlace = placesById[spec.placeIds[0]];
     if (firstPlace && firstPlace.location) {
-      const provider = createMapProvider(process.env.MAP_PROVIDER);
+      const provider = makeProvider();
       let r;
       try {
         r = await provider.walkingRoute(startPoint, firstPlace.location);

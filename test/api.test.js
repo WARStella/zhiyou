@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { makeWorld, makeCrew, expectOk, expectFail, NOW, C } = require('./helpers');
+const { makeWorld, makeCrew, expectOk, expectFail, NOW, C, createMapProvider } = require('./helpers');
 const fixtures = require('./fixtures/places');
 
 const VALID_PLACES = ['p_zhongyang', 'p_fanghong', 'p_sofia'];
@@ -674,30 +674,27 @@ test('规划会真的调用地图步行接口，并把结果缓存下来', async
 });
 
 test('地图接口取不到路线时回落直线估算，并如实报告失败段', async () => {
-  const w = await makeWorld();
+  // 通过 ctx 注入一个"必定失败"的地图服务 —— 而不是设环境变量后门
+  const w = await makeWorld({
+    createMapProvider: () =>
+      createMapProvider('fake', { failWith: { reason: 'UPSTREAM_FAILED', message: '模拟地图上游故障' } }),
+  });
 
-  // 通过假服务的故障注入开关模拟上游故障。
-  // 不能用替换模块的办法：trip.js 在加载时就解构捕获了 provider 工厂。
-  process.env.MAP_FAKE_FAIL = 'walk';
-  try {
-    const res = expectOk(
-      await w.A('trip.plan', { placeIds: VALID_PLACES, startAt: NOW, constraints: [] })
-    );
+  const res = expectOk(
+    await w.A('trip.plan', { placeIds: VALID_PLACES, startAt: NOW, constraints: [] })
+  );
 
-    assert.equal(res.walkTimes.upstreamFailed, 1, '失败段数要如实报告');
-    assert.equal(res.walkTimes.bySource.estimated, 1);
-    assert.equal(res.walkTimes.bySource.survey, 1, '已有踏勘记录不受上游故障影响');
-    assert.match(res.walkTimes.note, /直线估算/, '必须说明回落到了估算，不能含糊');
-    assert.equal(res.walkTimes.failures[0].reason, 'UPSTREAM_FAILED');
-    assert.ok(res.saved, '取不到路线不该让规划整体失败 —— 但要标注来源');
+  assert.equal(res.walkTimes.upstreamFailed, 1, '失败段数要如实报告');
+  assert.equal(res.walkTimes.bySource.estimated, 1);
+  assert.equal(res.walkTimes.bySource.survey, 1, '已有踏勘记录不受上游故障影响');
+  assert.match(res.walkTimes.note, /直线估算/, '必须说明回落到了估算，不能含糊');
+  assert.equal(res.walkTimes.failures[0].reason, 'UPSTREAM_FAILED');
+  assert.ok(res.saved, '取不到路线不该让规划整体失败 —— 但要标注来源');
 
-    // **未取到的时间绝不能写进缓存**，否则会把一次估算变成永久事实
-    const place = await w.repo.get(C.PLACES, VALID_PLACES[1]);
-    const rec = (place.walkableTo || []).find((x) => x.placeId === VALID_PLACES[2]);
-    assert.equal(rec, undefined, '失败时不得写缓存');
-  } finally {
-    delete process.env.MAP_FAKE_FAIL;
-  }
+  // **未取到的时间绝不能写进缓存**，否则会把一次估算变成永久事实
+  const place = await w.repo.get(C.PLACES, VALID_PLACES[1]);
+  const rec = (place.walkableTo || []).find((x) => x.placeId === VALID_PLACES[2]);
+  assert.equal(rec, undefined, '失败时不得写缓存');
 });
 
 test('起点：行程从"我的位置"算起，而不是假装人已在第一个景点门口', async () => {

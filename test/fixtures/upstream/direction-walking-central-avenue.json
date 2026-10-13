@@ -1,0 +1,78 @@
+{
+  "name": "direction-walking 中央大街→防洪纪念塔",
+  "kind": "direction-walking",
+  "source": "腾讯位置服务 WebServiceAPI 真实调用",
+  "recordedAt": "2026-10-13",
+  "request": {
+    "from": "45.7756,126.6175",
+    "to": "45.781,126.6185"
+  },
+  "note": "由 map.probe 的 rawHead 还原。rawHead 有 1200 字上限，因此 steps 只保留了前 4 条（真实返回 8 条）、polyline 完整保留。要完整录音请见本目录 README。",
+  "httpStatus": 200,
+  "body": {
+    "status": 0,
+    "message": "Success",
+    "request_id": "c11feb82a4ea4d9bbfe393ec023559bc",
+    "result": {
+      "routes": [
+        {
+          "mode": "WALKING",
+          "distance": 815,
+          "duration": 12,
+          "direction": "西北",
+          "polyline": [
+            45.775524, 126.617213, 430, -232, 0, 0, 95, -51, 0, 0, 149, 582, 0, 0, 58, 241,
+            0, 0, 116, 519, 0, 0, 82, -19, 0, 0, 570, -141, 0, 0, 574, -140, 0, 0, 659, -158,
+            0, 0, 25, -5, 0, 0, 18, 191, 0, 0, 294, -59, 0, 0, -21, -157, 201, -68, 0, 0,
+            332, -92, 0, 0, 520, -134, 0, 0, 217, -51, -22, -244, 0, 0, 84, -19, 0, 0, 86, -18,
+            0, 0, 9, 181, 0, 0, 61, 122, 60, 122, 0, 0, 90, 139, 89, 138, 90, 165, 0, 0,
+            86, -29, 0, 0, 126, -44, 0, 0, 140, -45, 48, -13, 50, 15, 19, 16, 28, 40, 75, 169,
+            0, 0, 108, 317
+          ],
+          "steps": [
+            {
+              "instruction": "从起点朝西北行进62米右转进入上游街",
+              "polyline_idx": [0, 7],
+              "road_name": "",
+              "dir_desc": "西北",
+              "distance": 62,
+              "act_desc": "右转",
+              "type": 0,
+              "road_class": 8
+            },
+            {
+              "instruction": "沿上游街行进110米左转进入中央大街",
+              "polyline_idx": [8, 19],
+              "road_name": "上游街",
+              "dir_desc": "东",
+              "distance": 110,
+              "act_desc": "左转",
+              "type": 0,
+              "road_class": 6
+            },
+            {
+              "instruction": "沿中央大街行进212米右转进入地下通道",
+              "polyline_idx": [20, 35],
+              "road_name": "中央大街",
+              "dir_desc": "北",
+              "distance": 212,
+              "act_desc": "右转",
+              "type": 0,
+              "road_class": 6
+            },
+            {
+              "instruction": "经地下通道行进245米右转",
+              "polyline_idx": [36, 75],
+              "road_name": "地下通道",
+              "dir_desc": "东",
+              "distance": 245,
+              "act_desc": "右转",
+              "type": 2,
+              "road_class": 100
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
