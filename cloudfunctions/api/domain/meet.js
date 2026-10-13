@@ -168,7 +168,7 @@ function applyDepart(task, now, expectedVersion) {
       },
     };
   }
-  if (task.status !== MEET_STATUS.ARRIVED_ALL && task.status !== MEET_STATUS.ACTIVE) {
+  if (task.status !== MEET_STATUS.ARRIVED_ALL) {
     return {
       patch: null,
       error: {

@@ -205,6 +205,12 @@ function createCloudRepo(opts) {
      * 乐观锁：只有版本号还对得上才写入。
      * updated === 0 表示已被他人推进 —— 调用方必须转成 VERSION_CONFLICT，不得重试覆盖。
      */
+    async updateIf(coll, id, conditions, patch) {
+      const res = await col(coll).where(toWhere(Object.assign({}, conditions, { _id: id })))
+        .update({ data: Object.assign({}, patch, { updatedAt: new Date() }) });
+      return { updated: (res.stats && res.stats.updated) || 0 };
+    },
+
     async updateCas(coll, id, expectedVersion, patch) {
       try {
         const res = await col(coll)

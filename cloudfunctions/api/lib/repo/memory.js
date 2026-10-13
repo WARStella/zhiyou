@@ -182,6 +182,15 @@ function createMemoryRepo(opts) {
      * 乐观锁更新 —— 与云数据库 where({_id, version}).update() 等价。
      * 版本不匹配返回 updated: 0，且绝不写入。
      */
+    async updateIf(coll, id, conditions, patch) {
+      const cur = bag(coll).get(id);
+      if (!cur || !matches(cur, conditions)) return { updated: 0, doc: null };
+      const nextDoc = Object.assign({}, cur, clone(patch), { updatedAt: new Date(clock()) });
+      assertUnique(bag(coll), coll, nextDoc, id);
+      bag(coll).set(id, nextDoc);
+      return { updated: 1, doc: clone(nextDoc) };
+    },
+
     async updateCas(coll, id, expectedVersion, patch) {
       const cur = bag(coll).get(id);
       if (!cur || cur.version !== expectedVersion) return { updated: 0, doc: clone(cur || null) };

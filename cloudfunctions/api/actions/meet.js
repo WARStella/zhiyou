@@ -12,6 +12,22 @@ const time = require('../lib/time');
 const C = require('../lib/repo/collections');
 const tripActions = require('./trip');
 
+// revision serializes state writes; version remains the proposal users confirmed.
+async function mutateTask(ctx, id, compute) {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const task = await ctx.repo.get(C.MEET_TASKS, id);
+    if (!task) throw fail(CODES.NOT_FOUND, '集合任务不存在');
+    await requireCrewMember(ctx.repo, task.crewId, ctx.openid);
+    const result = compute(task);
+    if (!result.patch) return { task, updated: task, result };
+    const revision = task.revision == null ? { __op: 'exists', value: false } : task.revision;
+    const patch = Object.assign({}, result.patch, { revision: (task.revision || 0) + 1 });
+    const saved = await ctx.repo.updateIf(C.MEET_TASKS, id, { revision, version: task.version, status: task.status }, patch);
+    if (saved.updated) return { task, updated: Object.assign({}, task, patch), result };
+  }
+  throw fail(CODES.VERSION_CONFLICT, '集合状态正在更新，请刷新后重试');
+}
+
 /** 可作为集合点的地点类别。 */
 const MEET_CATEGORIES = ['meeting', 'entrance', 'exit', 'spot', 'rest'];
 
@@ -211,6 +227,7 @@ async function create(ctx) {
     round,
     status: 'proposed',
     version: 1,
+    revision: 0,
     method,
     placeId: p.placeId || null,
     point: p.point || null,
@@ -262,32 +279,16 @@ async function confirm(ctx) {
   const p = ctx.payload;
   const now = new Date(ctx.now ? ctx.now : Date.now());
 
-  const task = await repo.get(C.MEET_TASKS, p.meetTaskId);
-  if (!task) throw fail(CODES.NOT_FOUND, '集合任务不存在');
-  await requireCrewMember(repo, task.crewId, openid);
-
   assert(['confirm', 'decline'].includes(p.decision), CODES.INVALID_PARAM, 'decision 必须是 confirm 或 decline');
-  // 强制携带版本号：否则客户端可省略该字段绕过"旧版本确认失效"的校验
-  assert(
-    ctx.expectedVersion != null,
-    CODES.INVALID_PARAM,
-    '确认必须携带确认时所依据的版本号 expectedVersion'
-  );
+  assert(ctx.expectedVersion != null, CODES.INVALID_PARAM, '确认必须携带 expectedVersion');
+  const { task, updated } = await mutateTask(ctx, p.meetTaskId, (current) => {
+    assert(['proposed', 'confirmed'].includes(current.status), CODES.INVALID_PARAM, '集合已开始或结束，不能重新确认');
+    assert(current.participants.some(x => x.userId === openid), CODES.FORBIDDEN_NOT_MEMBER, '你不在本次集合的参与名单中');
+    const r = meetDomain.applyConfirm(current, openid, p.decision, now, ctx.expectedVersion);
+    if (r.invalidated) throw fail(CODES.VERSION_CONFLICT, r.reason);
+    return r;
+  });
 
-  const me = (task.participants || []).find((x) => x.userId === openid);
-  assert(me, CODES.FORBIDDEN_NOT_MEMBER, '你不在本次集合的参与名单中');
-
-  const r = meetDomain.applyConfirm(task, openid, p.decision, now, ctx.expectedVersion);
-  if (r.invalidated) {
-    throw fail(CODES.VERSION_CONFLICT, r.reason, {
-      expectedVersion: ctx.expectedVersion,
-      currentVersion: task.version,
-    });
-  }
-
-  await repo.update(C.MEET_TASKS, task._id, Object.assign({}, r.patch, { updatedAt: now }));
-
-  const updated = await repo.get(C.MEET_TASKS, task._id);
   await logEvent(repo, {
     ts: now,
     type: 'state_change',
@@ -318,19 +319,14 @@ async function arrive(ctx) {
   require_fields(ctx.payload, ['meetTaskId']);
   const now = new Date(ctx.now ? ctx.now : Date.now());
 
-  const task = await repo.get(C.MEET_TASKS, ctx.payload.meetTaskId);
-  if (!task) throw fail(CODES.NOT_FOUND, '集合任务不存在');
-  await requireCrewMember(repo, task.crewId, openid);
-
-  assert(
-    ['confirmed', 'active', 'arrived_all'].includes(task.status),
-    CODES.INVALID_PARAM,
-    `当前状态（${task.status}）不能标记到达`
-  );
-
-  const r = meetDomain.applyArrive(task, openid, now);
-  await repo.update(C.MEET_TASKS, task._id, Object.assign({}, r.patch, { updatedAt: now }));
-  const updated = await repo.get(C.MEET_TASKS, task._id);
+  const { task, updated, result: r } = await mutateTask(ctx, ctx.payload.meetTaskId, (current) => {
+    assert(['confirmed', 'active', 'arrived_all'].includes(current.status), CODES.INVALID_PARAM, '当前状态不能标记到达');
+    const me = current.participants.find(x => x.userId === openid);
+    assert(me && ['confirmed', 'arrived'].includes(me.status) && me.confirmedVersion === current.version,
+      CODES.FORBIDDEN_NOT_MEMBER, '需要是本次集合已确认的参与成员');
+    if (me.status === 'arrived') return { patch: null, allArrived: current.status === 'arrived_all' };
+    return meetDomain.applyArrive(current, openid, now);
+  });
 
   await logEvent(repo, {
     ts: now,
@@ -365,26 +361,19 @@ async function depart(ctx) {
   require_fields(ctx.payload, ['meetTaskId']);
   const now = new Date(ctx.now ? ctx.now : Date.now());
 
-  const task = await repo.get(C.MEET_TASKS, ctx.payload.meetTaskId);
-  if (!task) throw fail(CODES.NOT_FOUND, '集合任务不存在');
-  await requireCrewMember(repo, task.crewId, openid);
-
-  // 幂等：重复点击不覆盖首次出发时间
-  if (task.status === meetDomain.MEET_STATUS.DEPARTED) {
-    return resp.ok({
-      meetTaskId: task._id,
-      status: task.status,
-      departedAt: time.toISO(task.departedAt),
-      alreadyDeparted: true,
-      delayMin: Math.max(0, Math.round(time.diffMin(task.departedAt, task.plannedMeetAt))),
-    });
-  }
-
-  const r = meetDomain.applyDepart(task, now, ctx.expectedVersion);
-  if (r.error) throw fail(r.error.code, r.error.message, r.error.details);
-
-  await repo.update(C.MEET_TASKS, task._id, Object.assign({}, r.patch, { updatedAt: now }));
-  const updated = await repo.get(C.MEET_TASKS, task._id);
+  assert(ctx.expectedVersion != null, CODES.INVALID_PARAM, '出发必须携带 expectedVersion');
+  const { task, updated, result } = await mutateTask(ctx, ctx.payload.meetTaskId, (current) => {
+    assert(current.initiatorUserId === openid, CODES.FORBIDDEN_NOT_MEMBER, '只有发起人可以确认出发');
+    assert(ctx.expectedVersion === current.version, CODES.VERSION_CONFLICT, '集合版本已更新，请刷新');
+    if (current.status === meetDomain.MEET_STATUS.DEPARTED) return { patch: null, alreadyDeparted: true };
+    const r = meetDomain.applyDepart(current, now, ctx.expectedVersion);
+    if (r.error) throw fail(r.error.code, r.error.message, r.error.details);
+    return r;
+  });
+  if (result.alreadyDeparted) return resp.ok({
+    meetTaskId: task._id, status: task.status, departedAt: time.toISO(task.departedAt),
+    alreadyDeparted: true, delayMin: Math.max(0, Math.round(time.diffMin(task.departedAt, task.plannedMeetAt))),
+  });
 
   const delayMin = Math.max(0, Math.round(time.diffMin(now, task.plannedMeetAt)));
   let tripImpact = null;

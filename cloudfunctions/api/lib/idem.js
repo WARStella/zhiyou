@@ -66,6 +66,10 @@ async function withIdempotency(repo, meta, fn) {
   const existing = await repo.findOne(C.OPERATIONS, { requestId });
 
   if (existing) {
+    // requestId is client supplied: never replay another identity or action's result.
+    if (existing.userId !== userId || existing.action !== action) {
+      throw fail(CODES.INVALID_PARAM, '请求编号已被使用，请生成新的 requestId');
+    }
     if (existing.status === 'done') {
       // 兼容早期把快照存成对象的记录（那些记录因写入失败，实际不存在，仅作防御）
       const stored = existing.responseJson;
