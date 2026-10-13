@@ -125,7 +125,7 @@ const ANCHOR_RES = [
 ];
 
 /**
- * 从捕获到的片段里剥掉动词、时间词、人称 —— 它们不是地名。
+ * 从捕获到的片段里剥掉动词、时间词、人称，以及尾部的游览动词。
  *
  * 实测踩到的坑：`我下午想去中央大街附近` 会被整体捕获，
  * 得到「我下午想去中央大街」这种检索词，搜出来全是垃圾。
@@ -133,15 +133,54 @@ const ANCHOR_RES = [
 const PHRASE_PREFIX_RE =
   /^(?:我|我们|咱们|你|他|她|想|要|打算|准备|计划|去|到|在|逛|逛一逛|看看|看|游玩|游|今天|明天|后天|上午|中午|下午|午后|傍晚|晚上|早上|早晨|然后|再|顺便|附近|周边|一带)+/;
 
+/** 尾部同理：「冰雪大世界附近逛逛」→「冰雪大世界」 */
+const PHRASE_SUFFIX_RE =
+  /(?:附近|周边|一带|左近|逛逛|逛一逛|转转|走走|看看|玩一玩|玩|参观|游览|游玩|一下|吧|呢)+$/;
+
 function cleanPlacePhrase(s) {
   let out = String(s || '').trim();
   // 反复剥离：`我下午想去` 可能一次剥不干净
   for (let i = 0; i < 6; i++) {
-    const next = out.replace(PHRASE_PREFIX_RE, '');
+    const next = out.replace(PHRASE_PREFIX_RE, '').replace(PHRASE_SUFFIX_RE, '');
     if (next === out) break;
     out = next;
   }
   return out.trim();
+}
+
+/**
+ * 文本里是否点名了某个已知地点。
+ *
+ * ⚠️ **双向包含是危险的，这里踩过一次真实的坑**：
+ * 用户说「我想去冰雪大世界」，库里有一条检索回来的 POI 叫
+ * 「哈尔滨悦苒民宿(哈尔滨冰雪大世界融创文旅城龙川路地铁站)」——
+ * 因为它的名字里**嵌了地标名**，`n.includes(text)` 就命中了它。
+ * 结果：把这间民宿当成了"用户必去的地方"，检索词也变成了那串 30 字的 POI 全名，
+ * 搜出来只有它自己。
+ *
+ * 所以只承认**真正的简称**：用户的说法要至少覆盖全名的一半长度。
+ *   · 「索菲亚」→「圣索菲亚教堂」 3/6 = 0.5 ✓
+ *   · 「冰雪大世界」→ 那条民宿名 5/30 ≈ 0.17 ✗
+ */
+const ABBREV_MIN_RATIO = 0.5;
+
+function matchKnown(text, knownPlaceNames) {
+  if (!Array.isArray(knownPlaceNames) || !knownPlaceNames.length) return null;
+  const t = String(text || '').trim();
+  if (t.length < 2) return null;
+
+  const hits = knownPlaceNames.filter((n) => {
+    if (!n || typeof n !== 'string') return false;
+    // 用户在话里完整提到了某个已知地点 —— 这条永远安全
+    if (t.includes(n)) return true;
+    // 简称：只在**长度接近**时才认，避免"碰巧是某个长名字的子串"
+    if (n.includes(t) && t.length / n.length >= ABBREV_MIN_RATIO) return true;
+    return false;
+  });
+
+  if (!hits.length) return null;
+  // 取最长的那个，避免「教堂」抢在「圣索菲亚教堂」前面
+  return hits.sort((a, b) => b.length - a.length)[0];
 }
 
 /**
@@ -171,14 +210,16 @@ const CATEGORY_WORDS = [
 /** 停留延长：「多待一会儿」只在调整场景用，这里先给出意图 */
 const STAY_RES = /多(?:待|停|逛|玩)\s*(\d+|[一二两三四五六七八九十]{1,2})?\s*(分钟|小时|钟头)?/;
 
-/** 命中已知地点名（双向包含，容忍「索菲亚」指「圣索菲亚教堂」） */
-function matchKnown(text, knownPlaceNames) {
-  if (!Array.isArray(knownPlaceNames) || !knownPlaceNames.length) return null;
-  const hits = knownPlaceNames.filter((n) => n && (text.includes(n) || n.includes(text)));
-  if (!hits.length) return null;
-  // 取最长的那个，避免「教堂」抢在「圣索菲亚教堂」前面
-  return hits.sort((a, b) => b.length - a.length)[0];
-}
+/**
+ * 「去 X」的目标 —— **最常见的表达方式，必须兜住**。
+ *
+ * 实测踩到的坑：用户说「我想去冰雪大世界」，而"冰雪大世界"不在已知地点库里，
+ * 于是系统什么都不给。可这句话的意思再清楚不过：他要去冰雪大世界。
+ *
+ * 抽出来的 X 直接当检索词用。注意要接 `cleanPlacePhrase`，
+ * 否则「去中央大街附近逛逛」会抽出「中央大街附近逛逛」。
+ */
+const GOAL_RE = /(?:想|要|打算|准备|计划|愿意)?\s*去\s*([\u4e00-\u9fa5A-Za-z0-9·]{2,20})/;
 
 // ── 主解析 ────────────────────────────────────────────────
 
@@ -199,6 +240,10 @@ function parse(text, opts) {
     parser: 'rulebased',
     anchorText: null,
     searchKeyword: null,
+    /** 「去 X」里抽出的目标地名（可能在已知库之外） */
+    goalText: null,
+    /** 并列表达里的其余目标：「想去教堂和公园」→ ['公园'] */
+    goalAlternatives: [],
     startClock: null,
     endClock: null,
     pace: 'normal',
@@ -366,14 +411,45 @@ function parse(text, opts) {
     }
   }
 
+  /**
+   * ⑦.5 「去 X」的目标。
+   *
+   * 用户说的地标**可能不在已知库里**（如"冰雪大世界"）—— 但那句话的意思
+   * 再清楚不过：他要去 X。所以单独抽出来，作为检索词的兜底。
+   * 不加这一步，「我想去冰雪大世界」会什么都搜不到。
+   */
+  const goal = raw.match(GOAL_RE);
+  if (goal) {
+    /**
+     * 并列结构要拆开：「想去教堂和公园」的目标不是一个叫"教堂和公园"的地方。
+     * 取第一段当检索词，其余的记进 `goalAlternatives` ——
+     * 前端可以据此再搜一次，也让用户知道系统没有忽略后半句。
+     */
+    const parts = String(goal[1])
+      .split(/[和跟与、,，及]/)
+      .map((x) => cleanPlacePhrase(x))
+      .filter((x) => x && x.length >= 2);
+
+    if (parts.length) {
+      out.goalText = parts[0];
+      if (parts.length > 1) out.goalAlternatives = parts.slice(1);
+      out.matched.push({
+        field: 'goal',
+        text: goal[0].trim(),
+        value: parts[0],
+        rule: 'goal',
+      });
+    }
+  }
+
   // ⑧ 检索关键词：**宁可不给，也不给垃圾**
   //
   // 实测踩到的坑：原先用"剥掉时间与节奏词后剩下的中文"当兜底，
   // 结果「我下午想去中央大街附近逛逛」被剥成「我下午想去中央大街」，
   // 搜出来全是无关结果。检索词错了比没有更糟 —— 用户会以为系统理解错了。
   //
-  // 现在的优先级：锚点 → 必去地点 → 文中提到的已知地点（**排除的不要**）
-  //              → 常见类别词 → null（交给用户补）
+  // 优先级：锚点 → 必去 → 「去 X」目标 → 文中已知地点（**排除的剔除**）
+  //        → 常见类别词 → null（交给用户补）
   if (out.anchorText) {
     out.searchKeyword = out.anchorText;
     out.matched.push({ field: 'searchKeyword', text: out.anchorText, value: out.anchorText, rule: 'from-anchor' });
@@ -384,6 +460,14 @@ function parse(text, opts) {
       text: out.mustVisitTexts[0],
       value: out.mustVisitTexts[0],
       rule: 'from-must',
+    });
+  } else if (out.goalText) {
+    out.searchKeyword = out.goalText;
+    out.matched.push({
+      field: 'searchKeyword',
+      text: out.goalText,
+      value: out.goalText,
+      rule: 'from-goal',
     });
   } else {
     // ⚠️ 必须**排除避开的**：实测「一定要去中央大街，别去兆麟公园」曾把

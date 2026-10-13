@@ -208,9 +208,14 @@ Page({
                 ? '模型理解' + (d.model ? '（' + d.model + '）' : '')
                 : '规则理解',
             degraded: d.degraded === true,
+            /**
+             * 降级提示的措辞要**准确而不吓人**：
+             * 没配模型不是故障，规则解析同样是设计内的正式路径（§6.5）。
+             * 说成"模型不可用"会让人以为系统坏了。
+             */
             degradationNote:
               d.degraded === true && d.attempts && d.attempts.length
-                ? '模型不可用（' + (d.attempts[0].reason || '未知') + '），已用规则解析'
+                ? '未配置大模型，当前用规则解析（结果可复现，功能完整）'
                 : '',
             explanation: d.explanation || [],
             uncertainties: d.uncertainties || [],

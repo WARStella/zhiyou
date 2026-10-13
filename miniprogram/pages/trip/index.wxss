@@ -1,5 +1,6 @@
 .page {
-  padding: 24rpx 24rpx 60rpx;
+  /* 底部留出 tabBar 的高度，否则页面最后的按钮会被它盖住 */
+  padding: 24rpx 24rpx 200rpx;
 }
 
 /* ── 提示条 ───────────────────────────────── */
@@ -474,7 +475,8 @@
   margin-top: 10rpx;
   font-size: 22rpx;
   line-height: 1.6;
-  color: #d9642a;
+  /* 中性色：没配模型不是故障，别用警告色吓人 */
+  color: #7b8794;
 }
 .uncertain {
   margin-top: 16rpx;

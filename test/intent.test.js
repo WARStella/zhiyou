@@ -75,10 +75,50 @@ test('规则解析：非地名不得被当成必去', () => {
   assert.equal(r.pace, 'packed');
 });
 
-test('规则解析：说「想去教堂」时用类别词当检索词', () => {
+test('规则解析：并列目标要拆开，不能当成一个地名', () => {
   const r = rb.parse('想去教堂和公园', { knownPlaceNames: KNOWN });
+  assert.equal(r.goalText, '教堂', '不能是「教堂和公园」—— 那不是地名');
+  assert.deepEqual(r.goalAlternatives, ['公园'], '后半句不能被丢掉');
   assert.equal(r.searchKeyword, '教堂');
   assert.equal(r.uncertainties.length, 0);
+});
+
+// ── 实测踩到的坑：POI 名字里嵌了地标名 ────────────────────
+
+test('简称匹配不得被"名字里嵌了地标"的长 POI 名骗到', () => {
+  /**
+   * 真实事故：用户说「我想去冰雪大世界」，库里有一条检索回来的 POI 叫
+   * 「哈尔滨悦苒民宿(哈尔滨冰雪大世界融创文旅城龙川路地铁站)」——
+   * 它的名字里嵌了「冰雪大世界」，于是双向包含的简称匹配把它当成了
+   * 用户要去的地方，检索词也变成那串 30 字的全名。
+   */
+  const withPoi = KNOWN.concat([
+    '哈尔滨悦苒民宿(哈尔滨冰雪大世界融创文旅城龙川路地铁站)',
+  ]);
+  const r = rb.parse('我想去冰雪大世界', { knownPlaceNames: withPoi });
+
+  assert.deepEqual(r.mustVisitTexts, [], '不得把那间民宿当成必去');
+  assert.equal(r.goalText, '冰雪大世界', '「去 X」的目标要抽出来');
+  assert.equal(r.searchKeyword, '冰雪大世界', '检索词必须是用户说的那个地标');
+});
+
+test('真正的简称仍然要认得出来', () => {
+  // 「索菲亚」是「圣索菲亚教堂」的简称 —— 长度过半，应当认
+  const r = rb.parse('想去索菲亚', { knownPlaceNames: KNOWN });
+  assert.deepEqual(r.mustVisitTexts, ['圣索菲亚教堂']);
+  assert.equal(r.searchKeyword, '圣索菲亚教堂');
+});
+
+test('用户说的地标不在已知库里时，仍要能搜到（「去 X」兜底）', () => {
+  // 这是最常见的表达方式，不加兜底会什么都搜不到
+  const r = rb.parse('我想去冰雪大世界', { knownPlaceNames: KNOWN });
+  assert.equal(r.searchKeyword, '冰雪大世界');
+  assert.equal(r.uncertainties.some((u) => u.field === 'searchKeyword'), false);
+});
+
+test('「去 X」抽出后要清掉尾部的游览动词', () => {
+  const r = rb.parse('想去中央大街逛逛', { knownPlaceNames: [] });
+  assert.equal(r.goalText, '中央大街', '不能是「中央大街逛逛」');
 });
 
 // ── 不能解析的（§6.2 的核心） ─────────────────────────────

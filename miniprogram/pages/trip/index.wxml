@@ -33,7 +33,7 @@
           <text class="v muted">{{intent.parserLabel}}</text>
         </view>
 
-        <view wx:if="{{intent.degradationNote}}" class="degraded">⚠️ {{intent.degradationNote}}</view>
+        <view wx:if="{{intent.degradationNote}}" class="degraded">{{intent.degradationNote}}</view>
 
         <view wx:if="{{!intent.explanation.length}}" class="hint">没有能确定的项</view>
         <view wx:for="{{intent.explanation}}" wx:key="*this" class="change">· {{item}}</view>
