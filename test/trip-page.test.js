@@ -573,3 +573,86 @@ test('步行仍然正常显示 —— 别为了修公交把最常见的那个弄
   assert.equal(leg.modeIcon, '🚶');
   assert.equal(leg.sourceLabel, '踏勘实测');
 });
+test('出发段（我的位置 → 第一站）要显示真实方式 —— 它曾经是写死的"步行"', () => {
+  /**
+   * ⚠️⚠️ 这条守着**两个**已经发生过的错，用户实测都撞到了：
+   *
+   *   ① `index.wxml` 里写的是 `<text class="leg-mode">步行</text>` ——
+   *      **硬编码文本**，无论实际怎么走都显示步行；
+   *   ② `startLegView` 是**显式挑字段**拼的，我加了 mode/modeIcon/reason/
+   *      transitText 却漏在这个列表里 → 时间轴上方式为空、卡片上显示"步行"。
+   *
+   * 症状（用户原话）：「怎么到第一个目的地（冰雪大世界）12618 米还是步行，
+   * 明显不合理」。而他看到的那一段正是"我的位置 → 第一站"。
+   */
+  const page = pageWithTrip({
+    tripData: {
+      startLeg: {
+        minutes: 24.7,
+        meters: 14426,
+        mode: 'driving',
+        source: 'upstream',
+        provider: 'tencent-matrix',
+        toPlaceName: '天安门酒专卖店',
+        candidateReason: null,
+      },
+      nodes: [node('n0', '天安门酒专卖店', 'pending', 0)],
+    },
+  });
+
+  const sl = page.data.startLeg;
+  assert.ok(sl, '出发段要在');
+  assert.equal(sl.mode, '驾车', '方式要跟着后端走，不能写死"步行"');
+  assert.equal(sl.modeIcon, '🚗');
+  assert.equal(sl.sourceLabel, '地图计算');
+  assert.equal(sl.minutes, 24.7);
+  assert.equal(sl.meters, 14426);
+});
+
+test('出发段是公交时，线路与出入口也要显示', () => {
+  const page = pageWithTrip({
+    tripData: {
+      startLeg: {
+        minutes: 69.5,
+        meters: 3442,
+        mode: 'transit',
+        source: 'upstream',
+        toPlaceName: '中央大街',
+        transit: {
+          lineNames: ['地铁2号线(气象台--江北大学城)'],
+          entranceName: '1号口',
+          exitName: '3号口',
+          costYuan: 3,
+        },
+      },
+      nodes: [node('n0', '中央大街', 'pending', 0)],
+    },
+  });
+
+  const sl = page.data.startLeg;
+  assert.equal(sl.mode, '公交');
+  assert.match(sl.transitText, /地铁2号线/, '出发段同样要给出线路名');
+  assert.match(sl.transitText, /1号口进 3号口出/, '集合协同最需要这句');
+});
+
+test('出发段没取到方案时，不说"步行"，而是给出原因', () => {
+  const page = pageWithTrip({
+    tripData: {
+      startLeg: {
+        minutes: null,
+        meters: 17225,
+        mode: 'walking',
+        source: null,
+        toPlaceName: '很远的地方',
+        reason: '直线约 17225 米（17.2 公里），超过步行上限 3000 米 —— 不提供步行建议',
+      },
+      nodes: [node('n0', '很远的地方', 'pending', 0)],
+    },
+  });
+
+  const sl = page.data.startLeg;
+  assert.equal(sl.minutes, null, '分钟数为 null，界面要显示"没取到出行方案"');
+  assert.match(sl.reason, /超过步行上限/, '要说清为什么没有方案');
+  /** 来源为 null 时不该显示任何来源标签 */
+  assert.equal(sl.sourceLabel, '');
+});

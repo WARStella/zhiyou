@@ -113,7 +113,74 @@ test('duration 为 0 视为"上游没给"，而不是"零分钟"', async () => {
 
   assert.equal(r.elements[0].usable, true, '距离仍是可用的路面距离');
   assert.equal(r.elements[0].durationMinutes, null, '0 表示"没给"，不是 0 分钟');
-  assert.equal(r.elements[0].durationSeconds, 0, '原始值照实保留，便于核对');
+  /**
+   * ⚠️ 字段名从 `durationSeconds` 改成了 **`durationRaw`**（2026-10-14）——
+   * 原名**假设了单位是秒**，而那个假设从未实测过，且同一文件里
+   * 步行路线接口的实测结论是**分钟**。把未验证的单位写进字段名
+   * 会让读它的人以为那是既定事实。
+   */
+  assert.equal(r.elements[0].durationRaw, 0, '原始值照实保留，便于核对');
+});
+
+// ── duration 单位自检（2026-10-14 新增）────────────────────
+
+test('单位自检：步行 815 米 / duration 12 → 判为**分钟**（68 米/分符合步速）', async () => {
+  const http = fakeHttp(matrixOk([{ distance: 815, duration: 12 }]));
+  const r = await provider(http).distanceMatrix(FROM, [TOS[0]], 'walking');
+  const el = r.elements[0];
+
+  assert.equal(el.unitCheck.plausible, true);
+  assert.equal(el.unitCheck.unit, 'minutes', '12 分钟走 815 米是合理步速；12 秒则荒谬');
+  assert.equal(el.unitCheck.divisor, 1);
+  assert.equal(el.durationMinutes, 12, '按分钟归一化，不能再除以 60');
+  assert.match(el.unitCheck.note, /分钟/);
+});
+
+test('单位自检：**两种解释都不合理**时如实标出来，不假装数据是好的', async () => {
+  /**
+   * ⚠️ 这条来自用户实测（2026-10-14）：
+   * 「到冰雪大世界 14426 米、24.7 分钟、显示为步行」——等于 **35 km/h 的步行**。
+   *
+   * 24.7 分钟来自 `1482 / 60`，即假设单位是秒。但：
+   *   · 按秒   → 35 km/h，不是步行
+   *   · 按分钟 → 35 km/h，也不是步行
+   *
+   * 两种都不合理，说明上游返回值与方式不一致（可能没尊重 mode，
+   * 或 duration 与 distance 不是同一段路）。**没有实测数据时不该猜一个单位**，
+   * 而应该把这个矛盾记下来 —— 一个"35 km/h 的步行"流到界面上，
+   * 人会按一个不可能的速度安排行程。
+   */
+  const http = fakeHttp(matrixOk([{ distance: 14426, duration: 1482 }]));
+  const r = await provider(http).distanceMatrix(FROM, [TOS[0]], 'walking');
+  const el = r.elements[0];
+
+  assert.equal(el.unitCheck.plausible, false, '两种解释都不在步行区间，必须标出来');
+  assert.match(el.unitCheck.note, /都不在/);
+  assert.match(el.unitCheck.note, /mode/, '要指出最可能的原因');
+  assert.ok(el.unitCheck.impliedSpeedMPerMin > 120, '隐含速度确实过高');
+  /** 原始值要留着，实测核对方便 */
+  assert.equal(el.durationRaw, 1482);
+  assert.equal(el.distanceMeters, 14426);
+});
+
+test('单位自检：驾车 14426 米 / 1482 → 按秒是合理车速', async () => {
+  const http = fakeHttp(matrixOk([{ distance: 14426, duration: 1482 }]));
+  const r = await provider(http).distanceMatrix(FROM, [TOS[0]], 'driving');
+  const el = r.elements[0];
+
+  assert.equal(el.unitCheck.plausible, true, '同一组数在驾车下是合理的');
+  assert.equal(el.unitCheck.unit, 'seconds');
+  assert.equal(el.durationMinutes, 24.7);
+});
+
+test('单元格失败时不做单位自检 —— 此时 distance 是直线距离，判速度没有意义', async () => {
+  const http = fakeHttp(matrixOk([{ distance: 5000, duration: 120, status: 4 }]));
+  const r = await provider(http).distanceMatrix(FROM, [TOS[0]], 'walking');
+  const el = r.elements[0];
+
+  assert.equal(el.usable, false);
+  assert.equal(el.unitCheck.plausible, null, '失败单元格自检应为"未测"');
+  assert.equal(el.unitCheck.impliedSpeedMPerMin, null);
 });
 
 test('公交被明确拒绝 —— 拿驾车耗时冒充公交比不做更糟', async () => {

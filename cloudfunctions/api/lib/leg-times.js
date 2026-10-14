@@ -139,13 +139,38 @@ async function legTravelTimes(p) {
       }
       const el = r && r.ok && r.elements && r.elements[0] ? r.elements[0] : null;
 
-      if (el && el.usable && el.durationMinutes !== null) {
+      /**
+       * ⚠️ 单位自检不通过的候选**一律拒绝**（2026-10-14）。
+       *
+       * 用户实测报："14426 米、24.7 分钟、显示为步行" ——
+       * 那等于 **35 km/h 的步行**，人会按一个不可能的速度安排行程。
+       *
+       * `distanceMatrix` 会把"隐含速度落在合理区间外"标成
+       * `unitCheck.plausible === false`，这里据此拒绝，而不是照单全收。
+       *
+       * 宁可这一段没有步行候选（界面会说"没取到方案"），
+       * 也不能给一个荒谬的数。
+       */
+      const unitBad = el && el.unitCheck && el.unitCheck.plausible === false;
+
+      if (el && el.usable && el.durationMinutes !== null && !unitBad) {
         candidates.push({
           mode,
           minutes: el.durationMinutes,
           meters: el.distanceMeters,
           provider: 'tencent-matrix',
           source: 'upstream',
+        });
+      } else if (unitBad) {
+        candidates.push({
+          mode,
+          ok: false,
+          provider: 'tencent-matrix',
+          reason: `上游返回的耗时与「${mode}」不符：${el.unitCheck.note}`,
+          excludedBy: 'IMPLAUSIBLE_SPEED',
+          impliedSpeedMPerMin: el.unitCheck.impliedSpeedMPerMin,
+          rawDuration: el.durationRaw,
+          rawDistanceMeters: el.distanceMeters,
         });
       } else {
         /**

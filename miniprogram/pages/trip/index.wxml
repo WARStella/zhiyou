@@ -327,11 +327,25 @@
         </view>
         <view class="leg-body">
           <text class="leg-from">{{startLeg.label}}</text>
-          <text class="leg-mode">步行</text>
-          <text class="leg-time">{{startLeg.minutes}} 分钟</text>
-          <text class="leg-dist">{{startLeg.meters}} 米</text>
+          <!--
+            ⚠️ 这里原来写的是 `<text class="leg-mode">步行</text>` ——
+            **写死的文本**。于是时间轴上"我的位置 → 第一站"这一段永远显示步行，
+            无论实际坐地铁还是公交（用户实测：12618 米也显示步行）。
+            那就是用户看到"步行"的第二个来源。
+          -->
+          <text class="leg-mode">
+            <block wx:if="{{startLeg.modeIcon}}">{{startLeg.modeIcon}} </block>{{startLeg.mode || '步行'}}
+          </text>
+          <text wx:if="{{startLeg.minutes}}" class="leg-time">{{startLeg.minutes}} 分钟</text>
+          <text wx:if="{{!startLeg.minutes}}" class="leg-warn">没取到出行方案</text>
+          <text wx:if="{{startLeg.meters}}" class="leg-dist">{{startLeg.meters}} 米</text>
+          <text wx:if="{{startLeg.sourceLabel}}" class="leg-src">{{startLeg.sourceLabel}}</text>
           <text wx:if="{{startLeg.warn}}" class="leg-warn">{{startLeg.warn}}</text>
           <text class="leg-to">{{startLeg.toName}}</text>
+          <!-- 公交换乘细节：几号线、1 号口进 3 号口出 -->
+          <text wx:if="{{startLeg.transitText}}" class="leg-transit">{{startLeg.transitText}}</text>
+          <!-- 为什么选它 / 为什么没有方案 -->
+          <text wx:if="{{startLeg.reason}}" class="leg-reason">{{startLeg.reason}}</text>
         </view>
       </view>
 

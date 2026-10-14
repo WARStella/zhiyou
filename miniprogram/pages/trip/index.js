@@ -865,14 +865,31 @@ Page({
     /**
      * 出发段先算出来 —— 同一个 `setData` 里读不到新写入的 `this.data.startLeg`，
      * 而 `currentLeg`（当前出行段）要用它。
+     *
+     * ⚠️⚠️ 这个对象是**显式挑字段**拼的，所以新字段不写进来就会被**静默丢掉**
+     * （2026-10-14 踩过）：我加了 `mode` / `modeIcon` / `reason` / `transitText`，
+     * 却漏在这个列表里，于是时间轴上"我的位置"那一段的方式是空的、
+     * 卡片上则显示写死的"步行"——**用户看到的就是这个**。
+     *
+     * 加字段时要同时看三处：这里、`index.wxml` 的 startLeg 段、
+     * 以及 `buildCurrentLeg` 的返回。
      */
     const startLegView = d.startLeg
       ? {
           label: (d.startPoint && d.startPoint.label) || '我的位置',
+          /** 出行方式 —— 与"这个数可不可信"是两个维度 */
+          mode: modeInfo(d.startLeg.mode).name,
+          modeIcon: modeInfo(d.startLeg.mode).icon,
           minutes: d.startLeg.minutes,
           meters: d.startLeg.meters,
           warn: d.startLeg.source === 'estimated' ? '（估算）' : '',
           source: d.startLeg.source,
+          sourceLabel: SOURCE_LABEL[d.startLeg.source] || '',
+          /** 为什么选这个方式 / 为什么没有方案 */
+          reason: d.startLeg.reason || '',
+          /** 公交换乘细节（几号线、几号口） */
+          transitText: describeTransit(d.startLeg.transit),
+          provider: d.startLeg.provider || null,
           toName: d.startLeg.toPlaceName,
         }
       : null

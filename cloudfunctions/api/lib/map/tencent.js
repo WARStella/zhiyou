@@ -124,6 +124,96 @@ const STATUS_HINTS = {
     '调用方应先判断两点是否重合（或距离小于几米），重合时不必请求上游。',
 };
 
+/**
+ * 距离矩阵的 `duration` 单位自检 —— **我在步行路线接口上做过同一件事，
+ * 却没在矩阵上做，而矩阵是另一个接口**（2026-10-14 补）。
+ *
+ * ── 为什么必须做 ─────────────────────────────────────────
+ *
+ * 用户实测报："到冰雪大世界 14426 米、24.7 分钟、显示为步行"。
+ * 24.7 分钟这个数来自 `durationRaw / 60` —— 即**假设单位是秒**。
+ *
+ * 但把两组真实数据放在一起看：
+ *
+ *   步行路线接口  815 米 / duration `12`   → 按分钟解释得 68 米/分 ✅ 步行
+ *   距离矩阵     14426 米 / 原始 `1482`    → 按秒得 35 km/h ❌ / 按分钟也得 35 km/h ❌
+ *
+ * 矩阵那条**两种解释都不是步行速度**。可能的原因有二，而我没有实测数据
+ * 无法区分：
+ *   ① 矩阵没尊重 `mode`，返回的是驾车耗时；
+ *   ② `duration` 与 `distance` 不是同一段路。
+ *
+ * **所以这里不猜一个单位就写死，而是把观测记下来并如实标注。**
+ * 这与 `checkDurationUnit` 是同一个思路：单位不该靠一次观察永久写死，
+ * 但至少要能发现"这个数明显不合理"。
+ *
+ * @returns {{unit:string, divisor:number, impliedSpeedMPerMin:number|null, plausible:boolean|null, note:string}}
+ */
+function checkMatrixDurationUnit(mode, distanceMeters, durationRaw) {
+  /** 各方式的合理速度区间（米/分钟）—— 与 `lib/mode-choice.js` 的口径一致 */
+  const RANGE = {
+    walking: [40, 120],
+    bicycling: [150, 400],
+    driving: [200, 1200],
+  };
+  const range = RANGE[mode] || null;
+  const label = { walking: '步行', bicycling: '骑行', driving: '驾车' }[mode] || mode;
+
+  const unknown = {
+    unit: 'assumed-seconds',
+    divisor: 60,
+    impliedSpeedMPerMin: null,
+    plausible: null,
+    note: '缺距离或时长，无法自检单位 —— 按秒处理（沿用旧假设，**未实测**）',
+  };
+  if (!range || typeof distanceMeters !== 'number' || typeof durationRaw !== 'number' || durationRaw <= 0) {
+    return unknown;
+  }
+
+  const asSeconds = distanceMeters / (durationRaw / 60);
+  const asMinutes = distanceMeters / durationRaw;
+  const inRange = (v) => v >= range[0] && v <= range[1];
+
+  if (inRange(asSeconds) && !inRange(asMinutes)) {
+    return {
+      unit: 'seconds', divisor: 60, impliedSpeedMPerMin: Math.round(asSeconds),
+      plausible: true,
+      note: `按秒得 ${Math.round(asSeconds)} 米/分，符合${label}速度`,
+    };
+  }
+  if (inRange(asMinutes) && !inRange(asSeconds)) {
+    return {
+      unit: 'minutes', divisor: 1, impliedSpeedMPerMin: Math.round(asMinutes),
+      plausible: true,
+      note: `按分钟得 ${Math.round(asMinutes)} 米/分，符合${label}速度 —— **单位是分钟，不是秒**`,
+    };
+  }
+  if (inRange(asSeconds)) {
+    return {
+      unit: 'seconds', divisor: 60, impliedSpeedMPerMin: Math.round(asSeconds),
+      plausible: true,
+      note: `按秒得 ${Math.round(asSeconds)} 米/分，符合${label}速度`,
+    };
+  }
+
+  /**
+   * 两种都不合理 —— **如实标出来**。
+   *
+   * 这时不能假装数据是好的：一个"35 km/h 的步行"会一路流到界面上，
+   * 让人按一个不可能的速度安排行程。
+   */
+  return {
+    unit: 'assumed-seconds',
+    divisor: 60,
+    impliedSpeedMPerMin: Math.round(asSeconds),
+    plausible: false,
+    note:
+      `按秒得 ${Math.round(asSeconds)} 米/分、按分钟得 ${Math.round(asMinutes)} 米/分，` +
+      `**都不在${label}的合理区间 ${range[0]}–${range[1]} 米/分** —— ` +
+      '上游返回值与方式不一致，请核对是否尊重了 mode 参数',
+  };
+}
+
 const statusHint = (status) =>
   STATUS_HINTS[status] ||
   (status === 0 ? null : `上游返回 status=${status}，请到腾讯位置服务控制台核对 Key 的服务勾选与配额。`);
@@ -332,6 +422,19 @@ function createTencentProvider(opts) {
          */
         const failed = !cell || cell.status === 4 || typeof cell.distance !== 'number';
         const durationRaw = cell && typeof cell.duration === 'number' ? cell.duration : null;
+        /**
+         * 单位自检 —— 见 `checkMatrixDurationUnit`。
+         * 单元格失败时 `distance` 是直线距离，不能拿它判速度。
+         */
+        const unit = failed
+          ? {
+              unit: 'assumed-seconds',
+              divisor: 60,
+              impliedSpeedMPerMin: null,
+              plausible: null,
+              note: '单元格失败（无路面数据），不做单位自检',
+            }
+          : checkMatrixDurationUnit(m, cell.distance, durationRaw);
 
         return {
           to: { latitude: target.latitude, longitude: target.longitude },
@@ -345,15 +448,30 @@ function createTencentProvider(opts) {
             : null,
           /** ⚠️ 失败时这里是**直线距离**，`usable: false` 就是提醒这件事 */
           distanceMeters: cell && typeof cell.distance === 'number' ? cell.distance : null,
-          durationSeconds: durationRaw,
+          /**
+           * ⚠️ 字段名**故意不叫 `durationSeconds`**（2026-10-14 改）。
+           *
+           * 原名假设了单位是秒，而**那个假设从未实测过** ——
+           * 距离矩阵是**另一个接口**，而同一个文件里已经有一条实测结论说
+           * 步行路线接口的 `duration` 单位是**分钟**（815 米 / `12` → 68 米/分）。
+           *
+           * 把一个未验证的单位写进字段名，会让所有读它的人（包括我）
+           * 以为那是既定事实。叫 `durationRaw` 才是诚实的。
+           */
+          durationRaw,
+          /** 单位自检结果 —— 见 checkMatrixDurationUnit */
+          durationUnit: unit.unit,
+          unitCheck: unit,
           /**
            * 归一化成分钟。`null` 表示**上游没给时长**（不是 0 分钟）——
            * 调用方此时应回落到步行速度估算，并把这个回落如实告诉用户。
+           *
+           * 除数是 `unit.divisor` 而**不是写死的 60**：单位由自检判定。
            */
           durationMinutes:
             durationRaw === null || durationRaw === 0
               ? null
-              : Math.round((durationRaw / 60) * 10) / 10,
+              : Math.round((durationRaw / unit.divisor) * 10) / 10,
           rawStatus: cell ? (cell.status === undefined ? null : cell.status) : null,
         };
       });
