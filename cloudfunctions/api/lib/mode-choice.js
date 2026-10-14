@@ -93,6 +93,29 @@ const BAD_WEATHER_BLOCK = {
  */
 const BAD_WEATHER_WALK_LIMIT_M = 1500;
 
+/**
+ * 把分钟数格式化成**给用户看的**样子（2026-10-14 加）。
+ *
+ * ── 为什么必须有它 ────────────────────────────────────────
+ *
+ * 实测（用户截图）：骑行 72.7 分钟与驾车 19.3 分钟相减，
+ * 拼出来的是「多 **53.400000000000006** 分钟」——
+ * 浮点减法在老实的十进制下就是这个结果。
+ *
+ * ⚠️ **不是在源头把精度四舍五入掉**：`minutes` 要保持浮点，
+ *    排序、比较与 `extra` 的计算都依赖它的精度
+ *    （先各自取整再相减会累积误差）。所以只在**拼文案**这一步格式化。
+ *
+ * 取一位小数并去掉多余的 `.0`：整数说「72 分钟」，有小数才说「72.7 分钟」——
+ * 这也是界面一直以来的口径。
+ */
+function fmtMin(v) {
+  const n = Number(v);
+  if (!isFinite(n)) return String(v);
+  const r = Math.round(n * 10) / 10;
+  return Number.isInteger(r) ? String(r) : r.toFixed(1);
+}
+
 /** 把一段的候选项整理成可比的形式：不可用的直接排除并说明 */
 function normalize(candidates) {
   const usable = [];
@@ -201,7 +224,7 @@ function chooseMode(candidates, opts) {
         preference,
         reason:
           `雨雪天没有更安全的选择，仍按最短用时取${MODE_LABEL[fallback.mode] || fallback.mode}` +
-          `（${fallback.minutes} 分钟）—— 请自行留意路况`,
+          `（${fmtMin(fallback.minutes)} 分钟）—— 请自行留意路况`,
         degraded: true,
       };
     }
@@ -259,12 +282,12 @@ function chooseMode(candidates, opts) {
      */
     const fastest = sorted[0];
     if (fastest.mode === chosen.mode) {
-      reason = `你选的${chosenLabel}：${chosen.minutes} 分钟（同时也是最快的方式）${weatherCaveat}`;
+      reason = `你选的${chosenLabel}：${fmtMin(chosen.minutes)} 分钟（同时也是最快的方式）${weatherCaveat}`;
     } else {
       const extra = chosen.minutes - fastest.minutes;
       reason =
-        `按你选的${chosenLabel}：${chosen.minutes} 分钟，` +
-        `比${MODE_LABEL[fastest.mode] || fastest.mode}（${fastest.minutes} 分钟）多 ${extra} 分钟` +
+        `按你选的${chosenLabel}：${fmtMin(chosen.minutes)} 分钟，` +
+        `比${MODE_LABEL[fastest.mode] || fastest.mode}（${fmtMin(fastest.minutes)} 分钟）多 ${fmtMin(extra)} 分钟` +
         weatherCaveat;
     }
   } else if (wanted) {
@@ -279,21 +302,21 @@ function chooseMode(candidates, opts) {
     const why = (excluded.find((e) => e.mode === wanted) || {}).reason || '这一段取不到它的用时';
     reason =
       `你想用${MODE_LABEL[wanted] || wanted}，但${why} —— ` +
-      `已改为${chosenLabel}（${chosen.minutes} 分钟）`;
+      `已改为${chosenLabel}（${fmtMin(chosen.minutes)} 分钟）`;
   } else {
     const runnerUp = sorted[1];
     if (preference === 'safety') {
       const parts = safetyExcluded.map((e) => `${MODE_LABEL[e.mode] || e.mode}（${e.reason}）`);
       reason =
-        `雨雪天以安全为主：${chosenLabel} ${chosen.minutes} 分钟` +
+        `雨雪天以安全为主：${chosenLabel} ${fmtMin(chosen.minutes)} 分钟` +
         (parts.length ? `；已排除 ${parts.join('、')}` : '');
     } else if (runnerUp) {
       const saved = runnerUp.minutes - chosen.minutes;
       reason =
-        `${chosenLabel}最快：${chosen.minutes} 分钟，比${MODE_LABEL[runnerUp.mode] || runnerUp.mode}` +
-        `（${runnerUp.minutes} 分钟）省 ${saved} 分钟`;
+        `${chosenLabel}最快：${fmtMin(chosen.minutes)} 分钟，比${MODE_LABEL[runnerUp.mode] || runnerUp.mode}` +
+        `（${fmtMin(runnerUp.minutes)} 分钟）省 ${fmtMin(saved)} 分钟`;
     } else {
-      reason = `只取到了${chosenLabel}：${chosen.minutes} 分钟`;
+      reason = `只取到了${chosenLabel}：${fmtMin(chosen.minutes)} 分钟`;
     }
   }
 
@@ -363,4 +386,6 @@ module.exports = {
   PREFERRED_MODE,
   MODE_OPTIONS,
   isPreferredMode,
+  /** 给用户看的分钟数格式化 —— 界面与别处拼文案都要用它，别自己拼 */
+  fmtMin,
 };

@@ -121,6 +121,14 @@
         <view class="v link">{{modeLabel}}</view>
         </picker>
       </view>
+      <!--
+        标明这个方式是**从用户那句话解析来的**（2026-10-14）。
+        不标的话用户会以为"系统自己改了我的设置" ——
+        而他刚说过"我想骑车去"，那是他自己说的，得让他看得出对应关系。
+      -->
+      <view wx:if="{{modeFromParse}}" class="sub mode-from-parse">
+        出行方式是从你那句话里读出来的，可以直接改。
+      </view>
       <view class="sub">{{modeHint}}</view>
     </view>
 

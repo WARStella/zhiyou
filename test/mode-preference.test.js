@@ -62,6 +62,41 @@ test('选的方式恰好也是最快的，理由里要说明', () => {
   assert.match(r.reason, /同时也是最快/);
 });
 
+test('理由里的分钟数**不许出现浮点尾巴** —— 用户截图报过「多 53.400000000000006 分钟」', () => {
+  /**
+   * 实测（用户截图）：骑行 72.7 分钟与驾车 19.3 分钟相减，
+   * 拼出来的是「多 **53.400000000000006** 分钟」。
+   * 浮点减法在老实的十进制下就是这个结果。
+   *
+   * ⚠️ 修法是**只在拼文案时格式化**，`minutes` 本身保持浮点 ——
+   *    排序、比较与 `extra` 的计算都依赖精度；
+   *    在源头取整会变成"先各自取整再相减"，误差会累积。
+   */
+  const r = chooseMode(
+    [
+      { mode: 'bicycling', minutes: 72.7, meters: 14194 },
+      { mode: 'driving', minutes: 19.3, meters: 14194 },
+    ],
+    { preferredMode: 'bicycling' }
+  );
+
+  assert.equal(r.chosen.mode, 'bicycling');
+  assert.ok(!/\d\.\d{3,}/.test(r.reason), `理由里不该有浮点尾巴：${r.reason}`);
+  assert.match(r.reason, /多 53\.4 分钟/, `应当取一位小数：${r.reason}`);
+});
+
+test('整数分钟不显示多余的小数点', () => {
+  const r = chooseMode(
+    [
+      { mode: 'bicycling', minutes: 60, meters: 1000 },
+      { mode: 'walking', minutes: 20, meters: 1000 },
+    ],
+    { preferredMode: 'bicycling' }
+  );
+  assert.ok(!/60\.0/.test(r.reason), `60 就说 60，不说 60.0：${r.reason}`);
+  assert.match(r.reason, /60 分钟/);
+});
+
 test('选了**不可用**的方式：给可行的，并说清为什么没按他选的来', () => {
   /**
    * ⚠️ 这段文案是这一层最重要的输出，三件事缺一件用户就会困惑：

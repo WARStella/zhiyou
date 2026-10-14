@@ -277,44 +277,38 @@ test('没有 legOptions 时选择器为空，不报错', () => {
   assert.equal(page.data.legOptionsCount, 0, '要能区分"没返回字段"与"返回了但每段没候选"');
 });
 
-test('生成路线后选择器**默认收起** —— 地图才是生成后的视觉焦点', () => {
+test('**换了目的地**就重新弹出方式选择器 —— 这正是用户报的现象', () => {
   /**
-   * ⚠️ 这条断言**改过方向**（2026-10-14），两次都是用户要求：
+   * ⚠️ 这条断言**改过三次方向**，每一次都是用户的真实要求：
    *
-   *   先："点击生成路径后**出现界面**" → 于是自动展开
-   *   后："**其它卡面均折叠**，页面移到地图卡面居中" → 于是改回收起
+   *   ① "点击生成路径后会出现界面让用户分别选择每段路径的出行方式"
+   *      → 于是每次生成都展开
+   *   ② "其它卡面均折叠，页面移到地图卡面居中"
+   *      → 于是改回收起（地图才是生成后的视觉焦点）
+   *   ③ "搜完哈工大再**重新选择路径选冰雪大世界**后还是骑行，
+   *      **没有让我选择出行方式**"
+   *      → 于是改成"**换了地点才弹**"
    *
-   * 后者更对：生成路线之后用户最想看的是"这条路在地图上长什么样"，
-   * 一张展开的长卡片会把地图顶到屏幕外。
-   *
-   * ⚠️ 收起**不等于删掉**：卡片本身仍在，点一下就能展开。所以
-   * `legPicker` 的数据必须照常生成（下面那条断言守着这一点）。
+   * ①与②看着矛盾，③指出了调和它们的判据：**地点集合变了没有**。
+   *   · 换了目的地 → 出行方式的答案完全不同（骑车去哈工大合适，
+   *     骑车去 14 公里外的冰雪大世界就不合适了）→ **必须重新问**；
+   *   · 同一批地点内部重排（记录进度、多停一会儿）→ 保持原选择，
+   *     否则每次都弹开，用户刚调好的方式还会被顶掉。
    */
   const page = pageWithLegOptions(LEG_OPTIONS);
-  assert.equal(page.data.legPickerOpen, false, '默认收起，把版面让给地图');
-  assert.equal(page.data.legPicker.length, 2, '数据要照常生成 —— 收起只是不显示');
-});
+  assert.equal(page.data.legPickerOpen, true, '第一次生成就该问（地点是新的）');
+  assert.equal(page.data.legPicker.length, 2, '两段都要有候选');
 
-test('收起的入口仍然可用：toggle 能展开', () => {
-  const page = pageWithLegOptions(LEG_OPTIONS);
-  assert.equal(page.data.legPickerOpen, false);
-
-  page.toggleLegPicker();
-  assert.equal(page.data.legPickerOpen, true, '点一下要能展开');
+  /** 用户看过就收起 */
   page.toggleLegPicker();
   assert.equal(page.data.legPickerOpen, false);
-});
 
-test('后续生成也不自动展开 —— 每次重排都把面板弹开会碍事', () => {
-  const page = pageWithLegOptions(LEG_OPTIONS);
-  page.toggleLegPicker();
-  assert.equal(page.data.legPickerOpen, true);
-  /** 用户手动展开后，再生成一次（比如改了某段的方式点了「应用」） */
+  /** 同一批地点再生成一次（比如记录了一次到达）→ **不该**再弹 */
   page.applyTrip(
     {
       tripId: 't1',
       version: 2,
-      nodes: [node('n0', '哈工大', 'pending', 0)],
+      nodes: [node('n0', '哈工大', 'arrived', 0), node('n1', '冰雪大世界', 'pending', 1)],
       saved: true,
       summary: { endAt: '2026-10-20T05:00:00.000Z', totalWalkMin: 8, totalStayMin: 90 },
       startPoint: { latitude: 45.75, longitude: 126.6 },
@@ -323,9 +317,58 @@ test('后续生成也不自动展开 —— 每次重排都把面板弹开会碍
     },
     ''
   );
-  assert.equal(page.data.legPickerOpen, false, '生成后回到收起状态');
+  assert.equal(page.data.legPickerOpen, false, '同一批地点内部重排不该重新弹开');
+
+  /** **换成别的地方** → 必须重新弹 */
+  page.applyTrip(
+    {
+      tripId: 't2',
+      version: 3,
+      nodes: [node('n9', '冰雪大世界', 'pending', 0)],
+      saved: true,
+      summary: { endAt: '2026-10-20T05:00:00.000Z', totalWalkMin: 8, totalStayMin: 90 },
+      startPoint: { latitude: 45.75, longitude: 126.6 },
+      startLeg: { minutes: 12, meters: 900, mode: 'walking', toPlaceName: '冰雪大世界' },
+      legOptions: LEG_OPTIONS,
+    },
+    ''
+  );
+  assert.equal(page.data.legPickerOpen, true, '换了目的地必须重新问出行方式');
 });
 
+test('地点顺序变了不算"换了地方" —— 那只是优化路线', () => {
+  /**
+   * ⚠️ 指纹**排序后再拼**。不排序的话，调整站序会被当成"换了目的地"，
+   * 于是每次优化都弹一次面板。
+   */
+  const page = pageWithLegOptions(LEG_OPTIONS);
+  page.toggleLegPicker();
+
+  page.applyTrip(
+    {
+      tripId: 't1',
+      version: 2,
+      /** 同样的两个地方，**顺序对调** */
+      nodes: [node('n1', '冰雪大世界', 'pending', 0), node('n0', '哈工大', 'pending', 1)],
+      saved: true,
+      summary: { endAt: '2026-10-20T05:00:00.000Z', totalWalkMin: 8, totalStayMin: 90 },
+      startPoint: { latitude: 45.75, longitude: 126.6 },
+      startLeg: { minutes: 12, meters: 900, mode: 'walking', toPlaceName: '冰雪大世界' },
+      legOptions: LEG_OPTIONS,
+    },
+    ''
+  );
+  assert.equal(page.data.legPickerOpen, false, '只是调序，不该重新弹');
+});
+
+test('收起的入口仍然可用：toggle 能展开', () => {
+  const page = pageWithLegOptions(LEG_OPTIONS);
+  page.toggleLegPicker();
+  assert.equal(page.data.legPickerOpen, false, '第一次点收起');
+
+  page.toggleLegPicker();
+  assert.equal(page.data.legPickerOpen, true, '再点要能展开');
+});
 test('生成路线后附带可选的出行方式数量 —— 卡片据此决定说什么', () => {
   const withOptions = pageWithLegOptions(LEG_OPTIONS);
   assert.equal(withOptions.data.legOptionsCount, 2);
