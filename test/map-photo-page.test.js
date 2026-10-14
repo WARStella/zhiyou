@@ -111,7 +111,7 @@ test('选中集合点后才能取照片 —— 一次只针对一个地点', asy
   assert.equal(p.data.photoNote, '', '切换集合点时清空上一次的提示，避免串台');
 });
 
-test('取到照片后：图钉换成照片、并显式给出尺寸', async (t) => {
+test('取到照片后：**集合点图钉**换成照片、并显式给出尺寸', async (t) => {
   const p = makePage({
     api: { 'place.fetchPhotos': photoResponse() },
     wx: {
@@ -132,6 +132,7 @@ test('取到照片后：图钉换成照片、并显式给出尺寸', async (t) =
   assert.ok(actions.includes('place.fetchPhotos'), '必须真的调了取照片接口');
 
   const meetingMarker = p.data.markers.find((m) => m.latitude === 45.781);
+  assert.ok(meetingMarker, '集合点必须画出来');
   assert.equal(meetingMarker.iconPath, 'https://temp.example/pic.jpg', '有照片就用照片当图钉');
   /**
    * 网络图的尺寸必须显式给：不写时真机上的测量时机不确定，
@@ -139,9 +140,17 @@ test('取到照片后：图钉换成照片、并显式给出尺寸', async (t) =
    */
   assert.ok(meetingMarker.width > 0 && meetingMarker.height > 0, '照片图钉必须显式指定 width/height');
 
-  // 非集合点的图钉不受影响
-  const otherMarker = p.data.markers.find((m) => m.latitude === 45.7703);
-  assert.equal(otherMarker.iconPath, '/assets/pin-place.png');
+  /**
+   * ⚠️ 这条断言**改过**（2026-10-14 用户要求："地图上还没确定路线
+   * 又出现了一堆图钉，干脆把图钉删了吧"）：
+   *
+   * 库里那些**地点**不再画成本页的图钉 —— 它们既不是他要去的、
+   * 也不是约好的，只是挡住路网的噪音。
+   *
+   * 行程页仍然照画目的地图钉（那是"这条路线要去的点"，语义完全不同）。
+   */
+  const placeMarker = p.data.markers.find((m) => m.latitude === 45.7703);
+  assert.equal(placeMarker, undefined, '库里地点不再画图钉');
 });
 
 test('照片的"未实地核验"标注必须出现在提示里', async (t) => {
@@ -224,82 +233,36 @@ test('未选集合点时取照片是空操作，不调用后端', async (t) => {
   assert.equal(p.__calls.length, 0, '没有目标地点时不该发请求');
 });
 
-test('点图钉能选中地点（回归：首版没绑 bindmarkertap，图钉是"死的"）', async (t) => {
+/**
+ * ⚠️ 这里原来有四条测试：点图钉选中地点、图钉 id 映射准确、
+ * 异常输入不抛错、点图钉与点列表同路径（约 90 行）。
+ *
+ * 2026-10-14 用户要求"地图上还没确定路线又出现了一堆图钉，干脆把图钉删了吧"，
+ * 于是本页**不再画地点图钉** —— 那四条测试的全部前提消失了：
+ * `markerPlaceIndex` 恒为空，`onMarkerTap` 永远静默返回。
+ *
+ * 与其让它们继续"通过"（假绿），不如删掉并把这件事记在这里。
+ * **行程页的目的地图钉不受影响**，那边仍然画、也仍然可以点。
+ */
+test('本页不再画地点图钉，也不再绑 bindmarkertap（交互已随图钉一起移除）', async (t) => {
   const p = makePage();
   t.after(() => p.restore());
   await loaded(p);
 
-  // 先确认 WXML 上真的绑了 —— 只测 JS 会漏掉"事件根本没接上"这个真因
+  /** 库里有很多地点，但一个都不该变成图钉 */
+  assert.ok(p.data.places.length > 0, '前提：库里是有地点的');
+  assert.equal(p.data.markers.length, 0, '没有"我"、没有集合点、没有队员时，地图上应当没有图钉');
+
   const fs = require('node:fs');
   const path = require('node:path');
   const xml = fs.readFileSync(path.join(__dirname, '..', 'miniprogram', 'pages', 'map', 'index.wxml'), 'utf8');
-  assert.match(xml, /bindmarkertap="onMarkerTap"/, 'map 组件必须绑定 bindmarkertap');
-  assert.equal(typeof p.onMarkerTap, 'function', '绑了就必须有对应方法，否则点了还是没反应');
+  assert.equal(/bindmarkertap=/.test(xml), false, 'WXML 上不该再绑 bindmarkertap');
 
-  assert.equal(p.data.meetingPoint, null);
-  p.onMarkerTap({ detail: { markerId: 0 } });
-  assert.equal(p.data.meetingPoint.placeId, 'p_fanghong', '点第一个图钉应当选中它');
+  /** 选中地点仍然要走列表那条路（`selectMeeting`）—— 它没有受影响 */
+  p.selectMeeting({ currentTarget: { dataset: { placeid: 'p_fanghong' } } });
+  assert.equal(p.data.meetingPoint.placeId, 'p_fanghong', '点「集合点候选」列表仍然能选中');
+  assert.ok(p.data.markers.length > 0, '选中后集合点图钉要画出来');
 });
-
-test('点 A 不会选中 B：图钉 id 与地点的映射必须准确', async (t) => {
-  const p = makePage();
-  t.after(() => p.restore());
-  await loaded(p);
-
-  /**
-   * 这里刻意模拟"图钉里混了非地点标记"的真实情况：
-   * `refreshMarkers()` 除了地点，还会 push 我(999)、队员(2000+)、团队集合点(3000)。
-   * 用 `places` 下标当 id 的话，一旦顺序或数量变动就会静默错位。
-   */
-  p.teamLocations = [{ point: { latitude: 45.7, longitude: 126.6 }, source: 'manual' }]
-  p.teamMeeting = { point: { latitude: 45.79, longitude: 126.61 }, name: '团队集合点' }
-  p.refreshMarkers()
-
-  // 每个地点图钉都点到正确的地点
-  for (const place of p.data.places) {
-    const markerId = Object.keys(p.data.markerPlaceIndex).find((k) => p.data.markerPlaceIndex[k] === place.placeId)
-    assert.ok(markerId !== undefined, `${place.placeId} 必须有对应的图钉 id`)
-    p.onMarkerTap({ detail: { markerId: Number(markerId) } })
-    assert.equal(p.data.meetingPoint.placeId, place.placeId, `点 markerId=${markerId} 应当选中 ${place.placeId}`)
-  }
-
-  // 非地点图钉（我／队员／团队集合点）不该选中任何地点
-  const before = p.data.meetingPoint.placeId
-  for (const id of [999, 2000, 3000]) {
-    p.onMarkerTap({ detail: { markerId: id } })
-    assert.equal(p.data.meetingPoint.placeId, before, `markerId=${id} 不是地点图钉，不该改变选中项`)
-  }
-});
-
-test('点图钉的异常输入不抛错 —— 图钉与 places 短暂不一致时页面不该崩', async (t) => {
-  const p = makePage();
-  t.after(() => p.restore());
-  await loaded(p);
-
-  // 这些都不该抛
-  p.onMarkerTap({});
-  p.onMarkerTap({ detail: {} });
-  p.onMarkerTap({ detail: { markerId: null } });
-  p.onMarkerTap({ detail: { markerId: 'not-a-number' } });
-  p.onMarkerTap({ detail: { markerId: 12345 } }); // 越界
-  assert.equal(p.data.meetingPoint, null, '无效点击不该选中任何东西');
-});
-
-test('点图钉与点列表走同一条路径（清空上一次的提示）', async (t) => {
-  const p = makePage();
-  t.after(() => p.restore());
-  await loaded(p);
-
-  p.setData({ photoNote: '上一次的提示' });
-  p.onMarkerTap({ detail: { markerId: 0 } });
-  assert.equal(p.data.photoNote, '', '换集合点时要清掉上一次的取照提示，否则会串台');
-
-  p.setData({ photoNote: '又一次提示' });
-  p.selectMeeting({ currentTarget: { dataset: { placeid: 'p_sofia' } } });
-  assert.equal(p.data.photoNote, '', '两条路径行为必须一致');
-  assert.equal(p.data.meetingPoint.placeId, 'p_sofia');
-});
-
 test('照片拿不到时不会留下空白图钉（回归：静默降级）', async (t) => {
   const p = makePage({
     api: {

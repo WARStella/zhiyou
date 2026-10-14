@@ -13,8 +13,6 @@
       enable-zoom="{{true}}"
       enable-scroll="{{true}}"
       bindtap="onMapTap"
-      bindmarkertap="onMarkerTap"
-      bindcallouttap="onMarkerTap"
       bindregionchange="onMapRegionChange"
     ></map>
 
@@ -187,21 +185,6 @@
       <view wx:if="{{teamError}}" class="err">{{teamError}}</view>
     </view>
 
-    <view wx:if="{{route}}" class="card">
-      <view class="row">
-        <text class="k">当前路线</text>
-        <text class="v ok">{{route.name}}</text>
-      </view>
-      <view class="sub">
-        真实步行路径 {{legsLoaded}} / {{legsTotal}} 段
-        <block wx:if="{{legsLoading}}"> · 正在取…</block>
-      </view>
-      <view class="rule">
-        地图上只画**真实步行路径**（沿街道）。取不到的那一段不画 ——
-        两点直连会横穿街区与建筑，照着走会走进死路，比没有线更糟。
-      </view>
-      <view wx:if="{{legsNote}}" class="note">{{legsNote}}</view>
-    </view>
 
     <view class="card">
       <view class="row">

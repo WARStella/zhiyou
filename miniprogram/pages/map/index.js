@@ -164,30 +164,16 @@ Page({
     /** `{ [markerId]: tempFileURL }` —— marker 的 iconPath 只吃本地/网络路径 */
     photoUrls: {},
     /**
-     * `{ [markerId]: placeId }` —— 点图钉时用来反查是哪个地点。
+     * ⚠️ 路线相关的 state 已全部删除（2026-10-14 用户要求：
+     * "队伍页面地图上显示的路线也删了"）。
      *
-     * 不靠 `places` 的下标：图钉里还混着"我"、队员、团队集合点，
-     * 下标一旦错位就是"点 A 选中 B"，而且**不报错**。
-     */
-    markerPlaceIndex: {},
-    /**
-     * 当前路线（从 `zhiyou-active-trip` 读回，见 `loadActiveTrip`）。
+     * 删掉的：`route` / `legRoutes` / `legsLoading` / `legsNote` /
+     * `legsLoaded` / `legsTotal` / `markerPlaceIndex`，
+     * 以及配套的 `loadActiveTrip` / `loadLegRoutes` / `fitRoute` / `onMarkerTap`。
      *
-     * `{ name, points, nodeNames }` —— 只留画线要用的坐标与名字。
+     * 路线在**行程页**看（那里有地图卡、目的地图钉与逐段真实路径）。
+     * 本页是「队伍」：只看人 —— 我的位置、集合点、队员。
      */
-    route: null,
-    /**
-     * 真实步行路径：`{ ['<起点nodeId>|<终点nodeId>']: { points, distanceMeters, durationMinutes, steps, decoded } }`。
-     *
-     * 来自 `trip.legRoute`（每次消耗 1 次地图配额），所以**按段缓存、不重复请求**。
-     * 键用两个 nodeId 而不是序号：调整路线会改节点顺序，用序号会让缓存错位到别的段上。
-     */
-    legRoutes: {},
-    legsLoading: false,
-    legsNote: '',
-    /** 本次已取回的段数 —— 界面要能说清"还有几段没画" */
-    legsLoaded: 0,
-    legsTotal: 0,
     photoBusy: false,
     photoNote: '',
     loading: true,
@@ -267,102 +253,15 @@ Page({
     this.refreshTeamLocations()
     if (!focused) {
       /**
-       * 顺序是有意的：**先把我自己放上去，再读路线**。
+       * ⚠️ 这里原来还会调 `loadActiveTrip()` 读回路线并画在地图上，
+       * 以及 `refreshTeamLocations()` 之外的路线相关逻辑 —— 都已删除
+       * （2026-10-14 用户要求："队伍页面地图上显示的路线也删了"）。
        *
-       * `loadActiveTrip()` 在没有定位可用时会退而把视野收到路线上
-       * （见 `recenterOnMe` 的分工说明）。反过来先读路线的话，
-       * 定位回调回来再挪镜头，用户会看到地图先跳到路线、再跳回自己身上。
+       * 本页现在**完全不读路线**，只看人：我的位置、集合点、队员。
+       * 路线在行程页看。
        */
       this.autoLocate()
     }
-    this.loadActiveTrip()
-  },
-
-  /**
-   * 读回当前路线并画在地图上。
-   *
-   * ⚠️ 路线**必须重新取一次** `trip.get`，不能只靠 storage 里的坐标：
-   * 调整（`trip.adjust`）会改节点的顺序与停留时长，storage 那份会过期。
-   * storage 只用来回答"现在有没有路线、是哪一个"。
-   *
-   * 失败一律静默降级（路线画不出来不影响选集合点），但**要留下 note** ——
-   * 静默失败正是这次这个 bug 的特征，不能再复制一遍。
-   */
-  loadActiveTrip() {
-    const that = this
-    let saved = null
-    try {
-      saved = wx.getStorageSync('zhiyou-active-trip') || null
-    } catch (e) {
-      saved = null
-    }
-
-    if (!saved || !saved.tripId) {
-      // 没有路线时清掉上一次的残留，避免换成"上一条路线的线"
-      if (this.data.route) this.setData({ route: null })
-      this.refreshMarkers()
-      return
-    }
-
-    api
-      .callApi('trip.get', { tripId: saved.tripId })
-      .then(function (res) {
-        if (!res || res.ok !== true) {
-          that.setData({ note: '当前路线读取失败：' + ((res && res.error && res.error.message) || '未知原因') })
-          return
-        }
-        const trip = (res.data && res.data.trip) || null
-        const nodes = (trip && trip.nodes) || []
-        const points = nodes
-          .filter(function (n) {
-            return n.location && typeof n.location.latitude === 'number'
-          })
-          .map(function (n) {
-            return { latitude: n.location.latitude, longitude: n.location.longitude }
-          })
-
-        if (points.length < 2) {
-          that.setData({ route: null, note: '当前路线可定位的节点少于 2 个，无法在地图上连线' })
-          that.refreshMarkers()
-          return
-        }
-
-        that.setData({
-          route: {
-            tripId: saved.tripId,
-            name: trip.title || '当前路线',
-            points: points,
-            /**
-             * 逐段取真实路径要用**节点本身**（nodeId + 坐标），
-             * 而 `points` 只是可定位节点的坐标、丢掉了 nodeId。
-             * 两者都留着：`points` 给"把整条路线收进视野"用，`nodes` 给逐段取路径用。
-             */
-            nodes: nodes
-              .filter(function (n) {
-                return n.location && typeof n.location.latitude === 'number'
-              })
-              .map(function (n) {
-                return { nodeId: n.nodeId, placeName: n.placeName || n.name, location: n.location }
-              }),
-            nodeNames: nodes.map(function (n) {
-              return n.placeName || n.name || n.placeId
-            }),
-          },
-          note: '',
-        })
-        /**
-         * 镜头优先跟人。`recenterOnMe()` 返回 false 表示地图上下文不可用
-         * （基础库过低等），此时退而把整条路线收进视野 ——
-         * 总比停在一个与用户无关的默认点上强。
-         */
-        if (!that.recenterOnMe()) that.fitRoute()
-        that.refreshMarkers()
-        /** 路线画出来之后再去取真实步行路径（那是逐段的、要花配额，慢一点没关系） */
-        that.loadLegRoutes()
-      })
-      .catch(function (err) {
-        that.setData({ note: (err && err.errMsg) || '当前路线读取失败' })
-      })
   },
 
   /**
@@ -387,121 +286,6 @@ Page({
    *   · 结果**按段缓存**（键是起终点 nodeId），切回地图页不重复请求；
    *   · 段数超过 `MAX_LEGS` 时**只取前若干段并如实说明**，不闷头烧配额。
    */
-  loadLegRoutes() {
-    const that = this
-    const route = this.data.route
-    if (!route || !route.tripId) return
-
-    const nodes = route.nodes || []
-    if (nodes.length < 2) return
-
-    /** 待取的所有段（相邻两节点之间） */
-    const pending = []
-    for (let i = 1; i < nodes.length; i++) {
-      const key = nodes[i - 1].nodeId + '|' + nodes[i].nodeId
-      if (!this.data.legRoutes[key]) pending.push({ key: key, from: nodes[i - 1], to: nodes[i], index: i })
-    }
-
-    if (!pending.length) return // 全部命中缓存
-
-    const todo = pending.slice(0, MAX_LEGS)
-    const skipped = pending.length - todo.length
-
-    this.setData({
-      legsLoading: true,
-      legsTotal: nodes.length - 1,
-      legsNote: skipped > 0 ? `本次只取前 ${MAX_LEGS} 段真实路径（每段消耗 1 次地图配额）` : '',
-    })
-
-    /**
-     * **串行**取，不并发：地图接口有 QPS 限制，而且串行能让第一段先画出来
-     * ——用户最想看的就是脚下这一段。
-     */
-    let chain = Promise.resolve()
-    todo.forEach(function (leg) {
-      chain = chain.then(function () {
-        return api
-          .callApi('trip.legRoute', {
-            tripId: route.tripId,
-            nodeId: leg.to.nodeId,
-            fromPoint: leg.from.location,
-          })
-          .then(function (res) {
-            const patch = {}
-            if (res && res.ok === true && res.data && res.data.ok !== false) {
-              const d = res.data
-              const decoded = Boolean(d.route && d.route.decoded)
-              patch['legRoutes.' + leg.key] = {
-                points: (d.route && d.route.points) || [],
-                decoded: decoded,
-                distanceMeters: d.distanceMeters,
-                durationMinutes: d.durationMinutes,
-                steps: (d.route && d.route.steps) || [],
-              }
-            } else {
-              /**
-               * 取不到就**记下失败**，不画线。
-               * 记下来是为了"不再重复请求同一段" —— 否则每次切回地图页
-               * 都会对同一个失败段再烧一次配额，而且用户看不出区别。
-               */
-              patch['legRoutes.' + leg.key] = {
-                points: [],
-                decoded: false,
-                failed: true,
-                reason: (res && res.data && res.data.reason) || (res && res.error && res.error.code) || 'UNKNOWN',
-                message:
-                  (res && res.data && res.data.message) || (res && res.error && res.error.message) || '取路径失败',
-              }
-            }
-            patch.legsLoaded = that.data.legsLoaded + 1
-            that.setData(patch)
-            that.refreshMarkers()
-          })
-      })
-    })
-
-    chain
-      .then(function () {
-        that.setData({ legsLoading: false })
-        that.refreshMarkers()
-      })
-      .catch(function (err) {
-        that.setData({ legsLoading: false, legsNote: (err && err.errMsg) || '取路径失败' })
-      })
-  },
-
-  /**
-   * 把视野落到整条路线上。
-   *
-   * 用 `includePoints` 而不是自己算中心点：它是地图组件自己实现的，
-   * 会连缩放级别一起算好，比自己写一套经纬度包围盒可靠。
-   *
-   * ⚠️ 必须等**渲染完成**再调用 —— 地图组件此时才真正存在
-   * （行程页的 `fitRouteMap` 踩过同一个坑，这里沿用同样的做法）。
-   */
-  fitRoute() {
-    const points = (this.data.route && this.data.route.points) || []
-    if (!points.length) return
-    const that = this
-    this.setData({}, function () {
-      const ctx = wx.createMapContext('tripmap')
-      if (ctx && typeof ctx.includePoints === 'function') {
-        ctx.includePoints({
-          points: points,
-          padding: [60, 40, 60, 40],
-          fail: function (err) {
-            /**
-             * 失败不阻断 —— 但要说出来。
-             * `includePoints` 失败时地图会停在旧视野上，看起来就是"偏到别的地方去了"，
-             * 而那正是用户在报的现象，所以不能再让它无声发生。
-             */
-            that.setData({ note: '视野缩放失败：' + ((err && err.errMsg) || '未知原因') })
-          },
-        })
-      }
-    })
-  },
-
   /**
    * 把镜头回到"我"身上。
    *
@@ -625,14 +409,20 @@ Page({
             })
             that.refreshMarkers()
             /**
-             * ⚠️ 这里**刻意不调 `recenterOnMe()`**（2026-10-14）。
+             * ⚠️⚠️ **现在必须在这里调 `recenterOnMe()`**（2026-10-14）。
              *
-             * `onShow` 里紧接着会跑 `loadActiveTrip()`，它结尾也会重定位一次。
-             * 两处都调会让镜头动两下 —— 用户看到的是地图先跳一下、再跳一下。
+             * 原来这里刻意不调，理由是"`onShow` 紧接着会跑 `loadActiveTrip()`，
+             * 它结尾也会重定位一次，两处都调会让镜头跳两下"。
              *
-             * 而"用户主动点「获取我的位置」"那条路径（`useGps`）**必须**调：
-             * 那时用户明确要位置，镜头就该立刻落过去。
+             * 而路线已从本页删除（用户要求："队伍页面地图上显示的路线也删了"），
+             * `loadActiveTrip` 随之删掉 —— **那个"后面会重定位"的承诺没有了**，
+             * 于是自动定位之后镜头根本不动。
+             *
+             * 这个回归是测试抓出来的（两条"镜头必须回到我"同时失败）。
+             * 教训：**"别处会做这件事"是一句会失效的注释** ——
+             * 删除那一处的人不会记得回来改这里。
              */
+            that.recenterOnMe()
           },
           /**
            * 失败**不写 note**：这是页面自动触发的，用户没提要求。
@@ -893,7 +683,21 @@ Page({
     this.doTeam(
       'meet.create',
       {
-        tripId: this.data.route ? this.data.route.tripId : null,
+        /**
+         * ⚠️ 集合可以关联一条行程（`tripId`），本页不再读路线，
+         * 所以从 storage 取"当前是哪一条"—— 只取 id，不取内容。
+         *
+         * 与 `rememberActiveTrip` 的约定一致：storage 只回答"是哪一个"。
+         * 取不到就传 null（`meet.create` 允许集合不挂在行程上）。
+         */
+        tripId: (function () {
+          try {
+            const saved = wx.getStorageSync('zhiyou-active-trip')
+            return saved && saved.tripId ? saved.tripId : null
+          } catch (e) {
+            return null
+          }
+        })(),
         point: {
           latitude: this.data.meetingPoint.latitude,
           longitude: this.data.meetingPoint.longitude,
@@ -1357,16 +1161,23 @@ Page({
    * 所以 `refreshMarkers()` 同时产出 `markerPlaceIndex`（id → placeId），
    * 这里只做查表。错位在构造时就能看出来，而不是等用户点到错的地点。
    */
-  onMarkerTap(e) {
-    const markerId = e && e.detail ? e.detail.markerId : undefined
-    if (markerId === undefined || markerId === null) return
-
-    const placeId = (this.data.markerPlaceIndex || {})[markerId]
-    // 不是地点图钉（我／队员／团队集合点）→ 安静返回，不抛错
-    if (!placeId) return
-
-    this.selectPlace(placeId)
-  },
+  /**
+   * ⚠️ **`onMarkerTap` 已删除**（2026-10-14）。
+   *
+   * 它原来做"点地点图钉 → 选中那个地点"，而本页已不再画地点图钉
+   * （用户要求："地图上还没确定路线又出现了一堆图钉，干脆把图钉删了吧"）。
+   *
+   * 删掉是**因为它的前提消失了**，不是因为"没人调用所以删"：
+   *   · `markerPlaceIndex` 恒为空 → 它永远静默返回，什么也不做；
+   *   · 地图上现在只剩"我 / 队员 / 集合点"三类图钉，点它们都没有
+   *     "要切换的选中项"（集合点已经是选中的那个）。
+   *
+   * 选中地点仍然要走**列表**那条路（`selectMeeting`）——
+   * 那里还有名字与步行时间，比一个光秃秃的图钉有用。
+   *
+   * ⚠️ 若将来本页重新画地点图钉，**必须同时把绑定与这张映射表加回来** ——
+   *    首版就是"绑了事件但没有映射表"，图钉点上去毫无反应（已修过一次）。
+   */
 
   /**
    * 选中一个地点作为集合点 —— **点图钉与点列表共用这一条路径**。
@@ -1561,63 +1372,44 @@ Page({
 
   refreshMarkers() {
     const markers = []
+    /**
+     * ⚠️ **不再画库里的地点图钉**（2026-10-14 用户要求）。
+     *
+     * 用户原话："我这地图上还没有确定路线又出现了一堆图钉，干脆把图钉删了吧"
+     *
+     * 那些图钉是 `data.places`（库里所有地点）无差别铺上来的 ——
+     * 用户还没定路线，它们既不是他要去的、也不是约好的，
+     * 只是**挡住路网的噪音**。
+     *
+     * 现在地图上只留"**关于人**"的三类：
+     *   · 我的位置（蓝点）
+     *   · 集合点（我们约在哪儿）
+     *   · 队员位置（同伴到了哪）
+     *
+     * 这正是「队伍」页该回答的问题。地点本身在「集合点候选」列表里，
+     * 需要时从那里选 —— 那里还有名字与步行时间，比一个光秃秃的图钉有用。
+     *
+     * ⚠️ `markerPlaceIndex` 随之作废（它本来用于"点图钉反查地点"）。
+     *    保留一个空对象是为了让 `onMarkerTap` 的兜底分支仍然能跑。
+     */
     const markerPlaceIndex = {}
     const meetingId = this.data.meetingPoint && this.data.meetingPoint.placeId
 
-    this.data.places.forEach((p, i) => {
-      const isMeeting = p.placeId === meetingId
-      /** 点图钉时靠它反查地点；后 push 的"我"/队员/集合点不会进这张表 */
-      markerPlaceIndex[i] = p.placeId
-      /**
-       * 图钉用照片还是内置图标。
-       *
-       * 只有**已取到照片的集合点**才换成照片 —— 两个理由：
-       *   ① 高德是月配额，不可能给每个地点都取；
-       *   ② 满屏照片图钉会盖住路网，反而看不清"集合点在哪儿"。
-       * 照片是"确认这个点长什么样"用的，不是背景装饰。
-       */
-      const photoUrl = isMeeting ? (this.data.photoUrls || {})[p.placeId] : null
-      const firstUrl = photoUrl ? Object.keys(photoUrl).map((k) => photoUrl[k])[0] : null
-
-      markers.push({
-        id: i,
-        latitude: p.latitude,
-        longitude: p.longitude,
-        /**
-         * ⚠️ 照片图钉必须**显式给 width/height**。
-         * 网络图不写尺寸时，真机上的测量时机不确定，会出现忽大忽小或干脆不显示。
-         * 即使用本地图标也一直显式写着（见下面那行），这里保持一致。
-         */
-        iconPath: firstUrl || (isMeeting ? '/assets/pin-meeting.png' : '/assets/pin-place.png'),
-        width: firstUrl ? 48 : isMeeting ? 34 : 28,
-        height: firstUrl ? 48 : isMeeting ? 42 : 35,
-        callout: {
-          content: p.name + (p.verified ? '' : '（未核验）') + (firstUrl ? ' · 网络照片，未实地核验' : ''),
-          color: '#1F2933',
-          fontSize: 12,
-          borderRadius: 6,
-          bgColor: '#FFFFFF',
-          padding: 6,
-          display: isMeeting ? 'ALWAYS' : 'BYCLICK',
-        },
-      })
-    })
-
     /**
-     * 集合点**不在 places 库里**时，上面的循环画不到它。
+     * 集合点图钉。
      *
-     * 这不是边角情况：`team-panel` 手动选点时，坐标是用户在地图上点出来的，
-     * 不对应任何一条地点记录；而"进行中的集合"也常常是那种点。
-     * 少了这一段，地图上就**看不到"我们约在哪儿"** ——
-     * 而集合页最该回答的就是这个问题。
+     * ⚠️⚠️ **这里原来是 `if (mp && !meetingInLibrary)`** —— 也就是
+     * "**不在库里**的集合点才画"，因为在库里的那些由上面那个
+     * `places.forEach` 循环画。
+     *
+     * 循环删掉之后这个条件就成了 bug：**在库里的集合点没人画了**，
+     * 地图上完全看不到"我们约在哪儿" —— 而这是「队伍」页最该回答的问题。
+     * （三条测试同时报"集合点必须画出来"才把它抓出来。）
+     *
+     * 现在无论它在不在库里，**都画**。
      */
     const mp = this.data.meetingPoint
-    const meetingInLibrary =
-      mp &&
-      this.data.places.some(function (p) {
-        return p.placeId === mp.placeId
-      })
-    if (mp && !meetingInLibrary) {
+    if (mp) {
       const photoUrl = (this.data.photoUrls || {})[mp.placeId] || {}
       const firstUrl = Object.keys(photoUrl).map(function (k) {
         return photoUrl[k]
@@ -1630,7 +1422,12 @@ Page({
         width: firstUrl ? 48 : 34,
         height: firstUrl ? 48 : 42,
         callout: {
-          content: mp.name + (mp.fromTeamTask ? ' · 队里定的集合点' : ''),
+          /** 来源要如实说：队里定的 / 算法推荐的 / 我在地图上拖的 */
+          content:
+            (mp.name || '集合点') +
+            (mp.fromTeamTask ? ' · 队里定的' : '') +
+            (mp.fromSuggestion ? ' · 算法推荐' : '') +
+            (mp.fromMapPick ? ' · 我在图上选的' : ''),
           color: '#1F2933',
           fontSize: 12,
           borderRadius: 6,
@@ -1677,22 +1474,20 @@ Page({
      *
      * 所以现在：有真实路径就画，没有就不画，并把"还差几段"说清楚。
      */
+    /**
+     * ⚠️ **本页不再画路线折线**（2026-10-14 用户要求："队伍页面地图上显示的
+     * 路线也删了"）。
+     *
+     * 于是整段"逐段取真实步行路径"的逻辑（`loadLegRoutes` + `legRoutes`
+     * 缓存 + 越界说明）跟着删掉了 —— 它存在的唯一目的就是画那条线。
+     *
+     * 路线在**行程页**看（那里有地图卡与目的地连线）。
+     * 本页是「队伍」：只看人 —— 我的位置、集合点、队员。
+     *
+     * ⚠️ 下面那条**集合点虚线要保留**：它不是路线，而是
+     *    "从这里走到集合点"的直线示意，属于集合功能的一部分。
+     */
     const polyline = []
-    const legRoutes = this.data.legRoutes || {}
-    const legNodes = (this.data.route && this.data.route.nodes) || []
-
-    for (let i = 1; i < legNodes.length; i++) {
-      const leg = legRoutes[legNodes[i - 1].nodeId + '|' + legNodes[i].nodeId]
-      if (!leg || !leg.decoded || !leg.points || leg.points.length < 2) continue
-      polyline.push({
-        points: leg.points,
-        color: '#0B3C6E',
-        width: 6,
-        arrowLine: true,
-        borderColor: '#FFFFFF',
-        borderWidth: 2,
-      })
-    }
 
     if (this.data.myPoint && this.data.meetingPoint) {
       polyline.push({

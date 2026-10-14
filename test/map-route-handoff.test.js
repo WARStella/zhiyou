@@ -129,91 +129,33 @@ function mapPage(opts) {
   return p;
 }
 
-test('地图页必须用 onShow 读当前路线 —— onLoad 在 tab 页切回来时不会再触发', async (t) => {
+/**
+ * ⚠️⚠️ 这里原有四条测试（约 80 行）：onShow 读路线、画真实步行路径、
+ * 取不到就什么都不画、路线画成折线。
+ *
+ * **已全部删除**（2026-10-14 用户要求："队伍页面地图上显示的路线也删了"）。
+ * 它们测的是"地图页把路线画出来"，而那是**行程页**的职责了 ——
+ * 留着只会让它们继续"通过"，掩盖本页已经不再读路线这件事。
+ *
+ * 行程页那边的等价值守卫在 `trip-page.test.js` 与
+ * `map-route-handoff.test.js` 末尾的"传值"两条（行程页写 tripId、
+ * 队伍页读它去关联集合）。
+ */
+test('队伍页**完全不读路线** —— 路线是行程页的事', async (t) => {
   const p = mapPage({ storage: { 'zhiyou-active-trip': { tripId: 't_1', version: 3 } } });
   t.after(() => p.restore());
 
-  assert.equal(typeof p.onShow, 'function', '地图是 tab 页，必须在 onShow 里刷新');
-
-  p.onShow();
-  await settle();
-
-  const actions = p.__calls.map((c) => c.action);
-  assert.ok(actions.includes('trip.get'), 'onShow 必须去取一次路线');
-  assert.equal(p.__calls.find((c) => c.action === 'trip.get').payload.tripId, 't_1');
-  assert.equal(p.data.route.points.length, 3, '三个可定位节点应当都进折线');
-});
-
-test('地图上画的是**真实步行路径**，不是两点直连（回归：用户说"路径规划好像没做"）', async (t) => {
-  const p = mapPage({ storage: { 'zhiyou-active-trip': { tripId: 't_1' } } });
-  t.after(() => p.restore());
-
   p.onShow();
   await settle(8);
 
   const actions = p.__calls.map((c) => c.action);
-  assert.ok(actions.includes('trip.legRoute'), '必须逐段去取真实路径 —— 服务端早就做好了，缺的是这里没调');
-
-  const lines = p.data.polyline.filter((l) => l.color === '#0B3C6E');
-  assert.equal(lines.length, 2, '三个节点两条段，都该画出来');
-  // 中间点带拐弯 → 说明画的是真实路径而不是直连
-  assert.equal(lines[0].points.length, 3);
-  assert.notEqual(
-    lines[0].points[1].longitude,
-    (lines[0].points[0].longitude + lines[0].points[2].longitude) / 2,
-    '中间点必须偏离两点连线 —— 否则画的就是直连'
-  );
+  assert.equal(actions.includes('trip.get'), false, '不该取路线');
+  assert.equal(actions.includes('trip.legRoute'), false, '更不该逐段取真实路径（那要花地图配额）');
+  assert.equal(p.data.route, undefined, '本页没有 route 这个 state');
+  assert.deepEqual(p.data.polyline, [], '没有集合点连线时折线应当为空');
 });
-
-test('取不到真实路径时**什么都不画** —— 一条会把人带错的线比没有线更糟', async (t) => {
-  const p = mapPage({
-    storage: { 'zhiyou-active-trip': { tripId: 't_1' } },
-    api: {
-      'trip.legRoute': { ok: true, data: { ok: false, reason: 'UPSTREAM_FAILED', message: '地图服务暂时不可用' } },
-    },
-  });
-  t.after(() => p.restore());
-
-  p.onShow();
-  await settle(8);
-
-  const lines = p.data.polyline.filter((l) => l.color === '#0B3C6E');
-  assert.equal(lines.length, 0, '宁可没有线，也不能拿示意图冒充真实路线');
-
-  /**
-   * 而且**不能再重复请求同一段**：否则每次切回地图页都对同一个失败段
-   * 再烧一次配额，而用户看不出任何区别。
-   */
-  const before = p.__calls.filter((c) => c.action === 'trip.legRoute').length;
-  assert.ok(before > 0);
-  p.loadLegRoutes();
-  await settle(4);
-  assert.equal(
-    p.__calls.filter((c) => c.action === 'trip.legRoute').length,
-    before,
-    '失败过的段也要缓存，不该重复消耗配额'
-  );
-});
-
-test('路线会被画成折线（回归：用户看不到生成的路线）', async (t) => {
-  const p = mapPage({ storage: { 'zhiyou-active-trip': { tripId: 't_1' } } });
-  t.after(() => p.restore());
-
-  p.onShow();
-  await settle(8);
-
-  const routeLines = p.data.polyline.filter((l) => l.color === '#0B3C6E');
-  assert.equal(routeLines.length, 2, '两段真实路径都要画');
-  assert.equal(p.data.legsTotal, 2);
-  assert.equal(p.data.legsLoaded, 2, '取完要如实报数');
-  assert.equal(p.data.legsLoading, false);
-});
-
-test('已授权时镜头跟我 —— 而不是收到整条路线上', async (t) => {
-  const p = mapPage({
-    storage: { 'zhiyou-active-trip': { tripId: 't_1' } },
-    wx: grantedWx(),
-  });
+test('已授权时镜头跟我', async (t) => {
+  const p = mapPage({ wx: grantedWx() });
   t.after(() => p.restore());
 
   p.onShow();
@@ -221,22 +163,17 @@ test('已授权时镜头跟我 —— 而不是收到整条路线上', async (t)
 
   assert.equal(p.data.mySource, 'gps', '应当静默取到位置');
   assert.ok(p.data.myPoint, '位置要落到 data，图钉才画得出来');
-  /**
-   * 只要求**至少一次**，不锁死次数：`onShow` 里 autoLocate 与 loadActiveTrip
-   * 都会重定位（前者取到位置、后者画完路线），锁死次数会让测试对实现顺序过敏。
-   */
   assert.ok(p.__mapSpy.moveToLocation.length >= 1, '镜头必须回到"我"');
-  assert.equal(
-    p.__mapSpy.includePoints.length,
-    0,
-    '有定位时不该把镜头交给整条路线 —— 那正是用户抱怨的"偏到别的地方"'
-  );
+  /**
+   * ⚠️ 本页不再有"把路线框进视野"这个降级路径（路线已不在本页画）。
+   * `includePoints` 现在只可能来自别处，这里期望一次都没有。
+   */
+  assert.equal(p.__mapSpy.includePoints.length, 0, '本页不框路线');
 });
 
 test('未授权时不弹权限框 —— 地图是 tab，不能每次点进来都问一遍', async (t) => {
   const asked = [];
   const p = mapPage({
-    storage: { 'zhiyou-active-trip': { tripId: 't_1' } },
     wx: {
       getSetting: (o) => o.success({ authSetting: {} }), // 没授权
       getLocation: () => asked.push('getLocation'),
@@ -249,15 +186,10 @@ test('未授权时不弹权限框 —— 地图是 tab，不能每次点进来�
 
   assert.equal(asked.length, 0, '未授权时不该调用 getLocation（那会弹权限框）');
   assert.equal(p.data.myPoint, null, '拿不到位置就不该假装有');
-  // 真实路径照常取回来（这一步与定位无关）
-  assert.ok(p.__calls.map((c) => c.action).includes('trip.legRoute'), '路线该照常取');
 });
 
-test('拿不到定位但地图上下文可用时，镜头仍交给地图（不硬塞一个默认点）', async (t) => {
-  const p = mapPage({
-    storage: { 'zhiyou-active-trip': { tripId: 't_1' } },
-    wx: grantedWx({ getLocation: (o) => o.fail({ errMsg: 'harness: locate failed' }) }),
-  });
+test('拿不到定位时**什么都不做** —— 不框视野、不挪镜头、不写提示', async (t) => {
+  const p = mapPage({ wx: grantedWx({ getLocation: (o) => o.fail({ errMsg: 'harness: locate failed' }) }) });
   t.after(() => p.restore());
 
   p.onShow();
@@ -265,60 +197,21 @@ test('拿不到定位但地图上下文可用时，镜头仍交给地图（不�
 
   assert.equal(p.data.myPoint, null, '定位失败就不该有位置');
   /**
-   * ⚠️ 这里**期望 0 次 includePoints**，而不是 1 次（第一版测试写错了）。
+   * ⚠️ 期望值**改过**（2026-10-14）：原来期望"镜头仍交给地图"，
+   * 因为那时本页还画路线，`recenterOnMe()` 在"上下文可用"时无论如何
+   * 都会调一次 `moveToLocation`（让地图自己决定怎么显示我）。
    *
-   * `recenterOnMe()` 在 `moveToLocation` 存在时就返回 true，
-   * 所以即便拿不到定位，走的也是"让地图自己决定怎么显示我"，
-   * 而不是把视野硬框到路线上。
-   *
-   * `fitRoute()` 是**真正的降级路径**：只有地图上下文不可用
-   * （基础库过低、拿不到 tripmap）时才会走到，见下一条测试。
+   * 路线已从本页删除，`recenterOnMe()` 现在只在**取到位置之后**调 ——
+   * 没有位置时"回到我的位置"本身就没有意义。正确的行为是：什么都不做。
    */
-  assert.equal(p.__mapSpy.includePoints.length, 0, '上下文可用时不该退到"把路线框进视野"');
-  assert.ok(p.__mapSpy.moveToLocation.length >= 1, '镜头仍应交给地图');
+  assert.equal(p.__mapSpy.moveToLocation.length, 0, '没有位置就不该挪镜头');
+  assert.equal(p.__mapSpy.includePoints.length, 0, '更不该硬框一个视野');
   /**
    * 自动定位失败**不写 note** —— 用户没点任何按钮，
    * 给一个正常打开的页面加错误提示只会让人以为坏了。
    */
   assert.equal(p.data.note, '', '自动定位失败不该留下提示');
 });
-
-test('地图上下文不可用时，退到把路线收进视野并说明失败原因', async (t) => {
-  /**
-   * ⚠️ 这里用 `loadPage` 而不是 `mapPage()`：后者的地图上下文替身**总是带
-   * `moveToLocation`**（它要记录镜头调用），会把本测试要模拟的"基础库过低"覆盖掉，
-   * 于是永远走不到降级分支。
-   *
-   * 教训与 page-harness 里那几条注释同源：**替身的形状决定了代码走哪条分支**，
-   * 用一个功能齐全的替身去测降级路径，测的是另一回事。
-   */
-  const includeCalls = []
-  const p = loadPage('miniprogram/pages/map/index.js', {
-    api: {
-      'place.list': { ok: true, data: { places: PLACES } },
-      'trip.get': { ok: true, data: { trip: { tripId: 't_1', nodes: NODES } } },
-    },
-    storage: { 'zhiyou-active-trip': { tripId: 't_1' } },
-    wx: {
-      getSetting: (o) => o.success({ authSetting: {} }),
-      createMapContext: () => ({
-        // 刻意只有 includePoints —— 模拟拿不到 moveToLocation 的老基础库
-        includePoints: (o) => {
-          includeCalls.push(o)
-          o.fail && o.fail({ errMsg: 'harness: includePoints failed' })
-        },
-      }),
-    },
-  })
-  t.after(() => p.restore())
-
-  p.onShow()
-  await settle()
-
-  assert.equal(includeCalls.length, 1, '这才是真正的降级路径')
-  assert.match(p.data.note, /视野缩放失败/, '降级失败也必须留痕，否则又变成"静默偏了"')
-});
-
 test('用户主动点「获取我的位置」后，镜头跟过去', async (t) => {
   const p = mapPage({ wx: grantedWx() });
   t.after(() => p.restore());
@@ -330,53 +223,6 @@ test('用户主动点「获取我的位置」后，镜头跟过去', async (t) =
 
   assert.equal(p.data.mySource, 'gps');
   assert.equal(p.__mapSpy.moveToLocation.length, 1, '刚给了位置就该把镜头落过去，不该让用户自己拖地图找');
-});
-
-test('没有路线时不画线，也不去取 trip.get', async (t) => {
-  const p = mapPage({ wx: grantedWx() });
-  t.after(() => p.restore());
-  await settle(2);
-
-  p.__calls.length = 0;
-  p.onShow();
-  await settle();
-
-  assert.equal(p.data.route, null);
-  assert.equal(p.__calls.filter((c) => c.action === 'trip.get').length, 0, '没生成过路线就不该白调接口');
-  assert.equal(p.data.polyline.length, 0, '没有路线就不该有折线');
-});
-
-test('路线取不到时静默降级但**留下 note** —— 静默失败正是这个 bug 的特征', async (t) => {
-  const p = mapPage({
-    storage: { 'zhiyou-active-trip': { tripId: 't_1' } },
-    api: { 'trip.get': { ok: false, error: { code: 'NOT_FOUND', message: '行程不存在' } } },
-  });
-  t.after(() => p.restore());
-
-  p.onShow();
-  await settle();
-
-  assert.equal(p.data.route, null);
-  assert.match(p.data.note, /行程不存在/, '要把后端的原因透出来，而不是无声无息');
-});
-
-test('可定位节点少于 2 个时不画线，并说明原因', async (t) => {
-  const p = mapPage({
-    storage: { 'zhiyou-active-trip': { tripId: 't_1' } },
-    api: {
-      'trip.get': {
-        ok: true,
-        data: { trip: { tripId: 't_1', nodes: [{ nodeId: 'n1', placeName: '只有一个点', location: { latitude: 45.7, longitude: 126.6 } }] } },
-      },
-    },
-  });
-  t.after(() => p.restore());
-
-  p.onShow();
-  await settle();
-
-  assert.equal(p.data.route, null);
-  assert.match(p.data.note, /少于 2 个/);
 });
 
 test('默认不选中任何集合点 —— 选中必须是用户动作的结果', async (t) => {

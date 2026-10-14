@@ -21,7 +21,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { makeWorld, expectOk, expectFail, C } = require('./helpers');
-const { canBeMeetingPoint, canBeTripNode, verificationLevelOf } = require('../cloudfunctions/api/lib/authz');
+const { canBeMeetingPoint, canBeTripNode, verificationLevelOf, VERIFICATION_LABEL } = require('../cloudfunctions/api/lib/authz');
 
 const HB = { latitude: 45.7756, longitude: 126.6175 };
 
@@ -144,7 +144,24 @@ test('三方聚合与实地核验不能同时成立 —— 防的是"看起来�
   );
 });
 
-test('只给坐标、不给任何核验依据 → 只能作行程节点，不能作集合点', async () => {
+test('只给坐标、不给任何核验依据 → **仍可作集合点**，但等级如实标为"无核验数据"', async () => {
+  /**
+   * ⚠️ 这条断言**改过方向**（2026-10-14），是用户决定放宽准入的结果。
+   *
+   * 用户原话："推荐集合点不需要实地核验，腾讯地图基本核验过"
+   *
+   * 旧规则要求"实地核验 **或** 显式 `meetingPointEligible`"，
+   * 而后者**只有 `place.survey` 会写**、且限 dev —— 于是线上路径里
+   * 没有任何代码能把地点标成"可作集合点"，`meet.recommend`
+   * 面对近乎空的 `places` 永远报 `NO_VERIFIED_PLACE`。
+   * **功能从上线起就不可能跑通。**
+   *
+   * 现在与行程节点同一套准入（名称 + 坐标）。
+   *
+   * ⚠️ 但**准入放宽 ≠ 标注放宽**：`verificationLevel` 照旧如实推导，
+   *    这个点仍然是 `none`（无核验数据），界面必须标出来。
+   *    准入与标注是两件事 —— §6.6「检索到资料 ≠ 资料可信」。
+   */
   const w = await makeWorld();
   const created = expectOk(
     await w.A('place.survey', {
@@ -152,16 +169,39 @@ test('只给坐标、不给任何核验依据 → 只能作行程节点，不能
       location: { latitude: 45.796, longitude: 126.636 },
       category: 'meeting',
       confidence: 'high',
-      // 故意两者都不给：不该"顺手"变成集合点候选
       verifiedAt: null,
       confirm: true,
     })
   );
 
   const stored = await w.repo.get(C.PLACES, created.place._id);
-  assert.equal(verificationLevelOf(stored), 'none');
-  assert.equal(canBeMeetingPoint(stored), false);
   assert.equal(canBeTripNode(stored), true, '有名称有坐标就够作行程节点');
+  assert.equal(canBeMeetingPoint(stored), true, '放宽后也能作集合点');
+  /** 关键：能用，但必须如实标注"没核验过" */
+  assert.equal(verificationLevelOf(stored), 'none', '等级要如实 —— 它确实没有任何核验依据');
+  assert.equal(VERIFICATION_LABEL[verificationLevelOf(stored)], '无核验数据');
+});
+
+test('**显式否决**仍然一票否决 —— 放宽不等于忽略明确判定', async () => {
+  /**
+   * ⚠️ 这是放宽之后**唯一**还能挡住一个地点的开关。
+   *
+   * `meetingPointEligible === false` 表示"有人明确判定过这个点当集合点有问题"
+   * （比如入口在施工、或者根本进不去）——那种判定不能被"放宽准入"盖掉。
+   */
+  const w = await makeWorld();
+  const created = expectOk(
+    await w.A('place.survey', {
+      name: '明确不适合集合的点',
+      location: { latitude: 45.7965, longitude: 126.6365 },
+      category: 'meeting',
+      confidence: 'high',
+      meetingPointEligible: false,
+      confirm: true,
+    })
+  );
+  const stored = await w.repo.get(C.PLACES, created.place._id);
+  assert.equal(canBeMeetingPoint(stored), false, '显式否决要挡住');
 });
 
 test('confidence 为 low 时不得作集合点 —— "推荐"这个词要有意义', async () => {
@@ -189,7 +229,16 @@ test('旧数据不回归：只填 verifiedAt 的记录仍然能当集合点', as
   assert.equal(verificationLevelOf(legacy), 'field-survey');
 });
 
-test('未达集合点准入的地点会被排除，且**排除原因带地点名**（界面要能挂在地点上）', async () => {
+test('**显式否决**的地点会被排除，且排除原因带地点名（界面要能挂在地点上）', async () => {
+  /**
+   * ⚠️ 触发条件**改过**（2026-10-14）：放宽准入之后，"只够作行程节点"
+   * 已经不再是被排除的理由，能挡住一个地点的只剩**显式否决**
+   * （`meetingPointEligible: false`，即有人明确判定过它当集合点有问题）。
+   *
+   * 这条测试真正守的是**排除通路本身**：被排除的地点必须出现在
+   * `excluded` 里并带上**地点名** —— 否则用户只会看到"候选里没有它"，
+   * 而不知道为什么（10/31 验收「失败原因可定位」）。
+   */
   const w = await makeWorld();
   const ineligible = expectOk(
     await w.A('place.survey', {
@@ -197,7 +246,7 @@ test('未达集合点准入的地点会被排除，且**排除原因带地点名
       location: { latitude: 45.776, longitude: 126.6174 },
       category: 'meeting',
       confidence: 'high',
-      verifiedAt: null, // 只够作行程节点
+      meetingPointEligible: false, // 显式否决 —— 放宽之后唯一的排除理由
       confirm: true,
     })
   );

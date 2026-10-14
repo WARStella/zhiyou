@@ -127,20 +127,48 @@ function verificationLevelOf(place) {
 }
 
 /**
- * 集合点准入：在行程节点要求之上，还需要一条**可交代的核验依据**。
+ * 集合点准入（2026-10-14 用户决定放宽）。
  *
- * 两种依据都放行，但它们的可信度不同、且必须能被区分：
- *   · `verifiedAt` 非空        —— 实地核验过（level 0）；
- *   · `meetingPointEligible`   —— 三方数据+照片足以支持"能当集合点"，但未实地确认（level 1）。
+ * ── 用户的原话与理由 ─────────────────────────────────────
  *
- * 两条都排除 `confidence: 'low'`：低可信度不该进推荐列表，
+ *   "推荐集合点不需要实地核验，腾讯地图基本核验过"
+ *
+ * ── 之前是什么样，为什么卡住了 ────────────────────────────
+ *
+ * 旧规则要求"实地核验 **或** 显式标了 `meetingPointEligible`"。
+ * 而 `meetingPointEligible` **只有 `place.survey` 会写**——
+ * 那是**开发用的踏勘工具，且限 dev 环境**。
+ *
+ * 于是线上路径里没有任何代码能把一个地点标成"可作集合点"，
+ * 而检索结果又**一律不入库**（用户决定）——
+ * 结果是 `meet.recommend` 面对一个几乎空的 `places` 集合，
+ * 永远报 `NO_VERIFIED_PLACE`。**功能从上线起就不可能跑通。**
+ *
+ * ── 现在的规则 ───────────────────────────────────────────
+ *
+ * 与**行程节点同一套准入**（有名称 + 有坐标）：
+ *
+ *   · 三方来源（腾讯 POI）的坐标是上游核验过的，够用作"大家在哪碰头"；
+ *   · 而且**没有任何一条准入能替代"与同伴核对"** ——
+ *     "南门还是北门"这类信息只能靠人，界面一直在提示这一点。
+ *
+ * 仍然排除 `confidence: 'low'`：低可信度不该进推荐列表，
  * 否则"推荐"这个词就没有意义了。
+ *
+ * ⚠️ **放宽准入不等于不标注**：`verificationLevel` 照旧如实推导，
+ *    三方来源的会显示成「未实地核验 · 三方聚合」。
+ *    准入与标注是两件事 —— 这一点 §6.6 说得很清楚：
+ *    「检索到资料 ≠ 资料可信」。我们让它能用，但**不假装它是实地跑过的**。
+ *
+ * ⚠️ 显式 `meetingPointEligible === false` 仍然一票否决 ——
+ *    那是有人明确判定过"这个点当集合点有问题"，不能因为放宽而被忽略。
  */
 function canBeMeetingPoint(place) {
   if (!canBeTripNode(place)) return false;
   if (place.confidence === 'low') return false;
+  /** 显式否决优先于一切放宽 */
   if (place.meetingPointEligible === false) return false;
-  return Boolean(place.verifiedAt) || place.meetingPointEligible === true;
+  return true;
 }
 
 /** 地点去向：供接口与界面统一判断 */
