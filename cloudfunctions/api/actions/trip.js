@@ -422,7 +422,12 @@ async function resolveLegTravelTimes(ctx) {
        */
       source: chosen.source || 'upstream',
       provider: chosen.provider || null,
+      /** 为什么选它（比第二快的省几分钟） */
       reason: leg.choice.reason || null,
+      /** 这个数可不可信（估算？上游没给时长？）—— 与上面那条是两个维度 */
+      candidateReason: chosen.candidateReason || null,
+      /** 公交的换乘细节（几号线、哪个口） */
+      transit: chosen.transit || null,
     };
   }
 

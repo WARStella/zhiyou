@@ -290,6 +290,18 @@ function enrichChosen(choice, candidates) {
       source: full.source || null,
       /** 公交的换乘细节（几号线、哪个口）—— 只在 transit 上有 */
       transit: full.transit || null,
+      /**
+       * 候选自己的说明（如"取不到真实耗时，按直线距离估算（短距离下偏差可能很大）"）。
+       *
+       * ⚠️ 与 `choice.reason` 是**两件事**，都要留着：
+       *   · `choice.reason` 说"**为什么选它**"（比第二快的省了几分钟）
+       *   · `candidate.reason` 说"**这个数可不可信**"（估算？上游没给时长？）
+       *
+       * 只留前者的话，用户看不到"这是估算" —— 而这正是本项目
+       * 反复强调要能区分的东西（同一条路直线估算与真实路线差 1.35 倍，
+       * 短距离下差 7.6 倍）。
+       */
+      candidateReason: full.reason || null,
     }),
   });
 }
