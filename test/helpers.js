@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 /**
  * 测试世界 —— 用内存仓储 + 真实 invoke 路径构造一个可端到端调用的环境。
@@ -36,7 +36,17 @@ async function makeWorld(opts) {
   const base = new Date(opts.now || NOW);
   const repo = createMemoryRepo({ now: base.getTime() });
 
-  await repo.__seed(C.PLACES, fixtures.places);
+  /**
+   * ⚠️ `opts.seedPlaces` 可以**覆盖**铺进库里的地点（2026-10-14 加）。
+   *
+   * 存在的理由：集合点推荐在"库里没有可用候选"时会**回退到地图 POI 检索**。
+   * 默认夹具里本来就有一批 `meeting` 类目的地点，那条回退路径
+   * **一次都不会被走到** —— 新代码会静默地无人测试。
+   *
+   * 传 `seedPlaces: []` 就能构造"空库"世界；不传则用默认夹具。
+   */
+  const seedPlaces = opts.seedPlaces === undefined ? fixtures.places : opts.seedPlaces;
+  if (seedPlaces && seedPlaces.length) await repo.__seed(C.PLACES, seedPlaces);
 
   /**
    * @param {string} openid

@@ -612,19 +612,28 @@ Page({
         if (!top || !top.point) {
           /**
            * ⚠️ 推荐不出来时**说清为什么**，不给一个编出来的点。
-           * 最常见的原因：同伴还没共享位置（不知道各人在哪就算不出"对谁都近"）。
+           *
+           * 排名第一的原因不是"没有候选"，而是**同伴还没共享位置** ——
+           * 不知道各人在哪，就算不出"对谁都近"。
+           * 第二类是地图服务本身不可用（Key 没配／配额用尽），
+           * 那要去控制台处理，与"换个地方碰头"是两回事，必须分开说。
            */
+          const why =
+            d.reason === 'LOCATION_SHARING_OFF'
+              ? '队员都还没共享位置。让大家先各点一次「共享一次当前位置」'
+              : d.reason === 'NO_LOCATION_AVAILABLE'
+                ? '还拿不到任何成员的位置'
+                : d.reason === 'MAP_KEY_NOT_CONFIGURED'
+                  ? '地图服务没配好（云函数缺 MAP_KEY），这个要去云开发控制台加'
+                  : d.reason === 'UPSTREAM_FAILED' || (d.reason || '').indexOf('UPSTREAM_STATUS') === 0
+                    ? '地图服务暂时不可用' + (d.message ? '（' + d.message + '）' : '')
+                    : d.reason === 'NO_VERIFIED_PLACE' || d.reason === 'NO_POI_FOUND'
+                      ? '这附近没检索到能当集合点的地方'
+                      : '暂时没有满足条件的候选点'
           that.setData({
             teamBusy: false,
             teamNote: '',
-            teamError:
-              '推荐不出集合点：' +
-              (d.reason === 'LOCATION_SHARING_OFF'
-                ? '队员都还没共享位置。让大家先各点一次「共享一次当前位置」'
-                : d.reason === 'NO_VERIFIED_PLACE'
-                  ? '还没有实地核验过的地点可作候选'
-                  : '暂时没有满足条件的候选点') +
-              '。也可以直接拖 ✛ 自己选一个。',
+            teamError: '推荐不出集合点：' + why + '。也可以直接拖 ✛ 自己选一个。',
           })
           return
         }
@@ -648,7 +657,16 @@ Page({
             (top.placeName || '集合点') +
             '」' +
             (typeof top.maxWalkMin === 'number' ? '：走得最远的成员约 ' + top.maxWalkMin + ' 分钟' : '') +
-            '。拖动 ✛ 可以微调，确认后点「② 发起集合」。',
+            '。' +
+            /**
+             * ⚠️ 候选来源要如实说。检索出来的点是**真实地点**（所以不会
+             *    落在马路上），但**没人实地核验过** —— 用户得知道
+             *    "它可能是个商场，但南门还是北门得自己确认"。
+             */
+            (d.candidateSource === 'poi-search'
+              ? '这个位置来自地图检索，未实地核验，请确认入口在哪。'
+              : '') +
+            '拖动 ✛ 可以微调，确认后点「② 发起集合」。',
         })
       })
       .catch(function (err) {

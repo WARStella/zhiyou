@@ -86,6 +86,38 @@ test('**没有队伍**时点「推荐集合点」给出可行动的提示', () =
   assert.match(page.data.teamError, /我的|创建|加入/, '要告诉他去哪儿组队');
 });
 
+test('推荐失败时**按原因分别给话** —— 修法不同的话不能混成一句', async () => {
+  /**
+   * ⚠️ 这条守的是"失败原因可定位"（10/31 验收项）。
+   *
+   * 三类原因修法完全不同：
+   *   · 没共享位置    → 让同伴去点「共享一次当前位置」
+   *   · 地图 Key 没配 → 去云开发控制台加环境变量（用户自己修不了）
+   *   · 附近真没有    → 换个地方碰头，或直接拖 ✛
+   * 混成一句"推荐不出集合点"会让人一直试错。
+   */
+  const cases = [
+    { reason: 'LOCATION_SHARING_OFF', expect: /共享位置/ },
+    { reason: 'NO_LOCATION_AVAILABLE', expect: /位置/ },
+    { reason: 'MAP_KEY_NOT_CONFIGURED', expect: /控制台|MAP_KEY/ },
+    { reason: 'NO_POI_FOUND', expect: /附近/ },
+  ];
+  for (const c of cases) {
+    const page = loadPage('miniprogram/pages/map/index.js', {
+      api: {
+        'crew.get': { ok: true, data: { crew: { crewId: 'c1' }, members: [] } },
+        'meet.get': { ok: true, data: { task: null } },
+        'meet.recommend': { ok: true, data: { candidates: [], reason: c.reason } },
+      },
+    });
+    page.setData({ crewId: 'c1' });
+    page.recommendMeetingPoint();
+    /** 等页面把 `.then` 跑完 */
+    await new Promise((r) => setTimeout(r, 0));
+    assert.match(page.data.teamError, c.expect, `${c.reason} 应当给出对得上这个原因的提示`);
+  }
+});
+
 test('没有集合点时点「发起集合」提示先选点', () => {
   const page = crewPage();
   page.setData({ crewId: 'crew_1', meetingPoint: null });
