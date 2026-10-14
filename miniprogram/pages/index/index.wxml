@@ -27,8 +27,9 @@
     <button class="btn ghost" bindtap="runPhotoProbe" disabled="{{running}}">照片服务探针（会真实调用）</button>
     <button class="btn ghost" bindtap="runTransitProbe" disabled="{{running}}">公交地铁探针（会真实调用）</button>
     <button class="btn ghost" bindtap="runMatrixProbe" disabled="{{running}}">距离矩阵探针（会真实调用 3 次）</button>
+    <button class="btn ghost" bindtap="runWalkCacheCheck" disabled="{{running}}">步行缓存体检（只读，查"步行"时间是否合理）</button>
   </view>
-  <view class="tip">顺序：后端自检 → 初始化数据库 → 唯一索引校验 → 写入形态自检 → 地图接口探针 → 大模型接口探针 → 照片服务探针 → 公交地铁探针 → 距离矩阵探针</view>
+  <view class="tip">顺序：后端自检 → 初始化数据库 → 唯一索引校验 → 写入形态自检 → 地图接口探针 → 大模型接口探针 → 照片服务探针 → 公交地铁探针 → 距离矩阵探针 → 步行缓存体检</view>
 
   <button class="btn link-btn" bindtap="openMap">打开地图页面（位置接口申请材料）</button>
 

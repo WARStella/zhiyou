@@ -14,6 +14,7 @@ const loc = require('./loc');
 const trip = require('./trip');
 const meet = require('./meet');
 const map = require('./map');
+const walkCacheCheck = require('./walk-cache-check');
 const intent = require('./intent');
 const ai = require('./ai');
 const team = require('./team');
@@ -33,6 +34,22 @@ module.exports = {
   'ops.verifyIndexes': user.verifyIndexes,
   /** 步行估算的校准报告 —— 也是"绕路系数"模型的训练数据现状 */
   'ops.walkStats': user.walkStats,
+
+  /**
+   * 步行缓存体检 —— 找出 `walkableTo` 里隐含速度不可能的"步行"记录。
+   *
+   * 起因（2026-10-14）：用户看到「步行 24.7 分钟 14426 米」（= 584 米/分，
+   * 那是驾车速度）。矩阵探针已证明矩阵本身没问题，所以问题在**缓存**：
+   * 我加 `mode` 字段之前写进去的驾车/骑行耗时没有 `mode`，
+   * 而兼容规则是"没有 mode 就当成步行" → 驾车时间被当月步行读。
+   *
+   * 影响两层，第二层看不见所以更要紧：界面显示荒谬时间，
+   * 且 **`maxWalkMinutes` 硬约束失效**。
+   *
+   * 只读体检，**不自动删**（删数据不可逆，且"看起来不可能"未必等于"错"）。
+   * 仅 dev。
+   */
+  'ops.walkCacheCheck': walkCacheCheck.walkCacheCheck,
 
   // 地点
   'place.list': place.list,
