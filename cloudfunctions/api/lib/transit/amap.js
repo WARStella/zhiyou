@@ -390,12 +390,20 @@ function parseTransit(body) {
           distanceMeters: toNumber(line.distance),
           durationSeconds: toNumber(line.duration),
           /**
-           * 首末班时间 —— **必须是字符串，不能转数字**。
-           * 实测值是 `"0532"` / `"2254"` 这种四位时刻；转成数字会变成
-           * `532`，前导零丢掉，显示成「5:32」就错了。
+           * 首末班时间 —— **两个坑叠在一起**（2026-10-14，靠真实返回才发现）：
+           *
+           * ① 它是**时刻字符串**（`"0532"`），不能转数字 —— 转了会丢前导零，
+           *    显示成「5:32」就错了。
+           * ② 实测发现 **`start_time` 可能是空数组 `[]`**，而值在
+           *    `station_start_time` 里。地铁线路就是这种形态。
+           *    直接把 `[]` 当值会得到一个"看起来有值、实际是空数组"的字段
+           *    —— 界面上会渲染出空白。
+           *
+           * 所以：按 `start_time` → `station_start_time` 依次取，
+           * 且**空数组一律视为没有**。
            */
-          startTime: line.start_time || null,
-          endTime: line.end_time || null,
+          startTime: pickTime(line.start_time, line.station_start_time),
+          endTime: pickTime(line.end_time, line.station_end_time),
         });
       }
 
@@ -472,6 +480,20 @@ function parseAmapLocation(raw) {
   const lat = Number(parts[1]);
   if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
   return { latitude: lat, longitude: lng };
+}
+
+/**
+ * 取时刻字符串，**空数组视为没有**。
+ *
+ * 实测（2026-10-14）：地铁线路的 `start_time` 是 `[]`，而
+ * `station_start_time` 才有 `"0532"`。而 `[]` 是 truthy ——
+ * 直接用 `a || b` 会拿到 `[]`，界面上渲染成空白，且不报错。
+ */
+function pickTime(primary, fallback) {
+  const ok = (v) => typeof v === 'string' && v.trim().length > 0;
+  if (ok(primary)) return primary.trim();
+  if (ok(fallback)) return fallback.trim();
+  return null;
 }
 
 function toNumber(v) {

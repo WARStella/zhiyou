@@ -5,19 +5,24 @@
  *
  * ── 为什么必须探一次再往下做 ──────────────────────────────
  *
- * `lib/transit/amap.js` 的字段路径**依官方文档、未持 Key 实测**。
- * 而本项目已经吃过"文档与实际不一致"的亏（腾讯 POI 主键 `id` / `_id` 两种写法），
- * 所以这里有一条纪律：**不靠记忆定死，由原始返回核对**。
+ * 那段"字段路径依官方文档"的阶段已经过去了 —— **现在全部按实测**：
+ * 用户在浏览器里把 URL 打通，一次拿到真实返回（5 个换乘方案），
+ * 于是端点是 v3、字段路径、地铁识别规则都有了确证。
  *
- * 三个待确认的未知量：
+ * 这条探针现在的用途变了，从"探索未知"变成**回归检查**：
+ * 换 Key、换环境、上游改结构时，点一下就知道还好不好使。
  *
- *   ① **端点对不对** —— `v5/direction/transit/integrated` 是否真的存在、
- *      以及这条接口在该 Key 下**是否已开通权限**（高德的接口是逐个开通的，
- *      控制台「可使用服务」列表里要有「公交路径规划」）。
- *   ② **字段路径对不对** —— `route.transits[].duration` 等是否与实际一致。
- *      不一致时 `parsedVia` 与 `rawHead` 是唯一能定位的东西。
- *   ③ **地铁能不能识别** —— 解析靠 `bus.type` 里是否含「地铁」字样。
- *      这条**纯属推测**，必须用真实返回验证。
+ * 三层各自回答一个问题：
+ *
+ *   ① **端点与权限** —— 这条接口在该 Key 下通不通
+ *      （高德的接口逐个开通，控制台「可使用服务」里要有「公交路径规划」）。
+ *   ② **字段路径** —— 解析是否仍然对得上。不一致时 `parsedVia` 与
+ *      `rawHead` 是唯一能定位的东西，所以无论成败都回传。
+ *   ③ **地铁识别** —— 靠 `buslines[].type` 含「地铁」字样（已实测确认）。
+ *
+ * ⚠️ 实测踩过的两个坑，写在返回里免得重走：
+ *   · **端点必须是 v3**。同一个 Key、同一组坐标，v5 + `city1` 回 20001。
+ *   · **`start_time` 可能是空数组**，值在 `station_start_time` 里。
  *
  * 另外顺带问一件事：**公交路径规划的免费额度是多少**。
  * 腾讯那边是明牌（各 6,000/天），高德这边我只确证了"照片字段未标注付费"，
@@ -40,6 +45,13 @@ const { createAmapTransitProvider, STRATEGY, STRATEGY_LABEL } = require('../lib/
 const DEFAULT_FROM = { latitude: 45.7756, longitude: 126.6175 };
 const DEFAULT_TO = { latitude: 45.8029, longitude: 126.5353 };
 const DEFAULT_CITY = '0451';
+
+/** 从实际请求 URL 里取出端点（不手写 —— 手写过一次，写了 v5 而实际是 v3） */
+function endpointOf(requestUrl) {
+  if (!requestUrl) return null;
+  const m = String(requestUrl).match(/^https?:\/\/([^?]+)/);
+  return m ? m[1] : null;
+}
 
 async function probe(ctx) {
   const p = ctx.payload || {};
@@ -86,8 +98,19 @@ async function probe(ctx) {
       ? `接口可用，上游返回 ${r.routeCount === null ? '?' : r.routeCount} 个方案`
       : `调用失败：status ${r.status} ${r.message || ''}`,
     raw: {
-      endpoint: 'restapi.amap.com/v5/direction/transit/integrated',
+      /**
+       * ⚠️ 这里**不能写死字符串**（2026-10-14 修）。
+       *
+       * 上一版写的是 `'restapi.amap.com/v5/direction/transit/integrated'`，
+       * 而代码实际调的是 **v3** —— 探针报了一个与实际不符的端点。
+       * 那种不一致比没有信息更糟：它会把排查引到错的地方
+       * （我自己就被 v5/v3 混用坑了三轮）。
+       *
+       * 现在从**实际请求 URL** 里取，不再手写。
+       */
+      endpoint: endpointOf(r.requestUrl),
       status: r.status,
+      infocode: r.infocode || null,
       hint: r.hint,
       timingMs: r.timingMs,
     },
@@ -124,7 +147,9 @@ async function probe(ctx) {
       knownFacts: [
         'Key 已被高德识别（否则会回 10001 INVALID_USER_KEY），所以问题不在"Key 有没有配"。',
         '同一个 Key 走 /v5/place/text（照片）是通的 —— 两条接口需要分别开通。',
-        '若 info 是 MISSING_REQUIRED_PARAMS：v5 公交的必填是 origin / destination / **city1**（citycode），跨城加 city2。',
+        '公交用 **v3** 端点 /v3/direction/transit/integrated，城市参数是 **city**（citycode），跨城加 cityd。',
+        '同一个 Key、同一组坐标下，v5 端点 + city1 会回 20001 缺少必填参数 —— 别再试 v5。',
+        '若 info 是 MISSING_REQUIRED_PARAMS：先确认 city 有没有传（本地本该拦住，它是必填）。',
       ],
     });
   }

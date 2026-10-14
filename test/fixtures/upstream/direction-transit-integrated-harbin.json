@@ -65,8 +65,8 @@
                     "distance": "8476",
                     "duration": "870",
                     "via_num": "3",
-                    "start_time": "0532",
-                    "end_time": "2254",
+                    "start_time": [],
+                    "end_time": [],
                     "station_start_time": "0532",
                     "station_end_time": "2254",
                     "via_stops": [

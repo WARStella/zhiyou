@@ -147,9 +147,17 @@ test('地铁识别：`type` 含「地铁」→ 地铁；「普通公交线路」
   assert.equal(subway.departureStop, '中央大街');
   assert.equal(subway.arrivalStop, '世茂大道');
   assert.equal(subway.viaStationCount, 3);
-  // 首末班时间也要取出来 —— 界面可以据此提示"末班车快没了"
-  assert.equal(subway.startTime, '0532');
-  assert.equal(subway.endTime, '2254');
+  /**
+   * ⚠️ 首末班时间：实测发现 **`start_time` 是空数组**，值在 `station_start_time` 里。
+   * 而 `[]` 是 truthy —— `a || b` 会拿到 `[]`，界面渲染成空白且不报错。
+   *
+   * 这条断言第一次写的时候用了一个"我以为"的 fixture（`start_time: "0532"`），
+   * 于是测试绿着、线上却显示空 —— 又犯了"用自己编的样本测自己写的规则"。
+   * 现在 fixture 是**真实形状**（空数组 + station_*），断言也钉住回落行为。
+   */
+  assert.equal(FIXTURE.body.route.transits[0].segments[0].bus.buslines[0].start_time.length, 0, '前提：实测 start_time 是空数组');
+  assert.equal(subway.startTime, '0532', '应当回落到 station_start_time');
+  assert.equal(subway.endTime, '2254', '应当回落到 station_end_time');
 
   // 方案二的 126 路是普通公交
   const bus = parseTransit(FIXTURE.body).routes[1];
