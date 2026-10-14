@@ -23,6 +23,12 @@
 const { haversineMeters, DETOUR_FACTOR } = require('../geo');
 const { PLACE_POOL } = require('./fake-data');
 const { decodeRoute } = require('./polyline');
+/**
+ * 距离矩阵支持的方式 —— **从真实 provider 引入，不在这里再写一份**。
+ * 两处各写一份必然漂移，而漂移的后果是"假服务放行了一个线上会被拒的方式"，
+ * 于是测试绿灯、真机失败。
+ */
+const { MATRIX_MODES } = require('./matrix-modes');
 
 const WALK_SPEED_M_PER_MIN = 75;
 
@@ -39,6 +45,15 @@ function createFakeProvider(opts) {
    * **产品代码里不留测试钩子**。
    */
   const failWith = opts.failWith || null;
+  /**
+   * 距离矩阵的**显式注入值**（测试用）。
+   *
+   * 不编造缺省耗时：见 `distanceMatrix` 的说明。
+   * `matrixNoRoad` 用来模拟 `status: 4`（附近没有路）——
+   * 那是"直线距离被当成路面距离"的入口，必须能测到。
+   */
+  const matrixResults = opts.matrixResults || null;
+  const matrixNoRoad = opts.matrixNoRoad === true;
   /**
    * 假服务也遵守 Key 语义 —— 包括**前后空白要 trim**。
    * 否则真实世界最常见的粘贴错误（`"\t KEY"`）在本地测不到。
@@ -74,6 +89,124 @@ function createFakeProvider(opts) {
       };
     },
 
+    /**
+     * 距离矩阵的假实现。
+     *
+     * ⚠️ 与 `probeDirections` 同一条纪律：**假服务不编造耗时**。
+     *
+     * 编一组"步行 12 分钟 / 骑行 5 分钟"看起来很像真的，
+     * 而它会让"出行方式对比"这条链**误以为已经能跑**——
+     * 实际连矩阵接口通不通都还不知道。
+     *
+     * 所以：
+     *   · 缺省行为是**不返回可用结果**（`usable: false`），调用方必须显式注入
+     *     期望值才算"测过"（`opts.matrixResults`）；
+     *   · `status: 4`（附近没有路）这条**必须能被测到** —— 它正是
+     *     "直线距离被当成路面距离"那个坑的入口，所以留了 `matrixNoRoad` 开关。
+     */
+    async distanceMatrix(from, tos, mode) {
+      const base = {
+        provider: 'fake',
+        operation: 'distance/matrix',
+        mode: mode,
+        requestUrl: '(fake provider: no HTTP request)',
+        from: { latitude: from.latitude, longitude: from.longitude },
+      };
+
+      if (!key) {
+        return Object.assign(base, {
+          ok: false,
+          reason: 'MAP_KEY_NOT_CONFIGURED',
+          message: '云函数环境变量 MAP_KEY 未配置，无法调用地图服务',
+          elements: [],
+        });
+      }
+
+      /** 与真实 provider 一致：不支持的方式要明确拒绝，而不是悄悄换成驾车 */
+      if (!MATRIX_MODES.includes(mode)) {
+        return Object.assign(base, {
+          ok: false,
+          reason: 'MODE_NOT_SUPPORTED',
+          message: `距离矩阵不支持「${mode}」。可用：${MATRIX_MODES.join(' / ')}`,
+          elements: [],
+        });
+      }
+
+      const list = (tos || []).filter((t) => t && typeof t.latitude === 'number');
+      if (!list.length) {
+        return Object.assign(base, {
+          ok: false,
+          reason: 'TO_REQUIRED',
+          message: '距离矩阵至少需要一个终点',
+          elements: [],
+        });
+      }
+
+      const elements = list.map((target, i) => {
+        /** 显式注入的期望值（测试用） */
+        const injected = matrixResults && matrixResults[i] ? matrixResults[i] : null;
+        const noRoad = matrixNoRoad === true || (injected && injected.noRoad === true);
+
+        if (noRoad) {
+          /**
+           * 官方原文：`status: 4` 表示附近没有路、计算失败，
+           * 此时 `distance` 是**直线距离**且不返回 `duration`。
+           * 这里刻意给出一个"看起来很正常的距离" —— 正是不检查就会中招的形态。
+           */
+          return {
+            to: { latitude: target.latitude, longitude: target.longitude },
+            usable: false,
+            failureReason: 'NO_ROAD_NEARBY',
+            distanceMeters: 800,
+            durationSeconds: null,
+            durationMinutes: null,
+            rawStatus: 4,
+          };
+        }
+
+        if (!injected) {
+          return {
+            to: { latitude: target.latitude, longitude: target.longitude },
+            usable: false,
+            failureReason: 'FAKE_NO_DATA',
+            distanceMeters: null,
+            durationSeconds: null,
+            durationMinutes: null,
+            rawStatus: null,
+          };
+        }
+
+        return {
+          to: { latitude: target.latitude, longitude: target.longitude },
+          usable: true,
+          failureReason: null,
+          distanceMeters: injected.distanceMeters === undefined ? 1000 : injected.distanceMeters,
+          durationSeconds: injected.durationSeconds === undefined ? null : injected.durationSeconds,
+          durationMinutes:
+            injected.durationMinutes === undefined
+              ? injected.durationSeconds
+                ? Math.round((injected.durationSeconds / 60) * 10) / 10
+                : null
+              : injected.durationMinutes,
+          rawStatus: null,
+        };
+      });
+
+      return Object.assign(base, {
+        ok: true,
+        status: 0,
+        message: 'query ok',
+        timingMs: 1,
+        calculationCount: list.length,
+        elements,
+        usableCount: elements.filter((e) => e.usable).length,
+      });
+    },
+
+    /**
+     * 查询步行路线（假的）。
+     * @returns {Promise<object>} **调用方必须检查 `ok`**
+     */
     async walkingRoute(from, to) {
       const base = {
         provider: 'fake',

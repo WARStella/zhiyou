@@ -66,6 +66,15 @@ const DIRECTION_ENDPOINTS = {
   transit: 'https://apis.map.qq.com/ws/direction/v1/transit/',
 };
 
+/** 距离矩阵端点 —— 一次拿到"路面距离 + 耗时"，估算用，不画线 */
+const MATRIX_ENDPOINT = 'https://apis.map.qq.com/ws/distance/v1/matrix';
+
+/**
+ * 距离矩阵支持的方式 —— 从单一来源引入，**不在这里再写一份**。
+ * 依据与理由见 `matrix-modes.js`（关键一条：**没有公交**）。
+ */
+const { MATRIX_MODES, MATRIX_MAX_TO } = require('./matrix-modes');
+
 /**
  * 把响应体的**结构**抽出来（键路径 + 样本值），不硬编码字段名。
  *
@@ -196,6 +205,7 @@ function createTencentProvider(opts) {
   const http = opts.http || require('../http').defaultTransport;
   const baseUrl = opts.baseUrl || DEFAULT_BASE;
   const searchBaseUrl = opts.searchBaseUrl || DEFAULT_SEARCH_BASE;
+  const matrixBaseUrl = opts.matrixBaseUrl || MATRIX_ENDPOINT;
   const timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT_MS;
 
   return {
@@ -205,6 +215,168 @@ function createTencentProvider(opts) {
     keyMasked: key ? maskSecret(key) : null,
     /** Key 前后带有空白（粘贴污染），已自动去除。非空时应在自检结果里提示使用者修正 */
     keyWasTrimmed: normalized.trimmed,
+
+    /**
+     * 距离矩阵 —— 一次拿到**路面距离 + 耗时**，用于"这一段走多久/多远"的估算。
+     *
+     * ── 为什么单独有这个（而不是复用 walkingRoute）──────────
+     *
+     * 路线接口（`direction/v1`）返回的是**可直接画在地图上的折线 + 转向指引**，
+     * 代价是响应大、且每段每方式都要一次调用。
+     * 而"比较几种方式哪个快"只需要两个数：距离与耗时。
+     * 矩阵接口正好只给这两个数，且一次请求可算 1×N 对。
+     *
+     * ── 三条必须处理的约束（2026-10-14 查官方文档）──────────
+     *
+     * ① **只支持 walking / bicycling / driving，没有公交。**
+     *    公交要走 `direction/v1/transit`。把驾车耗时冒充公交耗时比不做更糟。
+     * ② **某对起终点算失败时 `status: 4`，此时 `distance` 是直线距离、且没有 `duration`。**
+     *    不检查这一条，就会把**直线距离当成路面距离**用 —— 正是本项目栽过的那类错
+     *    （"直线 10 米 / 实际步行 76 米"）。所以这种情况一律标 `usable: false`。
+     * ③ **计量按"计算次数"**（每对起终点计 1 次），不是请求次数。
+     *
+     * ⚠️ 文档没有说明步行方式是否返回 `duration`（旧版距离接口对步行恒返回 0），
+     * 所以这里把 `duration === 0` **当作"没给"**处理，而不是"零分钟"。
+     * 真实行为由 `map.matrixProbe` 实测确认。
+     *
+     * @param {{latitude:number,longitude:number}} from 单个起点
+     * @param {Array<{latitude:number,longitude:number}>} tos 多个终点
+     * @param {string} mode walking | bicycling | driving
+     */
+    async distanceMatrix(from, tos, mode) {
+      const m = mode;
+      const base = {
+        provider: 'tencent',
+        operation: 'distance/matrix',
+        mode: m,
+        from: { latitude: from.latitude, longitude: from.longitude },
+      };
+
+      if (!MATRIX_MODES.includes(m)) {
+        return Object.assign(base, {
+          ok: false,
+          reason: 'MODE_NOT_SUPPORTED',
+          message:
+            `距离矩阵不支持「${m}」。可用：${MATRIX_MODES.join(' / ')}。` +
+            '公交需单独走 direction/v1/transit（入参不同，要 policy 与城市码）',
+          elements: [],
+        });
+      }
+
+      const toList = (tos || []).filter(
+        (t) => t && typeof t.latitude === 'number' && typeof t.longitude === 'number'
+      );
+      if (!toList.length) {
+        return Object.assign(base, {
+          ok: false,
+          reason: 'TO_REQUIRED',
+          message: '距离矩阵至少需要一个终点',
+          elements: [],
+        });
+      }
+      if (toList.length > MATRIX_MAX_TO) {
+        return Object.assign(base, {
+          ok: false,
+          reason: 'TOO_MANY_TARGETS',
+          message: `一对多计算最多 ${MATRIX_MAX_TO} 个终点，收到 ${toList.length} 个`,
+          elements: [],
+        });
+      }
+
+      const requestUrl =
+        `${matrixBaseUrl}?mode=${encodeURIComponent(m)}` +
+        `&from=${from.latitude},${from.longitude}` +
+        `&to=${toList.map((t) => `${t.latitude},${t.longitude}`).join(';')}` +
+        `&key=${encodeURIComponent(key)}`;
+
+      if (!key) {
+        return Object.assign(base, {
+          ok: false,
+          requestUrl: redact(requestUrl),
+          reason: 'MAP_KEY_NOT_CONFIGURED',
+          message: '云函数环境变量 MAP_KEY 未配置，无法调用地图服务',
+          hint: '云开发控制台 → 云函数 → api → 配置 → 环境变量 → 新增 MAP_KEY',
+          elements: [],
+        });
+      }
+
+      const started = Date.now();
+      let res;
+      try {
+        res = await http(requestUrl, { timeoutMs });
+      } catch (e) {
+        return Object.assign(base, {
+          ok: false,
+          requestUrl: redact(requestUrl),
+          reason: e && e.code === 'UPSTREAM_MAP_FAILED' ? 'UPSTREAM_FAILED' : 'UNKNOWN',
+          message: (e && e.message) || String(e),
+          details: (e && e.details) || null,
+          timingMs: Date.now() - started,
+          elements: [],
+        });
+      }
+
+      const timingMs = Date.now() - started;
+      const body = res.json || {};
+      const status = body.status;
+      const rows = (body.result && Array.isArray(body.result.rows) && body.result.rows) || [];
+      /** 单起点 → 只有一行 */
+      const cells = (rows[0] && Array.isArray(rows[0].elements) && rows[0].elements) || [];
+
+      const elements = toList.map((target, i) => {
+        const cell = cells[i] || null;
+        /**
+         * ⚠️ `cell.status === 4` 表示"附近没有路，计算失败"，
+         * 此时 `distance` 是**直线距离**、且没有 `duration`。
+         * 必须如实标出来，不能当成路面距离。
+         */
+        const failed = !cell || cell.status === 4 || typeof cell.distance !== 'number';
+        const durationRaw = cell && typeof cell.duration === 'number' ? cell.duration : null;
+
+        return {
+          to: { latitude: target.latitude, longitude: target.longitude },
+          usable: !failed,
+          failureReason: failed
+            ? !cell
+              ? 'NO_CELL'
+              : cell.status === 4
+                ? 'NO_ROAD_NEARBY'
+                : 'DISTANCE_MISSING'
+            : null,
+          /** ⚠️ 失败时这里是**直线距离**，`usable: false` 就是提醒这件事 */
+          distanceMeters: cell && typeof cell.distance === 'number' ? cell.distance : null,
+          durationSeconds: durationRaw,
+          /**
+           * 归一化成分钟。`null` 表示**上游没给时长**（不是 0 分钟）——
+           * 调用方此时应回落到步行速度估算，并把这个回落如实告诉用户。
+           */
+          durationMinutes:
+            durationRaw === null || durationRaw === 0
+              ? null
+              : Math.round((durationRaw / 60) * 10) / 10,
+          rawStatus: cell ? (cell.status === undefined ? null : cell.status) : null,
+        };
+      });
+
+      return Object.assign(base, {
+        ok: status === 0,
+        requestUrl: redact(requestUrl),
+        reason: status === 0 ? null : 'UPSTREAM_STATUS_' + String(status),
+        status,
+        message: body.message || null,
+        hint: status === 0 ? null : statusHint(status),
+        httpStatus: res.httpStatus,
+        timingMs,
+        /** 本次消耗的"计算次数"——矩阵按对计量，不是按请求 */
+        calculationCount: toList.length,
+        parsedVia: { list: 'result.rows[0].elements[]', distance: 'distance', duration: 'duration' },
+        elements,
+        /** 有几对是可用的路面结果 —— 界面要能说清"几条能用" */
+        usableCount: elements.filter((e) => e.usable).length,
+        rawHead: String(res.rawBody || '').slice(0, RAW_HEAD_LIMIT),
+      });
+    },
+
 
     /**
      * 查询步行路线。
