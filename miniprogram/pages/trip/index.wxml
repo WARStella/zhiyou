@@ -403,13 +403,20 @@
           </view>
           <view class="leg-body">
             <!--
-              出行方式 + 图标。⚠️ 在此之前这里只渲染 `'步行'` 或空字符串 ——
-              公交/骑行/驾车一律空白（接入多种方式时漏改的）。
+              出行方式 + 图标。
+              ⚠️ 这里必须用 **`modeName`**（中文名），不是 `mode`。
+              `mode` 是**原始值**（`driving`/`transit`/…），
+              `modeName` 才是给人看的 `驾车`/`公交`。
+
+              我一度渲染成 `mode`，于是界面上出现「🚗 驾车」与
+              「🚗 driving」两种写法并存 —— 用户一眼就看出来了。
+              原始值只该出现在日志与测试断言里，不该给用户看。
             -->
             <text class="leg-mode">
-              <block wx:if="{{item.legToNext.modeIcon}}">{{item.legToNext.modeIcon}} </block>{{item.legToNext.mode}}
+              <block wx:if="{{item.legToNext.modeIcon}}">{{item.legToNext.modeIcon}} </block>{{item.legToNext.modeName}}
             </text>
-            <text class="leg-time">{{item.legToNext.minutes}} 分钟</text>
+            <text wx:if="{{item.legToNext.minutes}}" class="leg-time">{{item.legToNext.minutes}} 分钟</text>
+            <text wx:else class="leg-warn">没取到出行方案</text>
             <text class="leg-dist">{{item.legToNext.meters}} 米</text>
             <!--
               来源与方式是两个维度，**都要显示**：

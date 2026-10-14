@@ -106,6 +106,9 @@ module.exports = {
    */
   'transit.probe': require('./transit-probe'),
 
+  /** 距离矩阵探针 —— 单位与 mode 的实测（见下方注册处的说明） */
+  'map.matrixProbe': require('./matrix-probe').probe,
+
   // 地图服务（10/14 验证）
   'map.probe': map.probe,
 
