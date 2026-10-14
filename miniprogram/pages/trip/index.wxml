@@ -248,36 +248,7 @@
         show-location="{{false}}"
       ></map>
       <view class="sub">{{routeMap.legend}}</view>
-      <view class="sub">点时间轴上的任意一站可以全屏看它在哪。</view>
-    </view>
-
-    <!--
-      ══════════ 全屏地图（2026-10-14 用户要求）══════════════
-
-      "地图界面再点击到达后展开占据全屏并放大为景点的地图"
-
-      用**固定定位的整屏覆盖层**而不是 `navigateTo` 一个新页面：
-        · 新页面要重新取路线、重新渲染，会闪一下；
-        · 覆盖层点"收起"立刻回到原来的滚动位置，行程上下文不丢。
-
-      ⚠️ 用 `wx:if` 而不是 `hidden`：微信的 `map` 是**原生组件**，
-      `hidden` 只是视觉隐藏，原生层可能仍然盖在页面上（这是原生组件
-      的已知行为）。`wx:if` 会真正销毁，收起后不会残留。
-    -->
-    <view wx:if="{{mapExpanded && mapFocus}}" class="map-full">
-      <map
-        id="fullMap"
-        class="map-full-canvas"
-        latitude="{{mapFocus.latitude}}"
-        longitude="{{mapFocus.longitude}}"
-        scale="{{mapFocus.scale}}"
-        markers="{{routeMap.markers}}"
-        show-location="{{true}}"
-      ></map>
-      <view class="map-full-bar">
-        <text class="map-full-name">{{mapFocus.placeName}}</text>
-        <text class="map-full-close" bindtap="closeFullMap">收起</text>
-      </view>
+      <view class="sub">点时间轴上的任意一站可以到地图上放大看它在哪。</view>
     </view>
 
     <!--

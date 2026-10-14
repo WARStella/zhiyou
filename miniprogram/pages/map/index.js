@@ -99,6 +99,14 @@ Page({
     myLocatedAt: '',
     pickMode: false,
     meetingPoint: null,
+    /**
+     * 聚焦到的景点（2026-10-14 用户要求：行程页点「到了」跳到地图并放大）。
+     *
+     * ⚠️ 要在初始 data 里声明。只在 setData 时赋值的话，
+     * 模板首帧读 `undefined.placeName` 会抛异常并**把整页打白** ——
+     * 「我的」页刚因为同一类问题白过一次。
+     */
+    focusPlace: null,
     nearby: [],
     /**
      * 照片：`{ [placeId]: { photos, note, level, verification } }`。
@@ -184,13 +192,26 @@ Page({
     }
 
     /**
-     * 顺序是有意的：**先把我自己放上去，再读路线**。
+     * 顺序是有意的：**先处理"要聚焦的景点"，再走默认逻辑**。
      *
-     * `loadActiveTrip()` 在没有定位可用时会退而把视野收到路线上
-     * （见 `recenterOnMe` 的分工说明）。反过来先读路线的话，
-     * 定位回调回来再挪镜头，用户会看到地图先跳到路线、再跳回自己身上。
+     * 聚焦是用户刚在行程页明确表达的动作（点「到了」或点站名），
+     * 它必须**赢过**"回到我的位置"这个默认行为 ——
+     * 否则用户点了「到了」，跳过来看到的却是自己脚下，会以为没生效。
+     *
+     * `applyPendingFocus()` 返回 true 表示这次确实有聚焦请求，
+     * 那就**跳过 autoLocate 与 fitRoute**（它们都会抢镜头）。
      */
-    this.autoLocate()
+    const focused = this.applyPendingFocus()
+    if (!focused) {
+      /**
+       * 顺序是有意的：**先把我自己放上去，再读路线**。
+       *
+       * `loadActiveTrip()` 在没有定位可用时会退而把视野收到路线上
+       * （见 `recenterOnMe` 的分工说明）。反过来先读路线的话，
+       * 定位回调回来再挪镜头，用户会看到地图先跳到路线、再跳回自己身上。
+       */
+      this.autoLocate()
+    }
     this.loadActiveTrip()
   },
 
@@ -447,6 +468,70 @@ Page({
       },
     })
     return true
+  },
+
+  /**
+   * ── 聚焦到某个景点（2026-10-14 用户要求）──────────────────
+   *
+   * 用户在行程页点「到了」或点站名 → 跳到这里并放大到那一站。
+   *
+   * ── 为什么走 storage 而不是 URL 参数 ──────────────────────
+   *
+   * 地图是 **tab 页**，`wx.switchTab` **不支持 URL 参数** ——
+   * 传了会被静默忽略。所以按项目里的既有约定
+   * （`zhiyou-active-trip` / `zhiyou-active-crew`）走 storage。
+   *
+   * ⚠️ **读完立刻清掉**。不清的话：
+   *   · 用户下次自己切到地图页，镜头又飞到那个景点上，而他没要求；
+   *   · 那时行程可能已经变了，这个"聚焦"是过期的。
+   *   与 `rememberActiveTrip` 的"只存是哪一个、不存内容"同一条纪律。
+   *
+   * @returns {boolean} 是否成功聚焦（供 `onShow` 决定要不要抢镜头）
+   */
+  applyPendingFocus() {
+    let focus = null
+    try {
+      focus = wx.getStorageSync('zhiyou-focus-place') || null
+      /** 不管后续成不成功，**先清掉** —— 见上面的说明 */
+      if (focus) wx.removeStorageSync('zhiyou-focus-place')
+    } catch (e) {
+      return false
+    }
+    if (!focus || typeof focus.latitude !== 'number' || typeof focus.longitude !== 'number') {
+      return false
+    }
+
+    /**
+     * ⚠️ 过期判断：超过 2 分钟的聚焦请求不再执行。
+     *
+     * 为什么需要：storage 是持久的，若某次写完就再没打开过地图页
+     * （比如用户跳转失败），这个值会一直躺着 —— 几天后他切到地图页，
+     * 镜头突然飞到一个早就去过的景点。那是"过期的数据比没有更糟"。
+     */
+    if (focus.at && Date.now() - focus.at > 2 * 60 * 1000) return false
+
+    const scale = typeof focus.scale === 'number' ? focus.scale : 16
+    this.setData({
+      focusPlace: {
+        placeName: focus.placeName || '这一站',
+        latitude: focus.latitude,
+        longitude: focus.longitude,
+        scale: scale,
+      },
+      /**
+       * 地图是**受控组件**：`center` 与 `scale` 是它的属性
+       * （见 wxml 里的 `longitude="{{center.longitude}}"`）。
+       * 改这两个值镜头就会移过去 —— 不需要再调 MapContext。
+       */
+      center: { latitude: focus.latitude, longitude: focus.longitude },
+      scale: scale,
+    })
+    return true
+  },
+
+  /** 关掉聚焦提示条（不改变镜头位置） */
+  clearFocusPlace() {
+    this.setData({ focusPlace: null })
   },
 
   /**

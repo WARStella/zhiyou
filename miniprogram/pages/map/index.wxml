@@ -20,6 +20,16 @@
 
   <view class="body">
     <!--
+      聚焦提示条（2026-10-14 用户要求）。
+      从行程页点「到了」跳过来时，这里说明"现在看的是哪一站"，
+      否则用户只看到地图突然放大，不知道在看什么。
+    -->
+    <view wx:if="{{focusPlace}}" class="focus-bar">
+      <text class="focus-name">📍 {{focusPlace.placeName}}</text>
+      <text class="focus-close" bindtap="clearFocusPlace">知道了</text>
+    </view>
+
+    <!--
       ⚠️ `source` 也要 `|| ''`（2026-10-14）：它与 trip 页的 `personalTripId`
       是同一类问题 —— 页面 data 初始化成 `null`，而组件把该属性声明为 String。
       小程序里**属性传 `null` 不算"没传"**（那要用 `undefined` 或省略），

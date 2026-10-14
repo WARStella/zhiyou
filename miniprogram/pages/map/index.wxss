@@ -193,3 +193,19 @@
   border-radius: 8rpx;
   padding: 12rpx 16rpx;
 }
+
+/* 聚焦提示条（2026-10-14）
+   从行程页点「到了」跳过来时说明"现在看的是哪一站"，
+   否则用户只看到地图突然放大，不知道在看什么。 */
+.focus-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #eef4fb;
+  border: 1rpx solid #cfe0f2;
+  border-radius: 12rpx;
+  padding: 14rpx 20rpx;
+  margin-bottom: 16rpx;
+}
+.focus-name { font-size: 26rpx; color: #0b3c6e; font-weight: 600; }
+.focus-close { font-size: 24rpx; color: #65758a; }

@@ -247,18 +247,6 @@ Page({
   modeLabel: MODE_OPTIONS[0].label,
 
   /**
-   * 全屏地图（2026-10-14 用户要求）。
-   *
-   * `mapExpanded` 控制是否占据全屏；`mapFocus` 是"聚焦到哪一站"。
-   *
-   * ⚠️ 两个字段都要在初始 data 里声明 —— 只在 setData 时赋值的话，
-   * 模板首帧读 `undefined.placeName` 会抛异常并**把整页打白**
-   * （「我的」页刚因为同一类问题白屏过一次）。
-   */
-  mapExpanded: false,
-  mapFocus: null,
-
-  /**
    * 逐段出行方式选择器（2026-10-14）。
    *
    * `legPickerOpen`：面板是否展开。
@@ -1378,46 +1366,53 @@ Page({
   },
 
   /**
-   * ── 展开成全屏地图并聚焦某站（2026-10-14 用户要求）────────
+   * ── 跳到地图页并聚焦某站（2026-10-14 用户要求）──────────────
    *
-   * 用户原话："地图界面再点击到达后展开占据全屏并放大为景点的地图"
+   * 用户先说要"展开占据全屏"，随后更正："应该是点击到了以后**跳转到
+   * 地图页面**，然后地图放大" —— 那就是真实页面跳转，不是覆盖层。
    *
-   * 交互设计：点「到了」时**顺带**展开全屏地图并聚焦那一站。
-   * 理由是"到了"这个动作本身就在问"我到了，接下来往哪走"，
-   * 而全屏地图 + 放大到该景点正是这个问题的答案。
-   * 用户不想要时点右上角收起即可，**不影响"到了"本身已记录的事实**。
+   * ⚠️ 地图是 **tab 页**，`wx.switchTab` **不支持 URL 参数**
+   *    （传了会被忽略，而且不报错）。所以按项目里已有的约定
+   *    （`zhiyou-active-trip` / `zhiyou-active-crew`）走 storage 传值：
+   *    这里写"要聚焦哪一站"，地图页 `onShow` 读一次。
    *
    * @param {object} node 时间线节点（要有 location 与 placeName）
    */
-  openFullMap(node) {
+  goToMapFocus(node) {
     const loc = node && node.location
     if (!loc || typeof loc.latitude !== 'number') {
-      /** 没有坐标就不展开 —— 展开一个空地图比不展开更让人困惑 */
+      /**
+       * 没有坐标就不跳 —— 跳过去看到一个没聚焦的地图，
+       * 用户会以为按钮坏了。
+       */
+      this.setData({ note: '这一站没有坐标，地图上定位不了' })
       return
     }
-    this.setData({
-      mapExpanded: true,
-      mapFocus: {
+    try {
+      wx.setStorageSync('zhiyou-focus-place', {
         placeName: node.placeName || '这一站',
         latitude: loc.latitude,
         longitude: loc.longitude,
-        /**
-         * 放大到"能看清这个景点周边"的程度。
-         * 16 是步行导航常用的层级：街道名与路口都看得清，
-         * 又不至于只剩几栋楼。
-         */
+        /** 16 是步行导航常用层级：街道名与路口看得清，又不至于只剩几栋楼 */
         scale: 16,
-      },
+        at: Date.now(),
+      })
+    } catch (e) {
+      /**
+       * ⚠️ 写不进去就**如实说不跳**，而不是照跳 ——
+       * 跳过去地图不知道要聚焦哪里，用户看到的是一个普通地图，
+       * 会以为"点到了没用"。见 `rememberActiveTrip` 的同一条纪律。
+       */
+      this.setData({ note: '本地存不下聚焦位置，地图可能不会放大到这一站' })
+    }
+    wx.switchTab({
+      url: '/pages/map/index',
+      fail: () => this.setData({ note: '地图页打开失败，请手动切到「地图」' }),
     })
   },
 
-  /** 收起全屏地图，回到行程 */
-  closeFullMap() {
-    this.setData({ mapExpanded: false, mapFocus: null })
-  },
-
   /**
-   * 点时间线上的某一站 → 全屏看它在哪。
+   * 点时间线上的某一站 → 去地图上放大看它。
    *
    * ⚠️ 这个动作**只改变视图，不改变任何进度**。
    *    "到了"才是记录事实；看一眼地图不该被记成到达。
@@ -1426,7 +1421,7 @@ Page({
     const nodeId = e.currentTarget.dataset.nodeid
     /** 时间线里已经带了 location（见 `buildTimelineView`），不必回查 rawNodes */
     const node = (this.data.timeline || []).find((n) => n.nodeId === nodeId)
-    if (node) this.openFullMap(node)
+    if (node) this.goToMapFocus(node)
   },
 
   /**
@@ -1892,20 +1887,20 @@ Page({
           () => {
             that.rebuildFromNodes()
             /**
-             * ── 点「到了」后展开全屏地图并聚焦这一站 ──────────────
-             * （2026-10-14 用户要求："地图界面再点击到达后展开占据全屏
-             *   并放大为景点的地图"）
+             * ── 点「到了」后跳到地图页并放大到这一站 ──────────────
+             * （2026-10-14 用户要求："点击到了以后**跳转到地图页面**，
+             *   然后地图放大"）
              *
-             * ⚠️ 只在**真的记成功了**之后才展开（这里就是成功分支）。
-             *    在 `setData` 之前展开的话，请求失败时地图已经弹出来了，
-             *    而用户以为自己已经到达 —— 那是个会误导人的状态。
+             * ⚠️ 只在**真的记成功了**之后才跳（这里就是成功分支）。
+             *    在 `setData` 之前跳的话，请求失败时用户已经在地图页了，
+             *    而行程里的"到达"并没有记上 —— 他会以为自己到了。
              *
-             * ⚠️ 只在 `arrived` 时展开，`done`/`skipped` 不展开：
+             * ⚠️ 只在 `arrived` 时跳，`done`/`skipped` 不跳：
              *    「逛完了」「不去了」都不需要"我在哪、怎么去"这个答案。
              */
             if (status === 'arrived') {
               const node = (freshNodes || []).find((n) => n.nodeId === nodeId)
-              that.openFullMap(node)
+              if (node) that.goToMapFocus(node)
             }
           }
         )

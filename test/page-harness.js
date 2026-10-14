@@ -105,6 +105,15 @@ function loadPage(relPath, opts) {
       }),
       showToast: (a) => wxCalls.push({ fn: 'showToast', args: a }),
       openLocation: (a) => wxCalls.push({ fn: 'openLocation', args: a }),
+      /**
+       * 页面跳转替身（2026-10-14 加）。
+       *
+       * `switchTab` 是**切 tab 页**用的，与 `navigateTo` 不同：
+       * 它**不支持 URL 参数**（传了会被静默忽略）。所以跨页传值一律走
+       * storage —— 行程页点「到了」跳到地图并聚焦那一站就是这么做的。
+       */
+      switchTab: (a) => wxCalls.push({ fn: 'switchTab', args: a }),
+      navigateTo: (a) => wxCalls.push({ fn: 'navigateTo', args: a }),
       pageScrollTo: (a) => wxCalls.push({ fn: 'pageScrollTo', args: a }),
       /**
        * 视口尺寸替身（2026-10-14 加）。
