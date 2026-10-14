@@ -469,3 +469,107 @@ test('预选要说明"为什么是它"，搜不到的词也要如实说', () => 
   );
   assert.match(page.data.note, /没找到.*哈学院/, '搜不到的词不能说成找到了');
 });
+
+// ── 出行方式（2026-10-14 接入）────────────────────────────
+
+test('时间轴上要显示真实出行方式，不是一律"步行"', () => {
+  /**
+   * ⚠️ 这条守着一个**已经存在过的错**：
+   *
+   *     mode: next.travelMode === 'walking' ? '步行' : ''
+   *     mode: next.travelMode === 'walking' ? '步行' : next.travelMode === 'none' ? '' : '步行'
+   *
+   * 两处，一处把非步行渲染成空白，另一处把非步行**兜底成"步行"**。
+   * 后果：一段 63 分钟的 126 路会被显示成"步行 63 分钟"。
+   * 那是接入多种出行方式时漏改的 —— 后端算对了，界面没显示。
+   */
+  const page = pageWithTrip({
+    tripData: {
+      nodes: [
+        node('n0', '中央大街', 'done', 0),
+        node('n1', '冰雪大世界', 'pending', 1, {
+          travelMode: 'transit',
+          travelFromPrevMin: 63,
+          travelFromPrevMeters: 1538,
+          travelSource: 'upstream',
+          travelProvider: 'amap-transit',
+          travelReason: '公交比步行省 78 分钟',
+          travelTransit: {
+            lineNames: ['126路(防洪纪念塔(友谊路)--枫叶小镇奥特莱斯)'],
+            entranceName: null,
+            exitName: null,
+            costYuan: 2,
+            hasSubway: false,
+          },
+        }),
+      ],
+    },
+  });
+
+  const tl = page.data.timeline;
+  const leg = tl[0].legToNext;
+  assert.ok(leg, '第一站到第二站之间应当有出行段');
+  assert.equal(leg.modeName, '公交', '出行方式要显示成公交，不能留空、更不能显示"步行"');
+  assert.equal(leg.modeIcon, '🚇');
+  assert.equal(leg.minutes, 63);
+  /** 来源与方式是两个维度，都要显示 */
+  assert.equal(leg.sourceLabel, '地图计算');
+  /** 为什么选它 —— 只给结论不给理由，用户没法判断该不该接受 */
+  assert.match(leg.reason, /省 78 分钟/);
+  /** 换乘细节：几号线、票价 */
+  assert.match(leg.transitText, /126路/);
+  assert.match(leg.transitText, /2 元/);
+});
+
+test('公交有出入口时要说清"几号口进、几号口出"—— 集合协同最需要这句', () => {
+  const page = pageWithTrip({
+    tripData: {
+      nodes: [
+        node('n0', '中央大街', 'done', 0),
+        node('n1', '冰雪大世界', 'pending', 1, {
+          travelMode: 'transit',
+          travelFromPrevMin: 69.5,
+          travelSource: 'upstream',
+          travelTransit: {
+            lineNames: ['地铁2号线(气象台--江北大学城)'],
+            entranceName: '1号口',
+            exitName: '3号口',
+            costYuan: 3,
+            hasSubway: true,
+          },
+        }),
+      ],
+    },
+  });
+
+  const leg = page.data.timeline[0].legToNext;
+  assert.match(leg.transitText, /地铁2号线/);
+  assert.match(leg.transitText, /1号口进 3号口出/, '同伴问"在哪个口等"时要答得上');
+});
+
+test('直线估算必须标出来 —— 它与真实路线在短距离下能差 7 倍', () => {
+  const page = pageWithTrip({
+    tripData: {
+      nodes: [
+        node('n0', 'A', 'done', 0),
+        node('n1', 'B', 'pending', 1, {
+          travelMode: 'walking',
+          travelSource: 'estimated',
+          travelFromPrevMin: 2,
+        }),
+      ],
+    },
+  });
+
+  const leg = page.data.timeline[0].legToNext;
+  assert.equal(leg.warn, '估算');
+  assert.equal(leg.sourceLabel, '直线估算');
+});
+
+test('步行仍然正常显示 —— 别为了修公交把最常见的那个弄坏', () => {
+  const page = pageWithTrip();
+  const leg = page.data.timeline[0].legToNext;
+  assert.equal(leg.modeName, '步行');
+  assert.equal(leg.modeIcon, '🚶');
+  assert.equal(leg.sourceLabel, '踏勘实测');
+});

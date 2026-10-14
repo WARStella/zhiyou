@@ -256,26 +256,38 @@ function loadPage(relPath, opts) {
   return page;
 }
 
-/** 造一条行程节点（后端 trip.plan / trip.progress 的返回形状） */
-function node(id, name, status, seq) {
-  return {
-    nodeId: id,
-    placeId: 'p_' + id,
-    placeName: name,
-    seq: seq,
-    location: { latitude: 45.77 + seq * 0.001, longitude: 126.61 + seq * 0.001 },
-    verified: true,
-    plannedArriveAt: '2026-10-20T01:00:00.000Z',
-    plannedLeaveAt: '2026-10-20T01:45:00.000Z',
-    plannedStayMin: 45,
-    travelFromPrevMin: seq === 0 ? 0 : 8,
-    travelFromPrevMeters: seq === 0 ? 0 : 620,
-    travelSource: seq === 0 ? 'none' : 'survey',
-    travelMode: seq === 0 ? 'none' : 'walking',
-    status: status,
-    actualArriveAt: null,
-    actualLeaveAt: null,
-  };
+/**
+ * 造一条行程节点（后端 trip.plan / trip.progress 的返回形状）。
+ *
+ * `extra` 用来覆盖或追加字段 —— 出行方式接入后，公交/骑行/驾车的节点
+ * 需要有 `travelMode` / `travelReason` / `travelTransit` 才能测。
+ * 默认仍是步行。
+ */
+function node(id, name, status, seq, extra) {
+  return Object.assign(
+    {
+      nodeId: id,
+      placeId: 'p_' + id,
+      placeName: name,
+      seq: seq,
+      location: { latitude: 45.77 + seq * 0.001, longitude: 126.61 + seq * 0.001 },
+      verified: true,
+      plannedArriveAt: '2026-10-20T01:00:00.000Z',
+      plannedLeaveAt: '2026-10-20T01:45:00.000Z',
+      plannedStayMin: 45,
+      travelFromPrevMin: seq === 0 ? 0 : 8,
+      travelFromPrevMeters: seq === 0 ? 0 : 620,
+      travelSource: seq === 0 ? 'none' : 'survey',
+      travelMode: seq === 0 ? 'none' : 'walking',
+      travelReason: null,
+      travelProvider: null,
+      travelTransit: null,
+      status: status,
+      actualArriveAt: null,
+      actualLeaveAt: null,
+    },
+    extra || {}
+  );
 }
 
 module.exports = { loadPage, node };

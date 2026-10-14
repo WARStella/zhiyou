@@ -65,6 +65,10 @@ function buildTimeline(p) {
     /** 选这一段的理由与来源，供界面直接展示（§6.5「改得清楚」） */
     let travelReason = null;
     let travelProvider = null;
+    /** 这个数可不可信（估算？上游没给时长？）—— 与"为什么选它"是两个维度 */
+    let travelCandidateReason = null;
+    /** 公交的换乘细节（几号线、哪个口）—— 集合协同时最有用 */
+    let travelTransit = null;
 
     /** 有真实覆盖就用它 —— **优先级高于缓存与估算** */
     const ov = overrides[item.placeId];
@@ -77,6 +81,8 @@ function buildTimeline(p) {
         travelMode = ov.mode || 'walking';
         travelReason = ov.reason || null;
         travelProvider = ov.provider || null;
+        travelCandidateReason = ov.candidateReason || null;
+        travelTransit = ov.transit || null;
         travelFromStart = true;
       } else if (p.startLeg && typeof p.startLeg.minutes === 'number') {
         /**
@@ -98,6 +104,8 @@ function buildTimeline(p) {
       travelMode = ov.mode || 'walking';
       travelReason = ov.reason || null;
       travelProvider = ov.provider || null;
+      travelCandidateReason = ov.candidateReason || null;
+      travelTransit = ov.transit || null;
     } else if (prevPlace) {
       const w = geo.walkMinutes(prevPlace, place, params);
       if (w) {
@@ -164,6 +172,10 @@ function buildTimeline(p) {
       travelReason,
       /** 这个数是哪家给的（tencent-matrix / amap-transit / cache / estimate） */
       travelProvider,
+      /** 这个数可不可信（估算？上游没给时长？）—— 与 travelReason 是两个维度 */
+      travelCandidateReason,
+      /** 公交的换乘细节（几号线、哪个口）—— 只在 transit 上有 */
+      travelTransit,
       /** 该段是否从"出发位置"（我的位置）算起 */
       travelFromStart,
       plannedArriveAt: arriveAt,
@@ -237,6 +249,10 @@ function toNodes(legs, source) {
     travelReason: l.travelReason || null,
     /** 这个数是哪家给的（tencent-matrix / amap-transit / cache / estimate） */
     travelProvider: l.travelProvider || null,
+    /** 这个数可不可信（估算？上游没给时长？）*/
+    travelCandidateReason: l.travelCandidateReason || null,
+    /** 公交的换乘细节（几号线、1 号口进 3 号口出）—— 集合协同时最有用 */
+    travelTransit: l.travelTransit || null,
     travelFromStart: l.travelFromStart === true,
     status: 'pending',
     actualArriveAt: null,

@@ -30,6 +30,63 @@ const STATUS_LABEL = {
 }
 
 /**
+ * 出行方式的中文名与图标。
+ *
+ * ⚠️ 在此之前时间轴上是这么写的：
+ *
+ *     mode: next.travelMode === 'walking' ? '步行' : ''
+ *
+ * —— **除步行以外全渲染成空白**。而哈尔滨的景点跨区，公交与驾车是常态，
+ * 于是界面上会出现"两个站之间什么都不显示"。那是我在接入多种方式时漏掉的。
+ *
+ * 名字与后端 `lib/mode-choice.js` 的 MODE_LABEL 保持一致口径；
+ * 图标用文字符号而不是图片资源，避免再增一批要维护的 png。
+ */
+const MODE_LABEL = {
+  walking: { name: '步行', icon: '🚶' },
+  bicycling: { name: '骑行', icon: '🚲' },
+  driving: { name: '驾车', icon: '🚗' },
+  transit: { name: '公交', icon: '🚇' },
+}
+
+/** 换算成人能读的出行方式说明；取不到就如实说"未知"，不留空 */
+function modeInfo(mode) {
+  return MODE_LABEL[mode] || { name: '', icon: '' }
+}
+
+/**
+ * 这个数可不可信 —— 与"怎么走"是**两个维度**，必须分开显示。
+ *
+ *   survey    踏勘实测，最可信
+ *   upstream  地图接口返回的真实路线（**预测**，不是实测）
+ *   estimated 直线估算 —— 短距离下与真实路线能差 7 倍
+ */
+const SOURCE_LABEL = {
+  survey: '踏勘实测',
+  upstream: '地图计算',
+  estimated: '直线估算',
+  none: '',
+}
+
+/**
+ * 公交的换乘细节说成一句人话。
+ *
+ * 「地铁2号线 · 1号口进 3号口出 · 2 元」比「公交 63 分钟」有用得多 ——
+ * 后者在**集合协同**里帮不上忙（同伴问"在哪个口等"，答不上来）。
+ *
+ * 出入口是实测发现上游会给的字段（文档示例里没提），对集合点最实用。
+ */
+function describeTransit(t) {
+  if (!t) return ''
+  const parts = []
+  if (t.lineNames && t.lineNames.length) parts.push(t.lineNames.join(' → '))
+  if (t.entranceName && t.exitName) parts.push(`${t.entranceName}进 ${t.exitName}出`)
+  else if (t.entranceName) parts.push(`${t.entranceName}进`)
+  if (typeof t.costYuan === 'number') parts.push(`${t.costYuan} 元`)
+  return parts.join(' · ')
+}
+
+/**
  * 进度操作 —— **记录事实**，不重新规划。
  *
  * 与 `多停/少停/不去了` 那组（走 trip.adjust，会重新规划行程）是两回事：
@@ -733,12 +790,25 @@ Page({
         /** 本节点 → 下一节点之间的出行段；末节点为 null */
         legToNext: next
           ? {
-              mode: next.travelMode === 'walking' ? '步行' : '',
+              mode: next.travelMode || '',
+              modeName: modeInfo(next.travelMode).name,
+              modeIcon: modeInfo(next.travelMode).icon,
               minutes: next.travelFromPrevMin,
               meters: next.travelFromPrevMeters,
               // 只有"直线估算"需要提醒 —— 它与真实路线在短距离下能差 7 倍
               warn: next.travelSource === 'estimated' ? '估算' : '',
               source: next.travelSource,
+              /** 这个数可不可信（与"怎么走"是两个维度） */
+              sourceLabel: SOURCE_LABEL[next.travelSource] || '',
+              /**
+               * 为什么选这个方式 —— 后端 `mode-choice` 给的，可直接展示。
+               * 如「公交比步行省 78 分钟」。这是"改得清楚"的一部分：
+               * 只给结论不给理由，用户没法判断该不该接受。
+               */
+              reason: next.travelReason || '',
+              /** 公交的换乘细节：几号线、哪个口 */
+              transit: next.travelTransit || null,
+              transitText: describeTransit(next.travelTransit),
               /**
                * ⚠️ 判据是**下一站到了没有**，不是"本站走完了"。
                * 点完 1 号的「逛完了」，你还没走到 2 号 —— 这一段没走过。
@@ -1155,10 +1225,22 @@ Page({
     return {
       from: fromNode.placeName,
       to: next.placeName,
-      mode: next.travelMode === 'walking' ? '步行' : next.travelMode === 'none' ? '' : '步行',
+      /**
+       * ⚠️ 这里原来是：
+       *     next.travelMode === 'walking' ? '步行' : next.travelMode === 'none' ? '' : '步行'
+       * —— **非步行的一律兜底成"步行"**。接入公交/驾车后那是错的：
+       * 一段 63 分钟的 126 路会被显示成"步行 63 分钟"。
+       */
+      mode: next.travelMode === 'none' ? '' : modeInfo(next.travelMode).name,
+      modeIcon: next.travelMode === 'none' ? '' : modeInfo(next.travelMode).icon,
+      /** 为什么选这个方式（"公交比步行省 78 分钟"）—— 只给结论不给理由，用户没法判断 */
+      reason: next.travelReason || '',
+      /** 公交的换乘细节 */
+      transitText: describeTransit(next.travelTransit),
       minutes: next.travelFromPrevMin,
       meters: next.travelFromPrevMeters,
       source: next.travelSource,
+      sourceLabel: SOURCE_LABEL[next.travelSource] || '',
       /**
        * 「直线估算」与真实路线在短距离下能差 7 倍（实测 10 米 → 76 米），
        * 必须标出来 —— 否则用户会以为所有时间一样可信。

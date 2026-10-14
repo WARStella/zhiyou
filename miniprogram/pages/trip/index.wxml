@@ -377,11 +377,27 @@
             <view class="leg-bar"></view>
           </view>
           <view class="leg-body">
-            <text class="leg-mode">{{item.legToNext.mode}}</text>
+            <!--
+              出行方式 + 图标。⚠️ 在此之前这里只渲染 `'步行'` 或空字符串 ——
+              公交/骑行/驾车一律空白（接入多种方式时漏改的）。
+            -->
+            <text class="leg-mode">
+              <block wx:if="{{item.legToNext.modeIcon}}">{{item.legToNext.modeIcon}} </block>{{item.legToNext.mode}}
+            </text>
             <text class="leg-time">{{item.legToNext.minutes}} 分钟</text>
             <text class="leg-dist">{{item.legToNext.meters}} 米</text>
+            <!--
+              来源与方式是两个维度，**都要显示**：
+              方式说"怎么走"，来源说"这个数可不可信"。
+              直线估算与真实路线在短距离下能差 7 倍，必须能区分。
+            -->
+            <text wx:if="{{item.legToNext.sourceLabel}}" class="leg-src">{{item.legToNext.sourceLabel}}</text>
             <text wx:if="{{item.legToNext.warn}}" class="leg-warn">{{item.legToNext.warn}}</text>
             <text wx:if="{{item.legToNext.visited}}" class="leg-done">已走过</text>
+            <!-- 公交换乘细节：几号线、1 号口进 3 号口出 -->
+            <text wx:if="{{item.legToNext.transitText}}" class="leg-transit">{{item.legToNext.transitText}}</text>
+            <!-- 为什么选它 —— 只给结论不给理由，用户没法判断该不该接受 -->
+            <text wx:if="{{item.legToNext.reason}}" class="leg-reason">{{item.legToNext.reason}}</text>
           </view>
         </view>
       </block>

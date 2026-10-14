@@ -845,3 +845,24 @@
   color: #9aa5b1;
   margin-top: 4rpx;
 }
+
+/* ── 出行方式与来源（2026-10-14）──────────────────────────
+   接入多种出行方式后新增。**"怎么走"与"这个数可不可信"要能分开看** ——
+   后者是"直线估算"时必须显眼，它与真实路线在短距离下能差 7 倍。 */
+.leg-src {
+  margin-left: 10rpx;
+  font-size: 20rpx;
+  color: #7b8794;
+}
+.leg-transit {
+  display: block;
+  margin-top: 6rpx;
+  font-size: 21rpx;
+  color: #0b3c6e;
+}
+.leg-reason {
+  display: block;
+  margin-top: 4rpx;
+  font-size: 20rpx;
+  color: #9aa5b1;
+}
