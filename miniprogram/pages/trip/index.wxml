@@ -182,7 +182,8 @@
       -->
       <view wx:if="{{routeMap}}" class="progress-row">
         <text class="progress-main">已走过 {{routeMap.reachedCount}} / {{routeMap.totalCount}} 站</text>
-        <text wx:if="{{routeMap.reachedCount >= routeMap.totalCount && routeMap.totalCount}}" class="progress-done">全部走完</text>
+        <!-- `>` 在属性值里必须写成 `&gt;`（2026-10-14 由 test/wxml-guards 扫出来的既有违规） -->
+        <text wx:if="{{routeMap.reachedCount &gt;= routeMap.totalCount && routeMap.totalCount}}" class="progress-done">全部走完</text>
         <text wx:elif="{{routeMap.nextName}}" class="progress-next">下一站：{{routeMap.nextName}}</text>
       </view>
       <view class="sum-row">

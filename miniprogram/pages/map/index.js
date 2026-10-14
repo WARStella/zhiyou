@@ -57,6 +57,14 @@ const MEET_CATEGORIES = ['meeting', 'entrance', 'exit', 'spot', 'rest']
  */
 const MAX_LEGS = 6
 
+/**
+ * 精度超过这个值（米），基于该位置算出的步行时间就不可信了，界面要显眼提示。
+ *
+ * GB/T 官方对"室外定位"的说法是 10 米量级；500 米已经跨了好几个街区，
+ * 而本项目用 `DETOUR_FACTOR` 把直线换算成步行距离、误差在这个量级上会放大。
+ */
+const MAX_TRUSTED_ACCURACY_M = 500
+
 Page({
   data: {
     // 中心点：哈尔滨中央大街。地点数据由后端下发，这里是加载前的默认视角
@@ -79,6 +87,14 @@ Page({
      * 少了它，用户只能说"定位不准"，而没法说清有多不准。
      */
     myAccuracyM: null,
+    /**
+     * 精度是否差到"算出来的步行时间不可信"（> `MAX_TRUSTED_ACCURACY_M`）。
+     *
+     * 刻意**在 JS 里算好再给模板**，而不是在 WXML 里写 `myAccuracyM > 500`：
+     * 属性值里出现未转义的 `>` 是模板编译器的雷，而模板一旦编译不过
+     * 就是**整页不渲染** —— 2026-10-14 已经因此白屏过一次（"我的位置"卡片整个没了）。
+     */
+    myAccuracyBad: false,
     /** 定位时刻（HH:MM:SS）—— 用来分辨"刚取的"还是"拿了一份旧的" */
     myLocatedAt: '',
     pickMode: false,
@@ -444,6 +460,7 @@ Page({
               myPoint: { latitude: res.latitude, longitude: res.longitude },
               mySource: 'gps',
               myAccuracyM: res.accuracy,
+              myAccuracyBad: typeof res.accuracy === 'number' && res.accuracy > MAX_TRUSTED_ACCURACY_M,
               myLocatedAt: new Date().toLocaleTimeString(),
             })
             that.refreshMarkers()
@@ -576,6 +593,7 @@ Page({
           myPoint: { latitude: res.latitude, longitude: res.longitude },
           mySource: 'gps',
           myAccuracyM: res.accuracy,
+          myAccuracyBad: typeof res.accuracy === 'number' && res.accuracy > MAX_TRUSTED_ACCURACY_M,
           myLocatedAt: new Date().toLocaleTimeString(),
           pickMode: false,
           note: '已通过定位接口获取位置（位置来源：定位接口）',
