@@ -11,6 +11,8 @@ const { generateCandidates } = require('../domain/planner');
 const constraintMod = require('../domain/constraint');
 const { logEvent, logDecision } = require('../lib/trace');
 const { createMapProvider } = require('../lib/map');
+const { createAmapTransitProvider } = require('../lib/transit/amap');
+const legTimesMod = require('../lib/leg-times');
 const geo = require('../lib/geo');
 const time = require('../lib/time');
 const C = require('../lib/repo/collections');
@@ -353,6 +355,100 @@ async function loadTripForRead(repo, tripId, openid) {
  * 只有显式传 allowInfeasible:true 时才存为 draft，并强制记录冲突 ——
  * 这是"遇到异常不会悄悄执行错误安排"在规划入口的落地。
  */
+/**
+ * ── ★ 取回各段的真实出行耗时，并选出一种方式（2026-10-14）────
+ *
+ * 把 `lib/leg-times.js` 接进规划。三件事：
+ *   ① 逐段取四种方式的真实耗时（矩阵三种 + 高德公交）
+ *   ② 交给 `mode-choice.chooseMode` 选一种（雨雪天走 safety 偏好）
+ *   ③ 把结果整理成 `buildTimeline` 要的 `legTimes` 覆盖表
+ *
+ * ⚠️ 三条边界：
+ *   · **取不到就排除**，不拿别的方式冒充（公交不可达时不该显示驾车时间）
+ *   · **估算要标注** —— `source: 'estimated'` 必须传到界面
+ *   · **配额如实计数** —— 结果里的 `calls` 要写进 decision 记录
+ */
+async function resolveLegTravelTimes(ctx) {
+  const { repo, placesById, placeIds, startPoint, makeProvider, makeTransitProvider, params, spec } = ctx;
+
+  const ordered = placeIds.map((id) => placesById[id]).filter(Boolean);
+  const out = { legTimes: {}, legs: [], calls: { matrix: 0, transit: 0 }, persisted: 0 };
+
+  // 站点少于 2 个时没有"段"可取 —— 但起点段仍可能有（见 startLeg）
+  if (ordered.length < 1) return out;
+
+  const mapProvider = makeProvider();
+
+  /**
+   * 天气**只能由用户说**，系统不猜（`lib/mode-choice.js` 的纪律）。
+   * `spec.weather` 存在时才切到 safety 偏好。
+   */
+  const weather = spec.weather || null;
+
+  const r = await legTimesMod.resolveTripLegTimes({
+    places: ordered,
+    startPoint,
+    providers: { map: mapProvider, transit: makeTransitProvider() },
+    opts: {
+      params,
+      weather,
+      preference: weather ? 'safety' : 'fastest',
+      /** 高德公交需要 citycode —— 本项目单城（哈尔滨 = 0451） */
+      transitCity: TRANSIT_CITY_CODE,
+      allowTransit: spec.allowTransit !== false,
+    },
+  });
+
+  out.legs = r.legs;
+  out.calls = r.calls;
+
+  for (const leg of r.legs) {
+    const chosen = leg.choice && leg.choice.chosen;
+    if (!chosen) continue;
+    out.legTimes[leg.toPlaceId] = {
+      minutes: chosen.minutes,
+      meters: chosen.meters,
+      mode: chosen.mode,
+      /**
+       * ⚠️ **来源必须透传，不能硬编码**（2026-10-14 修）。
+       *
+       * 第一版写死 `source: 'upstream'`，于是 `walkTimes.bySource` 永远显示
+       * upstream —— **掩盖了"这个数是踏勘实测还是直线估算"**，
+       * 而这个字段存在的全部理由就是让用户分清这两者
+       * （实测：同一条路直线估算与真实路线差 1.35 倍，短距离下差 7.6 倍）。
+       *
+       * 来源由 `leg-times` 逐候选带出来：cache（踏勘/此前取回）、
+       * tencent-matrix、amap-transit、estimate。
+       */
+      source: chosen.source || 'upstream',
+      provider: chosen.provider || null,
+      reason: leg.choice.reason || null,
+    };
+  }
+
+  /**
+   * 把真实值写回缓存（只写上游取回的真实值，**不写估算**）。
+   * 用 `repo.update` 更新**库里已有的**地点；检索回来未入库的地点没有 id，
+   * `persistLegTimes` 会自己跳过。
+   */
+  try {
+    out.persisted = await legTimesMod.persistLegTimes(repo, C, r.entries);
+  } catch (e) {
+    // 缓存写失败不该让规划失败 —— 它只是省下次的配额
+    console.error('[resolveLegTravelTimes] 写缓存失败', e && e.message);
+  }
+
+  return out;
+}
+
+/**
+ * 公交规划的默认城市 —— 本项目**单城**（哈尔滨）。
+ *
+ * 与 `actions/place.js` 的 `DEFAULT_REGION` 同一件事：多城时要改成
+ * 从行程或用户设置里推断。高德公交要求 citycode，不是城市名。
+ */
+const TRANSIT_CITY_CODE = '0451';
+
 async function plan(ctx) {
   const { repo, openid } = ctx;
   const p = ctx.payload || {};
@@ -441,6 +537,14 @@ async function plan(ctx) {
    */
   const makeProvider = (name, opts) =>
     (ctx.createMapProvider || createMapProvider)(name || process.env.MAP_PROVIDER, opts);
+
+  /**
+   * 公交（含地铁）服务 —— 同 `makeProvider`，从 ctx 注入的工厂取。
+   *
+   * ⚠️ 与地图服务**分开**是因为它天生跨供应商：腾讯距离矩阵按官方文档
+   * 明确没有公交，公交必须走高德。见 `lib/map/matrix-modes.js`。
+   */
+  const makeTransitProvider = () => (ctx.createTransitProvider || createAmapTransitProvider)({});
 
   if (spec.crewId) await requireCrewMember(repo, spec.crewId, openid);
 
@@ -602,50 +706,19 @@ async function plan(ctx) {
         }
       : null;
 
-  let startLeg = null;
-  if (startPoint) {
-    const firstPlace = placesById[itemIds[0]];
-    if (firstPlace && firstPlace.location) {
-      const provider = makeProvider();
-      let r;
-      try {
-        r = await provider.walkingRoute(startPoint, firstPlace.location);
-      } catch (e) {
-        r = { ok: false, reason: 'THREW', message: (e && e.message) || String(e) };
-      }
-      walkFill.mapApiCalls++;
-
-      if (r.ok) {
-        startLeg = {
-          minutes: r.durationMinutes,
-          meters: r.distanceMeters,
-          source: geo.WALK_SOURCE.UPSTREAM,
-          from: startPoint,
-          toPlaceId: firstPlace._id,
-          toPlaceName: firstPlace.name,
-        };
-      } else {
-        // 取不到就估算 —— 但**必须记进失败清单**，让界面能说明这段不可靠
-        startLeg = Object.assign(
-          geo.walkMinutesFromPoint(startPoint, firstPlace, params) || {},
-          {
-            from: startPoint,
-            toPlaceId: firstPlace._id,
-            toPlaceName: firstPlace.name,
-            fallbackReason: r.reason || 'UPSTREAM_FAILED',
-          }
-        );
-        walkFill.failed++;
-        walkFill.failures.push({
-          from: startPoint.label,
-          to: firstPlace.name,
-          reason: r.reason || 'UPSTREAM_FAILED',
-          message: r.message || null,
-        });
-      }
-    }
-  }
-
+  /**
+   * ★ 起点段：从出发位置（默认"我的位置"）到第一站的交通。
+   *
+   * ⚠️ 2026-10-14 起**优先用 `travelResolve` 的结果**。
+   *
+   * 在此之前这里单独调一次「步行路线接口」。接入多种出行方式之后，
+   * 同一段的耗时就有了两个来源，而它们会给出**不一致**的答案：
+   * 老的步行接口说 `upstream`，新的多方式对比说 `estimated` ——
+   * 于是 `startLeg.source` 与 `nodes[0].travelSource` 打架。
+   *
+   * 所以：**以 `travelResolve` 为准**（它会对比四种方式），
+   * 只有它没给出结果时才回落到这段老逻辑（并如实标注失败原因）。
+   */
   /**
    * 每站停留：优先级 **按地点的时长 > 统一时长 > 地点自带默认值**。
    *
@@ -666,12 +739,113 @@ async function plan(ctx) {
           : undefined;
     return { nodeId: `n_${i}_${placeId}`, placeId: placeId, stayMin: stayMin };
   });
+  /**
+   * ── ★ 各段的**真实出行耗时**（2026-10-14 接入）──────────────
+   *
+   * 用户要求"显示真实出行方式 + 规划时多种方式对比着挑"。
+   *
+   * 在此之前每段只能靠 `geo.walkMinutes`（踏勘缓存或直线估算），
+   * 而哈尔滨的景点跨区 —— 中央大街 → 冰雪大世界步行根本走不通。
+   *
+   * 现在：距离矩阵给 walking/bicycling/driving，高德公交给 transit，
+   * 再由 `lib/mode-choice.js` 选一种（那段代码写好了很久，
+   * 在此之前**整个云函数没有一处调用它**）。
+   */
+  const travelResolve = await resolveLegTravelTimes({
+    repo,
+    placesById,
+    placeIds: itemIds,
+    startPoint,
+    makeProvider,
+    makeTransitProvider,
+    now,
+    params,
+    spec,
+  });
+
+  /**
+   * ★ 起点段：从出发位置（默认"我的位置"）到第一站的交通。
+   *
+   * ⚠️ 必须放在 `travelResolve` **之后**（2026-10-14 踩过）：
+   * 这段要读它选出的方式与来源，放在前面会得到
+   * `Cannot access 'travelResolve' before initialization` ——
+   * 而那个错误被 invoke 统一转成 `INTERNAL 服务异常`，
+   * 于是表现为**一大批规划测试同时失败**，看不出与顺序有关。
+   *
+   * 为什么起点段也要走 `travelResolve`：在此之前这里单独调一次
+   * 「步行路线接口」，接入多方式之后同一段就有了两个来源，
+   * 而它们会打架（老接口说 upstream、多方式对比说 estimated）。
+   */
+  let startLeg = null;
+  const startOverride = itemIds.length ? travelResolve.legTimes[itemIds[0]] : null;
+
+  if (startPoint && startOverride && typeof startOverride.minutes === 'number') {
+    const firstPlace = placesById[itemIds[0]];
+    startLeg = {
+      minutes: startOverride.minutes,
+      meters: startOverride.meters,
+      mode: startOverride.mode,
+      source: startOverride.source,
+      provider: startOverride.provider || null,
+      reason: startOverride.reason || null,
+      from: startPoint,
+      toPlaceId: firstPlace ? firstPlace._id : itemIds[0],
+      toPlaceName: firstPlace ? firstPlace.name : null,
+    };
+  } else if (startPoint) {
+    /** 回落：travelResolve 没给出起点段时，单独调一次步行路线接口 */
+    const firstPlace = placesById[itemIds[0]];
+    if (firstPlace && firstPlace.location) {
+      const provider = makeProvider();
+      let r;
+      try {
+        r = await provider.walkingRoute(startPoint, firstPlace.location);
+      } catch (e) {
+        r = { ok: false, reason: 'THREW', message: (e && e.message) || String(e) };
+      }
+      walkFill.mapApiCalls++;
+
+      if (r.ok) {
+        startLeg = {
+          minutes: r.durationMinutes,
+          meters: r.distanceMeters,
+          mode: 'walking',
+          source: geo.WALK_SOURCE.UPSTREAM,
+          from: startPoint,
+          toPlaceId: firstPlace._id,
+          toPlaceName: firstPlace.name,
+        };
+      } else {
+        // 取不到就估算 —— 但**必须记进失败清单**，让界面能说明这段不可靠
+        startLeg = Object.assign(
+          geo.walkMinutesFromPoint(startPoint, firstPlace, params) || {},
+          {
+            mode: 'walking',
+            from: startPoint,
+            toPlaceId: firstPlace._id,
+            toPlaceName: firstPlace.name,
+            fallbackReason: r.reason || 'UPSTREAM_FAILED',
+          }
+        );
+        walkFill.failed++;
+        walkFill.failures.push({
+          from: startPoint.label,
+          to: firstPlace.name,
+          reason: r.reason || 'UPSTREAM_FAILED',
+          message: r.message || null,
+        });
+      }
+    }
+  }
+
   const tl = timelineMod.buildTimeline({
     startAt: spec.startAt,
     items,
     placesById,
     params,
     startLeg,
+    /** 真实耗时覆盖 —— 有就用它，没有才回落到缓存/估算 */
+    legTimes: travelResolve.legTimes,
   });
   const feasibility = checkFeasibility({
     timeline: tl,

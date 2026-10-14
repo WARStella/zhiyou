@@ -28,7 +28,30 @@ function buildTimeline(p) {
   let totalWalkMin = 0;
   let totalWalkMeters = 0;
   let totalStayMin = 0;
+  /**
+   * 非步行方式的耗时合计 —— **不能并进 `totalWalkMin`**。
+   *
+   * `maxWalkMinutes` 是硬约束（用户说"少走点路"）。把车程算成步行会让
+   * 这个约束失效：30 分钟公交被记成"走了 30 分钟"，于是"没超上限"。
+   */
+  let totalRideMin = 0;
   let prevPlace = null;
+
+  /**
+   * 真实出行耗时覆盖 —— `{ [toPlaceId]: { minutes, meters, mode, source, provider, reason } }`。
+   *
+   * ── 为什么要这个参数（2026-10-14）────────────────────────
+   *
+   * 在此之前，每段的耗时只能来自 `geo.walkMinutes`（踏勘缓存或直线估算）。
+   * 而用户要的是"显示真实出行方式"——哈尔滨的景点跨区，步行根本走不通：
+   *
+   *   中央大街 → 冰雪大世界   地铁 69.5 分 / 126 路 63.1 分 / **步行估算 不等于可步行**
+   *
+   * 调用方（`leg-times`）会先把各方式的**真实耗时**取回来并选一种，
+   * 结果从这里传进来。**这个函数保持同步纯函数** —— 取数的事在外面做完，
+   * 时间线的推算依然是可测的纯逻辑。
+   */
+  const overrides = p.legTimes || {};
 
   (p.items || []).forEach((item, idx) => {
     const place = p.placesById[item.placeId];
@@ -38,25 +61,51 @@ function buildTimeline(p) {
     let travelMeters = 0;
     let travelSource = 'none';
     let travelFromStart = false;
+    let travelMode = 'none';
+    /** 选这一段的理由与来源，供界面直接展示（§6.5「改得清楚」） */
+    let travelReason = null;
+    let travelProvider = null;
 
-    if (prevPlace) {
+    /** 有真实覆盖就用它 —— **优先级高于缓存与估算** */
+    const ov = overrides[item.placeId];
+
+    if (idx === 0) {
+      if (ov && typeof ov.minutes === 'number') {
+        travelMin = ov.minutes;
+        travelMeters = ov.meters || 0;
+        travelSource = ov.source || 'upstream';
+        travelMode = ov.mode || 'walking';
+        travelReason = ov.reason || null;
+        travelProvider = ov.provider || null;
+        travelFromStart = true;
+      } else if (p.startLeg && typeof p.startLeg.minutes === 'number') {
+        /**
+         * 第一段：从**出发位置**（通常是"我的位置"）到第一站。
+         *
+         * 不这样算的话，行程会假装人已经在第一个景点门口 ——
+         * 计划出发时间、总步行量与"能不能赶上结束时间"都会偏乐观。
+         */
+        travelMin = p.startLeg.minutes;
+        travelMeters = p.startLeg.meters || 0;
+        travelSource = p.startLeg.source || 'estimated';
+        travelMode = p.startLeg.mode || 'walking';
+        travelFromStart = true;
+      }
+    } else if (ov && typeof ov.minutes === 'number') {
+      travelMin = ov.minutes;
+      travelMeters = ov.meters || 0;
+      travelSource = ov.source || 'upstream';
+      travelMode = ov.mode || 'walking';
+      travelReason = ov.reason || null;
+      travelProvider = ov.provider || null;
+    } else if (prevPlace) {
       const w = geo.walkMinutes(prevPlace, place, params);
       if (w) {
         travelMin = w.minutes;
         travelMeters = w.meters || 0;
         travelSource = w.source;
+        travelMode = 'walking';
       }
-    } else if (p.startLeg && typeof p.startLeg.minutes === 'number') {
-      /**
-       * 第一段：从**出发位置**（通常是"我的位置"）到第一站。
-       *
-       * 不这样算的话，行程会假装人已经在第一个景点门口 ——
-       * 计划出发时间、总步行量与"能不能赶上结束时间"都会偏乐观。
-       */
-      travelMin = p.startLeg.minutes;
-      travelMeters = p.startLeg.meters || 0;
-      travelSource = p.startLeg.source || 'estimated';
-      travelFromStart = true;
     }
 
     const stayMin =
@@ -105,8 +154,16 @@ function buildTimeline(p) {
       travelFromPrevMin: travelMin,
       travelFromPrevMeters: travelMeters,
       travelSource,
-      /** 这一段的出行方式。首版只有步行；字段预留，便于日后加公交/驾车。 */
-      travelMode: p.startLeg && travelFromStart ? 'walking' : prevPlace ? 'walking' : 'none',
+      /**
+       * 这一段的出行方式。2026-10-14 起是**真的**了 ——
+       * 之前这里被写死成 `'walking'`（注释还写着"首版只有步行；字段预留"），
+       * 所以界面上无论怎么走都显示"步行"。
+       */
+      travelMode,
+      /** 选这个方式的理由（`mode-choice` 给的，可直接展示） */
+      travelReason,
+      /** 这个数是哪家给的（tencent-matrix / amap-transit / cache / estimate） */
+      travelProvider,
       /** 该段是否从"出发位置"（我的位置）算起 */
       travelFromStart,
       plannedArriveAt: arriveAt,
@@ -114,8 +171,22 @@ function buildTimeline(p) {
       plannedLeaveAt: leaveAt,
     });
 
-    totalWalkMin += travelMin;
-    totalWalkMeters += travelMeters;
+    /**
+     * ⚠️ 累计字段的含义要分清（2026-10-14）：
+     *
+     * `totalWalkMin` 原来把**所有段**都加进来，因为那时只有步行。
+     * 现在有了驾车/公交，把它们算进"步行分钟"会让
+     * `maxWalkMinutes` 这个**硬约束**彻底失真 —— 用户写"少走点路"，
+     * 系统却把半小时车程也算成走路，于是判断"没超上限"。
+     *
+     * 所以：**只有 walking 计入步行量**，其余方式单独累计。
+     */
+    if (travelMode === 'walking' || travelMode === 'none') {
+      totalWalkMin += travelMin;
+      totalWalkMeters += travelMeters;
+    } else {
+      totalRideMin += travelMin;
+    }
     totalStayMin += stayMin;
     cursor = leaveAt;
     prevPlace = place;
@@ -129,6 +200,8 @@ function buildTimeline(p) {
     endAt,
     totalWalkMin,
     totalWalkMeters,
+    /** 非步行方式的耗时合计（驾车/公交/骑行） */
+    totalRideMin,
     totalStayMin,
     meetBufferMin,
   };
@@ -152,10 +225,18 @@ function toNodes(legs, source) {
     plannedStayMin: l.plannedStayMin,
     travelFromPrevMin: l.travelFromPrevMin,
     travelFromPrevMeters: l.travelFromPrevMeters,
-    /** 这段步行时间的来源（survey / upstream / estimated）—— 界面必须能区分 */
+    /** 这段出行时间的来源（survey / upstream / estimated）—— 界面必须能区分 */
     travelSource: l.travelSource || 'none',
-    /** 出行方式。首版恒为 walking；字段预留 */
+    /**
+     * 出行方式 —— 2026-10-14 起是**真的**了。
+     * 之前这里写死 `'walking'`（注释还写着"首版恒为 walking；字段预留"），
+     * 所以界面上无论怎么走都显示"步行"。
+     */
     travelMode: l.travelMode || 'none',
+    /** 选这个方式的理由（`mode-choice` 给的，可直接展示给用户） */
+    travelReason: l.travelReason || null,
+    /** 这个数是哪家给的（tencent-matrix / amap-transit / cache / estimate） */
+    travelProvider: l.travelProvider || null,
     travelFromStart: l.travelFromStart === true,
     status: 'pending',
     actualArriveAt: null,

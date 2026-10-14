@@ -59,11 +59,117 @@ const WALK_SOURCE = {
   ESTIMATED: 'estimated',
 };
 
-/** 查一条已记录的步行时间（双向）。 */
+/**
+ * 查一条已记录的**步行**时间（双向）。
+ *
+ * ⚠️ 必须按方式过滤（2026-10-14 修）：`walkableTo` 现在同时装多种方式
+ * （见下面的 `TRAVEL_MODE`），不带过滤会把**骑行/驾车**的记录当成步行读。
+ *
+ * 后果不是"慢一点"，而是**硬约束失效**：
+ *   中央大街 → 防洪纪念塔  步行 11 分 / 骑行 2 分
+ * 把骑行的 2 分当成步行，`maxWalkMinutes`（用户说"少走点路"）就永远不会触发。
+ *
+ * 兼容规则：**没有 `mode` 字段的记录一律视为步行** —— 那是历史形态
+ * （踏勘数据与早先由接口取回的），零迁移成本。
+ */
 function findWalkRecord(holder, targetId) {
   if (!holder || !Array.isArray(holder.walkableTo)) return null;
-  const hit = holder.walkableTo.find((w) => w && w.placeId === targetId);
+  const hit = holder.walkableTo.find(
+    (w) => w && w.placeId === targetId && (w.mode === undefined || w.mode === null || w.mode === TRAVEL_MODE.WALKING)
+  );
   return hit && typeof hit.walkMin === 'number' ? hit : null;
+}
+
+/**
+ * ── 多种出行方式（2026-10-14）─────────────────────────────
+ *
+ * 用户要求"显示真实出行方式 + 规划时多种方式对比着挑"。
+ *
+ * 设计决定：**继续用同一个 `walkableTo` 数组装所有方式**，
+ * 靠可选的 `mode` 字段区分，而不是新开一个 `travelTo`。
+ *
+ * 理由（三条，都是为了不破坏既有语义）：
+ *   ① `walkableTo` 的历史含义就是"从一个地方到另一个地方要多久"
+ *      —— 走多久只是其中一种。改名会让已有的踏勘数据、测试与文档全部要动。
+ *   ② **缺省 `mode` 视为 `'walking'`** —— 这样所有已录入的记录
+ *      （踏勘数据、之前由接口取回的）自动仍然被解释为步行，零迁移成本。
+ *   ③ 与 `WALK_SOURCE` 那三个来源（survey/upstream/estimated）正交：
+ *      来源说的是"这个数多可信"，方式说的是"这是怎么走出来的"。两者都要能表达。
+ */
+const TRAVEL_MODE = {
+  WALKING: 'walking',
+  BICYCLING: 'bicycling',
+  DRIVING: 'driving',
+  TRANSIT: 'transit',
+};
+
+/** 缺省方式 —— 历史记录的 `mode` 字段为空时按它解释 */
+const DEFAULT_TRAVEL_MODE = TRAVEL_MODE.WALKING;
+
+/** 取一条记录的归一化形态，顺便把缺省 mode 补上（**只读，不改原记录**） */
+function normalizeLegRecord(rec) {
+  if (!rec) return null;
+  const minutes = rec.walkMin !== undefined ? rec.walkMin : rec.minutes;
+  if (typeof minutes !== 'number') return null;
+  return {
+    minutes,
+    meters: rec.walkMeters != null ? rec.walkMeters : rec.meters != null ? rec.meters : null,
+    mode: rec.mode || DEFAULT_TRAVEL_MODE,
+    source: rec.source || WALK_SOURCE.SURVEY,
+    verifiedAt: rec.verifiedAt || null,
+  };
+}
+
+/**
+ * 查一条 **指定方式** 的出行记录（双向）。
+ *
+ * ⚠️ 与 `findWalkRecord` 的区别：那个不带方式过滤，是历史接口；
+ * 这个按方式取，取不到就返回 null（**不回落**）—— 回落交给调用方决定，
+ * 因为"骑行没有就步行顶"这种判断属于业务，不属于查表。
+ */
+function findLegRecord(holder, targetId, mode) {
+  const wanted = mode || DEFAULT_TRAVEL_MODE;
+  if (!holder || !Array.isArray(holder.walkableTo)) return null;
+  const hit = holder.walkableTo.find(
+    (w) => w && w.placeId === targetId && (w.mode || DEFAULT_TRAVEL_MODE) === wanted
+  );
+  return normalizeLegRecord(hit);
+}
+
+/**
+ * 这一段是否**缺**指定方式的记录 —— 调用方据此只对真正缺失的段发请求。
+ * 与 `needsWalkFetch` 同一个用途，但带方式。
+ */
+function needsLegFetch(fromPlace, toPlace, mode) {
+  if (!fromPlace || !toPlace) return false;
+  if (findLegRecord(fromPlace, toPlace._id, mode)) return false;
+  if (findLegRecord(toPlace, fromPlace._id, mode)) return false;
+  return true;
+}
+
+/**
+ * 把一条指定方式的记录写进地点（纯函数，返回新的数组）。
+ *
+ * ⚠️ 字段名沿用 `walkMin` / `walkMeters`，**不另起 `minutes` / `meters`**。
+ * 同一个数组里混两种字段名是最糟的结果：读的地方要兼容两套，
+ * 而漏一处就会得到一个"看起来有值、实际读不到"的记录（且不报错）。
+ * `mode` 才是这个函数带来的新东西。
+ */
+function withLegRecord(place, targetId, rec) {
+  const mode = rec.mode || DEFAULT_TRAVEL_MODE;
+  const list = (place && Array.isArray(place.walkableTo) ? place.walkableTo : []).filter(
+    (w) => !(w && w.placeId === targetId && (w.mode || DEFAULT_TRAVEL_MODE) === mode)
+  );
+  list.push({
+    placeId: targetId,
+    walkMin: rec.minutes,
+    walkMeters: rec.meters != null ? rec.meters : null,
+    mode,
+    source: rec.source || WALK_SOURCE.UPSTREAM,
+    verifiedAt: rec.verifiedAt || null,
+    measuredAt: rec.measuredAt || null,
+  });
+  return list;
 }
 
 /**
@@ -168,4 +274,11 @@ module.exports = {
   DETOUR_FACTOR,
   MAX_WALK_METERS,
   WALK_SOURCE,
+  // 多种出行方式（2026-10-14）
+  TRAVEL_MODE,
+  DEFAULT_TRAVEL_MODE,
+  findLegRecord,
+  withLegRecord,
+  needsLegFetch,
+  normalizeLegRecord,
 };
