@@ -107,29 +107,22 @@
       <view class="sub">开启后每次搜索会多消耗若干次地图配额，换来"哪些地方现在去最方便"的准确顺序</view>
 
       <!--
-        出行方式 —— 用户自己选（2026-10-14 用户要求）。
-        **是偏好不是强制**：选的方式走不通时会给出可行方案，
-        并说清为什么没按你选的来（那句话会显示在出行段上）。
+        ══════════ 出行方式**已从这里移除**（2026-10-14 用户要求）══════
+
+        用户原话："在行程页面把那个出行方式默认为最快的那条给删了，
+                  **这个本应在【我的】页面的【设置】里**"
+
+        他说得对，而且这里原本是个**重复的真相**：
+          · 「我的」写**服务端**（`defaultTravelMode` 字段，跨设备有效）
+          · 这里写**本地 storage**（`zhiyou-preferred-mode`）
+        同一个偏好两处存，一处改了另一处不知道。
+
+        现在唯一入口是「我的 → 默认出行方式」。
+        本页只**读**（为了把它作为规划的默认偏好发出去），**不再写**。
+
+        ⚠️ **逐段选择器（下面那张卡）保留** —— 那不是"默认偏好"，
+           而是"这一趟每一段怎么走"的行程内决定，与全局设置是两件事。
       -->
-      <view class="row">
-        <text class="k">出行方式</text>
-        <picker mode="selector" range="{{modeOptions}}" range-key="label" value="{{modeIndex}}" bindchange="onModeChange">
-          <!--
-          ⚠️ 不要写 `{{modeOptions[modeIndex].label}}` —— 见 data 里 `modeLabel` 的说明。
-          模板里先索引再取属性，在数组为空时会抛异常并打白整页。
-        -->
-        <view class="v link">{{modeLabel}}</view>
-        </picker>
-      </view>
-      <!--
-        标明这个方式是**从用户那句话解析来的**（2026-10-14）。
-        不标的话用户会以为"系统自己改了我的设置" ——
-        而他刚说过"我想骑车去"，那是他自己说的，得让他看得出对应关系。
-      -->
-      <view wx:if="{{modeFromParse}}" class="sub mode-from-parse">
-        出行方式是从你那句话里读出来的，可以直接改。
-      </view>
-      <view class="sub">{{modeHint}}</view>
     </view>
 
     <!-- 规划被判定不可行：如实展示冲突，并指向可调整的条件 -->
@@ -302,7 +295,20 @@
           <view class="lp-leg-head">
             <text class="lp-seq">{{item.index}}</text>
             <text class="lp-path">{{item.fromName}} → {{item.toName}}</text>
+            <!--
+              ⚠️ "待你选择"标记（2026-10-14 用户要求）。
+
+              用户原话："若多个地名则**只自动选择用户说过出行方式的目的地**
+              （我想骑车去哈工大，再去冰雪大世界 —— 只是去哈工大的出行方式
+               选择为骑车，**冰雪大世界依旧需要用户自己选择**）"
+
+              判据是"有没有明确偏好"：他那一句里说了、或「我的」里设了默认，
+              就算有；两者都没有时这里挑的只是"最快的建议"，
+              不该假装成他的决定，所以明确标出来让他选。
+            -->
+            <text wx:if="{{item.needsChoice}}" class="lp-needs">待你选择</text>
           </view>
+          <view class="lp-src">{{item.sourceNote}}</view>
 
           <view class="lp-opts">
             <view

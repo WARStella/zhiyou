@@ -59,6 +59,8 @@ const SYSTEM_PROMPT = `你是一个城市徒步游览的需求解析器。把用
   "mustVisitTexts": ["一定要去的地方"],
   "avoidTexts": ["明确不想去的地方"],
   "preferredMode": "walking" | "bicycling" | "driving" | "transit" 或 null,
+  "preferredModeByText": {"去了哪儿的地名": "该程的出行方式"},
+  "modeIsGlobal": true|false,
   "stayMinutes": 每个地点都待同样久时的分钟数（整数）或 null,
   "stayMinutesByText": {"地点关键词": 分钟数},
   "extendStayMin": 在**已有行程**上多待多少分钟，或 null,
@@ -107,6 +109,29 @@ const SYSTEM_PROMPT = `你是一个城市徒步游览的需求解析器。把用
   同理「骑车公园」「步行街」都不是出行方式。
   判断标准：这个词**后面紧跟着"去/到/往"**才是出行方式。
 
+关于 preferredModeByText（**按目的地分别记**，这一条最容易被做错）：
+- ⚠️ 出行方式是"**到某个目的地**"的属性，**不是整句话的属性**。
+- 一句话里说了多个地方时，**只把方式记到它真正对应的那个地名上**：
+
+    「我想骑车去哈工大」
+      → preferredModeByText: {"哈工大": "bicycling"}
+    「我想骑车去哈工大，再去冰雪大世界」
+      → preferredModeByText: {"哈工大": "bicycling"}
+        ⚠️ **冰雪大世界不在里面** —— 用户没说那一程怎么走，
+           系统会让他自己选。**绝不可以把"骑车"也套到它身上。**
+    「骑车去哈工大，然后步行去中央大街」
+      → preferredModeByText: {"哈工大": "bicycling", "中央大街": "walking"}
+
+- 键用**用户原话里的地名**（与 searchKeywords 里那一个保持一致），
+  不要换成规范化全名，否则系统对不上。
+- 没说到方式的那些地方**不要出现在这个对象里** —— 缺省即"没说"。
+
+- modeIsGlobal：只在**用户说了方式但没说是去哪个地方**时填 true，
+  例如「我想骑车去」（没说去哪）。此时 preferredModeByText 留空 {}，
+  系统把它当作整趟的默认偏好。
+  ⚠️ 一旦方式能对到具体地名，就填 false ——
+  **否则"骑车"会被套到用户没这么说的地方上去。**
+
 关于 mustVisitTexts 与 preferredMode 的关系：
 - 「我想骑车去哈工大」里，**「哈工大」是必须去的具体目的地**，
   它不是"顺路看看的地方"，也不是"一片区域"。
@@ -119,7 +144,7 @@ const SYSTEM_PROMPT = `你是一个城市徒步游览的需求解析器。把用
 - 这个数组会直接显示给用户看"我理解到了什么"，**留空会让用户以为什么都没听懂**。`;
 
 /** 提示词版本 —— 改了提示词就必须改它，否则评测结果无法归因 */
-const PROMPT_VERSION = 'intent-v5';
+const PROMPT_VERSION = 'intent-v6';
 
 function createHttpParser(opts) {
   opts = opts || {};

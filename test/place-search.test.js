@@ -225,10 +225,22 @@ test('点名一个地方时，同名的住宿与附属项不能被一起选进�
   assert.ok(res.candidates.some((c) => c.visitable === false), '夹具里必须有不可游览项');
 });
 
-test('区域漫游：说了"附近逛逛"，就该按节奏补足', async () => {
+test('说了"附近"也**不补足** —— "附近"说的是范围，不是"多给我几个"', async () => {
   /**
-   * 与"点名"相反的情形：用户只知道大概去哪一片（「中央大街**附近**逛逛」），
-   * 这时替他多选几个是**帮忙**，不是添乱。
+   * ⚠️ 这条测试**方向反过来了**（2026-10-14 用户决定）。
+   *
+   * 它原来叫「区域漫游：说了"附近逛逛"，就该按节奏补足」，
+   * 断言的是"有锚点就替他多选几个"。
+   *
+   * 用户原话：
+   *   "我每次搜索完默认帮我选择三个地点，**按理说是一个**"
+   *   "为什么需要补足，**用户说去哪就去哪呗**"
+   *
+   * 我第一版只去调"**什么时候允许**补足"的判据（把 `named.length <= 1`
+   * 换成 `anchorText`）—— 那是在**给一个本来就该删的行为加条件**。
+   * 用户第二句话把问题拉回根上：**任何补足都是在替他决定要去哪。**
+   *
+   * "附近"说的是**范围**（去哪儿找），不是"给我多挑几个"。
    */
   const w = await makeWorld();
   const res = expectOk(
@@ -239,10 +251,10 @@ test('区域漫游：说了"附近逛逛"，就该按节奏补足', async () => 
           keywords: ['公园'],
           center: CENTER,
           autoPick: {
-            pace: 'packed', // 紧凑 5，但候选不够 5 条就会少于上限
+            pace: 'packed',
             keywords: ['公园'],
             mustVisitTexts: ['公园'],
-            anchorText: '公园', // ← 有锚点 = 区域漫游
+            anchorText: '公园',
           },
         },
         FAKE
@@ -250,12 +262,8 @@ test('区域漫游：说了"附近逛逛"，就该按节奏补足', async () => 
     )
   );
 
-  assert.ok(
-    res.picked.itemIds.length > 1,
-    `区域漫游应当补足多个，实际只选了 ${res.picked.itemIds.length} 个`
-  );
+  assert.equal(res.picked.itemIds.length, 1, '说了一个地方就选一个，有锚点也一样');
 });
-
 test('住宿名字被识别为不可游览，并说明原因', async () => {
   const w = await makeWorld();
   const res = expectOk(
@@ -554,7 +562,18 @@ test('检索结果对上了踏勘地点时，带上库里的 id 与核验状态'
 
 // ── 自动预选（"AI 生成路线"的关键一步） ────────────────────
 
-test('自动预选：节奏决定选几个 —— 说了少走路就不该被塞五个景点', async () => {
+test('自动预选：**精确选用户说的那几个**，不按节奏凑数', async () => {
+  /**
+   * ⚠️ 这条测试**改过主题**（2026-10-14 用户决定）。
+   *
+   * 它原来叫「节奏决定选几个」，断言 `relaxed` 选 3 个、`packed` 选 5 个。
+   * 那个行为**已删除**：用户说去哪就去哪，系统不再按节奏补足。
+   *
+   * ⚠️ 这里刻意**一个检索词都不给** —— 那是 `autoPick` 的"什么都没认出来"
+   *    情形。以前会按节奏凑 3～5 个，现在**一个都不选**：
+   *    没有用户点名的地点，替他编一份行程单是最不该做的事。
+   *    界面应当如实说"没认出你要去哪"。
+   */
   const w = await makeWorld();
   const pick = async (pace) =>
     expectOk(
@@ -564,19 +583,26 @@ test('自动预选：节奏决定选几个 —— 说了少走路就不该被塞
       )
     ).picked;
 
+  for (const pace of ['relaxed', 'normal', 'packed']) {
+    const p = await pick(pace);
+    assert.equal(p.itemIds.length, 0, `节奏 ${pace} 也不该凭空凑数`);
+  }
+
+  /** `limit` 仍然如实回传（它是节奏的表达），但它**不再决定选几个** */
   assert.equal((await pick('relaxed')).limit, 3);
-  assert.equal((await pick('normal')).limit, 4);
   assert.equal((await pick('packed')).limit, 5);
-
-  assert.equal((await pick('relaxed')).itemIds.length, 3, '轻松节奏只选 3 个');
-  assert.equal((await pick('packed')).itemIds.length, 5, '紧凑节奏选 5 个');
-
-  // 非法节奏按 normal 处理，不报错也不乱选
-  assert.equal((await pick('随便')).limit, 4);
-  assert.equal((await pick(undefined)).limit, 4);
+  assert.equal((await pick('随便')).limit, 4, '非法节奏按 normal 报，不报错也不乱选');
 });
-
-test('自动预选：必去一定选上，且不被数量上限挤掉', async () => {
+test('自动预选：**点名几个就选几个** —— 不再有"名额被挤掉"这回事', async () => {
+  /**
+   * ⚠️ 这条测试**改过主题**（2026-10-14 用户决定）。
+   *
+   * 它原来叫「必去一定选上，且不被数量上限挤掉」—— 守的是
+   * "补足的名额不能把用户明说要去的地方挤掉"。
+   *
+   * 补足删掉之后，**这个问题从根上不存在了**：没有补足就没有名额争抢。
+   * 现在守的是新契约本身：点名几个就是几个。
+   */
   const w = await makeWorld();
 
   // 先让夹具里的景点进库
@@ -598,109 +624,50 @@ test('自动预选：必去一定选上，且不被数量上限挤掉', async ()
     )
   );
 
-  const ids = res.picked.itemIds;
-  assert.ok(ids.includes(target.itemId), '必去的地点必须在预选里 —— 这是用户明说要去的地方');
-  assert.equal(
-    res.picked.items.find((x) => x.itemId === target.itemId).reason,
-    '必去',
-    '要能说明为什么选它'
-  );
-  /**
-   * 只点名**一个**地方 → 系统按节奏补足，这是帮忙（他只知道要去哪一处）。
-   * 点名**两个以上** → 那是行程单，只选他说的（见下一条测试）。
-   */
-  assert.ok(ids.length >= 3, '只点名一个地方时，必去不占用普通名额');
+  assert.equal(res.picked.itemIds.length, 1, '点名一个就选一个');
+  const item = res.picked.items[0];
+  assert.equal(item.name, '老道外中华巴洛克', '选中的必须正是用户说的那个地方');
+  assert.match(item.reason, /必去/, '理由要标明"这是你点名要去的"');
 });
-
-test('自动预选：绝不自动选交通设施', async () => {
-  const w = await makeWorld();
-  const res = expectOk(
-    await w.A(
-      'place.search',
-      Object.assign({ keyword: '', center: CENTER, autoPick: { pace: 'packed' } }, FAKE)
-    )
-  );
-
-  const byId = {}
-  res.candidates.forEach((c) => {
-    byId[c.itemId] = c
-  })
-  for (const id of res.picked.itemIds) {
-    assert.equal(
-      byId[id].visitable,
-      true,
-      `预选里不该出现不可游览的地点：${byId[id].name}`
-    )
-  }
-
-  // 夹具里确实有不可游览项，否则这条测试没覆盖到
-  assert.ok(
-    res.candidates.some((c) => c.visitable === false),
-    '夹具里必须有交通设施，否则这条断言是空的'
-  );
-});
-
-test('自动预选：「必去」也必须过类目这一关，交通设施不算', async () => {
+test('自动预选：说明里要写清选了谁、为什么', async () => {
   /**
-   * ⚠️ **真实事故的回归**（2026-10-13 实测 DeepSeek 发现）。
+   * ⚠️ 夹具改成**点名一个地方**（2026-10-14）。
    *
-   * 用户说「我想先去**哈工大**玩一小时」，而"哈工大"是子串，
-   * 于是匹配上了「哈工大[地铁站]」「哈工大[公交站]」「哈工大-3口」，
-   * 全部被标成"必去" —— 系统一本正经地把一个地铁站排进了行程。
+   * 原来给的是一个检索词都没有的 `autoPick`，靠"按节奏补足"凑出内容，
+   * 于是这条测试顺带依赖了补足行为。补足删掉之后那种输入选出 0 个，
+   * 也就没有"选了谁、为什么"可写 —— 那正是补足被删后的**正确**表现。
    *
-   * **"名字里有这几个字"不等于"这就是那个地方"**，
-   * 与"民宿名字里嵌了地标名"是同一类错误。
+   * 现在用**用户真的说了要去哪**的输入来守这条：说明必须写清选了谁、为什么。
    */
   const w = await makeWorld();
-
-  const first = expectOk(await w.A('place.search', Object.assign({ keyword: '', center: CENTER }, FAKE)));
-  const transit = first.candidates.filter((c) => c.visitable === false);
-  assert.ok(transit.length > 0, '夹具里必须有交通设施，否则这条测试是空的');
-
-  // 夹具里的交通设施名字里确实带着地标名（否则测不到这个场景）
-  const named = transit.filter((c) => c.name.indexOf('冰雪大世界') >= 0);
-  assert.ok(named.length > 0, '夹具里必须有"名字含地标名的交通设施"');
-
   const res = expectOk(
     await w.A(
       'place.search',
       Object.assign(
         {
-          keyword: '',
+          keyword: '教堂',
           center: CENTER,
-          autoPick: { pace: 'normal', mustVisitTexts: ['冰雪大世界'] },
+          autoPick: { pace: 'normal', keywords: ['教堂'] },
         },
         FAKE
       )
     )
   );
 
-  const byId = {};
-  res.candidates.forEach((c) => {
-    byId[c.itemId] = c;
-  });
-
-  for (const id of res.picked.itemIds) {
-    assert.equal(
-      byId[id].visitable,
-      true,
-      `必去也不能选交通设施，但它选了：${byId[id].name}`
-    );
-  }
-
-  // 真正的游览地点该被选中（必去规则本身仍然有效）
-  const real = first.candidates.find(
-    (c) => c.name.indexOf('冰雪大世界') >= 0 && c.visitable === true
-  );
-  if (real) {
-    assert.ok(
-      res.picked.itemIds.includes(real.placeId),
-      '真正的冰雪大世界应该因"必去"被选中'
-    );
-  }
+  assert.ok(res.picked.itemIds.length > 0, '前提：点名的地方要能选上');
+  assert.match(res.picked.note, /预选 \d+ 个地点/);
+  assert.match(res.picked.note, /（/, '每一项都要带理由');
+  assert.equal(res.picked.items.length, res.picked.itemIds.length);
 });
 
-test('自动预选：说明里要写清选了谁、为什么', async () => {
+test('自动预选：**什么都认不出来时一个都不选**，并如实说明', async () => {
+  /**
+   * ⚠️ 这条守住"补足删掉之后"的正确行为（2026-10-14 用户决定）。
+   *
+   * 以前这种输入会按节奏凑 4 个地方给用户。现在**一个都不选** ——
+   * 没认出他要去哪，替他编一份行程单是最不该做的事。
+   * 界面据此提示"没认出你要去哪"，而不是默默给出一条看起来完整的路线。
+   */
   const w = await makeWorld();
   const res = expectOk(
     await w.A(
@@ -709,9 +676,8 @@ test('自动预选：说明里要写清选了谁、为什么', async () => {
     )
   );
 
-  assert.match(res.picked.note, /预选 \d+ 个地点/);
-  assert.match(res.picked.note, /（/, '每一项都要带理由');
-  assert.equal(res.picked.items.length, res.picked.itemIds.length);
+  assert.equal(res.picked.itemIds.length, 0, '不该凭空凑数');
+  assert.ok(res.picked.note, '要有一句话说明为什么是空的');
 });
 
 test('自动预选：不传 autoPick 时不做预选', async () => {

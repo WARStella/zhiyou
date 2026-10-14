@@ -277,6 +277,17 @@ Page({
   legOptionsCount: 0,
   rawLegOptions: [],
   legModes: {},
+  /**
+   * 用户在某句话里**按目的地**说过的出行方式：
+   * `{ '哈工大': 'bicycling' }`（2026-10-14 用户要求）。
+   *
+   * ⚠️ 与 `preferredMode`（一个全局值）不同：那是"整趟都这样"，
+   *    这是"**到那个地方**这样"。用户说「我想骑车去哈工大，再去冰雪大世界」
+   *    时，骑车只属于哈工大那一程 —— 冰雪大世界那程留给他自己选。
+   */
+  parsedLegModes: {},
+  /** 那个方式是"整趟的默认"（用户说了方式但没说是去哪） */
+  modeIsGlobal: false,
 
     // ── 候选（搜索结果或已知地点）──
     mode: 'browse', // browse | search
@@ -323,7 +334,20 @@ Page({
   },
 
   /**
-   * 恢复上次选的出行方式（2026-10-14）。
+   * 读**默认出行方式**（2026-10-14 改）。
+   *
+   * ── 为什么读本地缓存而不是每次调接口 ──────────────────────
+   *
+   * 唯一入口是「我的 → 默认出行方式」，那一页保存时会把值
+   * **镜像**到本地（`zhiyou-preferred-mode`），本页只读它。
+   * 本页 `onLoad` 需要同步拿到值来渲染，走接口会先显示一帧错的。
+   *
+   * ⚠️⚠️ **本页不再写这个 key**。以前 `onModeChange` 会写 ——
+   *    于是"默认出行方式"有了**两份真相**：
+   *      · 「我的」写服务端字段（跨设备有效）
+   *      · 本页写本地（只在这台设备上）
+   *    用户在「我的」改成步行，回行程页又被本地那份覆盖回去。
+   *    现在本页**只读不写**，写入方只有「我的」。
    *
    * ⚠️ 认不出的值一律退回 `auto`，**不要报错**：
    * 这个值存在本地，可能来自旧版本（比如以后删掉某个选项）。
@@ -417,42 +441,21 @@ Page({
   },
 
   /**
-   * 出行方式改了（2026-10-14）。
+   * ⚠️ `onModeChange` **已删除**（2026-10-14 用户要求）。
    *
-   * ⚠️ **只记住选择，不立刻重新规划** ——
-   * 重新规划会消耗地图配额，而用户可能只是在翻选项看看。
-   * 下一次「生成路线」时它才生效（界面上的 hint 会说明这一点）。
+   * 用户原话："在行程页面把那个出行方式默认为最快的那条给删了，
+   *            **这个本应在【我的】页面的【设置】里**"
+   *
+   * 他说得对：本页那个 picker 与「我的 → 默认出行方式」是**重复的真相** ——
+   * 那一个写服务端字段（跨设备有效），这一个写本地 storage，
+   * 用户在「我的」改成步行、回本页又被本地那份覆盖回去。
+   *
+   * 现在唯一入口是「我的」。本页 `restoreModePreference()` **只读不写**，
+   * 读到的值作为规划的默认偏好发给后端。
+   *
+   * ⚠️ **逐段选择器仍然在本页**（`onLegModeTap` / `applyLegModes`）——
+   *    那不是"默认偏好"，而是"这一趟每一段怎么走"的行程内决定。
    */
-  onModeChange(e) {
-    const idx = Number(e.detail.value) || 0
-    const opt = MODE_OPTIONS[idx] || MODE_OPTIONS[0]
-    this.setData({
-      modeIndex: idx,
-      preferredMode: opt.value,
-      modeHint: MODE_HINT[opt.value] || '',
-      /** 显示文案在 JS 里算 —— 模板不做数组索引（见 data 里的说明） */
-      modeLabel: opt.label,
-      /**
-       * ⚠️ 标记"**这是用户自己点出来的**"（2026-10-14 加）。
-       *
-       * 只有**真的动过 picker** 才算。`intent.parse` 从"我想骑车去哈工大"
-       * 解析出的方式**不算** —— 用户只是说了一句要去哪儿，
-       * 并没有逐段确认过。把它也算成 manual，会让每段方式选择器
-       * **再也不弹**，用户换目的地后没有任何机会重选。
-       *
-       * `doSearch` 里据此判断要不要用解析结果覆盖表单。
-       */
-      modeManual: true,
-      /** 用户自己点过之后，就不再是"解析来的"，提示语要跟着撤掉 */
-      modeFromParse: false,
-    })
-    /** 存下来 —— 用户下次进来不用重选 */
-    try {
-      wx.setStorageSync('zhiyou-preferred-mode', opt.value)
-    } catch (err) {
-      /** 存不下不影响功能（可能是存储满了），只是下次要重选 */
-    }
-  },
 
   /**
    * 统一的输入入口：**先理解意图，再检索地点**。
@@ -532,35 +535,38 @@ Page({
         patch.stayByText = (d.structured && d.structured.stayByText) || null
 
         /**
-         * ── 出行方式（2026-10-14 用户报的漏洞）────────────────────
+         * ── 出行方式：**按目的地分别记**（2026-10-14 用户要求）──────
          *
-         * 用户原话："我想骑车去哈工大时只会帮我选四个和哈工大相关的地点"
+         * 用户原话：
+         *   "若多个地名则**只自动选择用户说过出行方式的目的地**
+         *    （我想骑车去哈工大，再去冰雪大世界 —— 只是去哈工大的出行方式
+         *      选择为骑车，**冰雪大世界依旧需要用户自己选择**）"
          *
-         * "骑车"是一句**出行方式约束**，而它以前既没被解析出来、
-         * 也没地方接。现在解析器能认（`preferredMode`），这里把它填进表单。
+         * ⚠️ 出行方式是"**到某个目的地**"的属性，不是整句话的属性。
          *
-         * ⚠️ **只覆盖用户手动选过的**（`modeManual`）。
-         *    他点过 picker 就是他明确的选择，不能被一句话的解析结果盖掉 ——
-         *    那会让他改了又自己变回去，比不填更让人困惑。
+         *   用户这句话里对某个地方说了方式 → **那一程**用它
+         *   说了方式但没说是去哪（"我想骑车去"）→ 当整趟的默认
+         *   什么都没说                        → 用「我的」里设的默认值
          *
-         * ⚠️⚠️ 解析来的方式**不算 `modeManual`**（这是我上一版的错）：
-         *    用户只是"说了一句要去哪儿"，并没有逐段确认过方式。
-         *    把它标成 manual 会让**每段方式选择器再也不弹** ——
-         *    用户随后换一个目的地、重新生成路线，系统仍然用着上次的方式，
-         *    而他**没有任何机会重选**。这正是用户报的第二个现象。
+         * ⚠️ `preferredModeByText` 的键是**用户原话里的地名**，
+         *    与 `selected[].name` 是对得上的（都是检索命中的那个名字）。
+         *    对不上就不硬套 —— 宁可让用户自己选，也不要张冠李戴。
          */
-        if (d.structured && d.structured.preferredMode && !that.data.modeManual) {
+        const parsedMode = d.structured && d.structured.preferredMode
+        if (parsedMode) {
           const idx = MODE_OPTIONS.findIndex(function (o) {
-            return o.value === d.structured.preferredMode
+            return o.value === parsedMode
           })
           if (idx >= 0) {
             patch.preferredMode = MODE_OPTIONS[idx].value
             patch.travelModeIndex = idx
             patch.modeLabel = MODE_OPTIONS[idx].label
-            /** 标明来源，界面给个小标注 —— 用户要能看出这是"从你那句话来的" */
             patch.modeFromParse = true
           }
         }
+        /** 按地名生效的那一份 —— 逐段选择器用它预选 */
+        patch.parsedLegModes = (d.structured && d.structured.preferredModeByText) || {}
+        patch.modeIsGlobal = Boolean(d.structured && d.structured.modeIsGlobal)
 
         that.setData(patch)
 
@@ -892,8 +898,21 @@ Page({
           /**
            * 出行方式偏好（2026-10-14）。后端会把它当**偏好**处理：
            * 可用就用它（哪怕不是最快），不可用就给最快的并说明原因。
+           *
+           * ⚠️⚠️ **只有在"方式是整趟的"时才发它**（`modeIsGlobal`）。
+           *
+           * 用户要求："若多个地名则**只自动选择用户说过出行方式的目的地**
+           * （我想骑车去哈工大，再去冰雪大世界 —— 只是去哈工大的方式选为骑车，
+           *  **冰雪大世界依旧需要用户自己选择**）"
+           *
+           * `preferredMode` 在后端是**全局偏好**，会把"骑车"套到所有段上 ——
+           * 包括用户根本没这么说的冰雪大世界那 14 公里。
+           * 所以说了具体目的地时**不发全局偏好**，改走下面那条按段的路。
            */
-          preferredMode: that.data.preferredMode || undefined,
+          preferredMode:
+            that.data.modeIsGlobal && that.data.preferredMode
+              ? that.data.preferredMode
+              : undefined,
           /**
            * 逐段指定的出行方式 `{ [toPlaceId]: mode }`（2026-10-14）。
            *
@@ -969,8 +988,88 @@ Page({
      */
     const picked = (opts && opts.ignorePicked) ? {} : (this.data.legModes || {})
 
+    /**
+     * 用户**在那一句话里**对某个目的地说了出行方式（2026-10-14）。
+     *
+     * 用户要求："若多个地名则**只自动选择用户说过出行方式的目的地**"。
+     *
+     * `{ '哈工大': 'bicycling' }` —— 键是用户原话里的地名，
+     * 而这里是按 `toPlaceId` 索引，所以要靠**地点名**对上。
+     * 匹配优先全等，再退到互相包含（"哈工大" ↔ "哈工大科技园"）。
+     *
+     * ⚠️ 对不上就**不套** —— 宁可让用户自己在选择器里选，
+     *    也不要张冠李戴：把"骑车"套到冰雪大世界那 14 公里上，
+     *    用户会以为系统乱来。
+     */
+    const byText = (opts && opts.ignorePicked) ? {} : (this.data.parsedLegModes || {})
+    const modeForName = function (name) {
+      const n = String(name == null ? '' : name).trim()
+      if (!n) return null
+      if (byText[n]) return byText[n]
+      /**
+       * 退一步：**用户说的词是地点名的一部分**就算同一个地方 ——
+       * 用户说「哈工大」，而库里那条叫「哈工大科技园」。
+       *
+       * ⚠️ 方向**只有一个**（`n.indexOf(key)`），不能反着也判一次。
+       *    反着判会让**长的键命中短的名字**：
+       *      键「哈尔滨工业大学」 vs 地点名「哈工大」→ 也算命中 ❌
+       *    那两段就被同一个键一起套上了，而用户只对其中一个说了方式。
+       *    （我第一版写成双向，测试立刻抓出来了。）
+       *
+       * ⚠️ 至少两个字才算包含，避免一个单字键匹配到一大片。
+       */
+      for (const key of Object.keys(byText)) {
+        const k = String(key == null ? '' : key).trim()
+        if (k.length >= 2 && n.indexOf(k) >= 0) return byText[k]
+      }
+      return null
+    }
+
+    /**
+     * 用户有没有**明确表达过**出行方式偏好。
+     *
+     * 判据是"当前生效的偏好不是 `auto`" —— `auto` 的意思是"系统按最快挑"，
+     * 那是**没有偏好**，不是一种偏好。
+     *
+     * ⚠️ 这个区分正是用户要求的落点：
+     *    有偏好 → 系统按它预选，界面标"按你的默认"
+     *    没偏好 → 界面标"**待你选择**"，即用户说的
+     *            "其余**依旧需要用户自己选择**"
+     */
+    const hasDefaultMode = Boolean(this.data.preferredMode) && this.data.preferredMode !== 'auto'
+
     return legs.map(function (leg, i) {
-      const chosen = picked[leg.toPlaceId] || leg.chosenMode || leg.recommendedMode
+      /**
+       * 选择优先级（从高到低）：
+       *   ① 用户在**逐段选择器里点过的**（最具体，且是最近的意图）
+       *   ② 用户在**那句话里对这个目的地说的**（"我想骑车去哈工大"）
+       *   ③ 后端按偏好／天气／最快算出来的（`chosenMode`）
+       */
+      const fromUserWords = modeForName(leg.toPlaceName)
+      const chosen =
+        picked[leg.toPlaceId] || fromUserWords || leg.chosenMode || leg.recommendedMode
+
+      /**
+       * 这一段的来源，界面据此说清"这是谁定的"：
+       *   `'user'`    —— 用户在这个选择器里点过
+       *   `'words'`   —— 用户在那句话里对这一站说过方式
+       *   `'default'` —— 用了「我的 → 默认出行方式」设的偏好
+       *   `'auto'`    —— 系统按最快挑的（用户没说，也没有默认值）
+       *
+       * ⚠️ 有 `'default'` 这一档是为了回答用户的要求：
+       *    "**多个地名则只自动选择用户说过出行方式的目的地**，
+       *     其余**依旧需要用户自己选择**"。
+       *    所以"需要你选"的判据是**有没有明确偏好**：
+       *      · 有默认偏好 → 系统按它预选，标成"按你的默认"（可以改）
+       *      · 没有任何偏好（偏好是"自动"）→ 标成"待你选择"
+       */
+      const source = picked[leg.toPlaceId]
+        ? 'user'
+        : fromUserWords
+          ? 'words'
+          : hasDefaultMode
+            ? 'default'
+            : 'auto'
       return {
         index: i + 1,
         toPlaceId: leg.toPlaceId,
@@ -994,6 +1093,26 @@ Page({
         /** 这一段取不到的方式（如公交没配 Key）—— 要说清为什么不能选 */
         unavailable: leg.unavailable || [],
         changed: Boolean(picked[leg.toPlaceId] && picked[leg.toPlaceId] !== leg.chosenMode),
+        /** 这一段的方式是怎么定下来的 —— 界面据此标注来源（见上面 source 的说明） */
+        source: source,
+        sourceNote:
+          source === 'words'
+            ? '按你那句话里说的'
+            : source === 'default'
+              ? '按你在「我的」设的默认方式'
+              : source === 'user'
+                ? '你选的'
+                : '系统按最快挑的',
+        /**
+         * ⚠️ **这一段需要用户自己选**。
+         *
+         * 用户要求："若多个地名则只自动选择用户说过出行方式的目的地，
+         *             **其余依旧需要用户自己选择**"
+         *
+         * 判据：既没说方式、也没有默认偏好（偏好是"自动"）——
+         * 此时系统挑的只是一个"最快的"建议，不该假装成用户的决定。
+         */
+        needsChoice: source === 'auto',
       }
     })
   },
@@ -1022,6 +1141,16 @@ Page({
         selected: mode,
         selectedLabel: modeInfo(mode).name || '',
         changed: true,
+        /**
+         * ⚠️ 来源也要跟着改成 `'user'`（2026-10-14 补）。
+         *
+         * 只改 `selected` 的话，用户点完之后那一行仍然写着
+         * "按你那句话里说的"或"系统按最快挑的" —— 而他刚刚亲手定了它。
+         * 界面上写着错的来源，比不写来源更糟。
+         */
+        source: 'user',
+        sourceNote: '你选的',
+        needsChoice: false,
         options: row.options.map(function (o) {
           return Object.assign({}, o, { isCurrent: o.mode === mode })
         }),

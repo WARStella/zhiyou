@@ -476,6 +476,25 @@ function normalizePreferredMode(v) {
 }
 
 /**
+ * 归一化"按目的地分别记的出行方式"（2026-10-14 加）。
+ *
+ * 走 AI 解析时这也是模型直接给的，同样可能给同义词或中文。
+ * **认不出的条目整条丢弃**，不保留半截 —— 一个野值会让下游
+ * `isPreferredMode` 判断失败，表现为"用户说的方式没生效"且不报错。
+ */
+function normalizeModeByText(v) {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return {};
+  const out = {};
+  for (const key of Object.keys(v)) {
+    const place = String(key == null ? '' : key).trim();
+    if (!place) continue;
+    const mode = normalizePreferredMode(v[key]);
+    if (mode) out[place] = mode;
+  }
+  return out;
+}
+
+/**
  * 判断"出行方式词 + 去"这个组合 —— 只看紧跟在方式词后面的那个「去」。
  *
  * @returns {string|null} 出行方式，或 null
@@ -512,6 +531,76 @@ function detectTravelMode(raw) {
 const TRAVEL_MODE_INFIX_RE =
   /(?:骑车|骑行|单车|自行车|脚踏车|步行|走路|走过去|徒步|开车|驾车|自驾|打车|出租车|网约车|拼车|公交|地铁|轻轨|坐车|乘车|巴士)\s*(?=(?:去|到|往))/g;
 
+/**
+ * ── 按目的地分别记出行方式（2026-10-14 用户要求）──────────────
+ *
+ * 用户原话：
+ *   "若多个地名则**只自动选择用户说过出行方式的目的地**
+ *    （比如：我想骑车去哈工大，再去冰雪大世界
+ *      **只是去哈工大的出行方式选择为骑车，冰雪大世界依旧需要用户自己选择**）"
+ *
+ * ── 为什么单个 `preferredMode` 不够 ───────────────────────
+ *
+ * 出行方式是"**到某个目的地**"的属性，不是整句话的属性。
+ * 一句话里说了两个地方、只对其中一个说了方式时，全局偏好
+ * 会把"骑车"也套到另一个地方上 —— 而用户根本没这么说。
+ *
+ * 例：「我想骑车去哈工大，再去冰雪大世界」
+ *   → 骑车是**哈工大**那一程的方式；冰雪大世界那程**没说**，
+ *     应当让用户在逐段选择器里自己挑。
+ *
+ * 所以这里返回 `{ '哈工大': 'bicycling' }` 这样的映射。
+ * 没说方式的那些地方就**不出现在映射里** —— 缺省即"没说"。
+ *
+ * ── 怎么把方式词与地名对上 ────────────────────────────────
+ *
+ * 方式词后面紧跟「去/到/往」，再往后就是那个地名。所以按**位置**配对：
+ * 取方式词之后、**最早出现的那个**「去」后面紧跟的片段。
+ *
+ * ⚠️ 只在**真的有点名地点**时才逐一配对。配不上的（比如
+ *    "骑车去吧"后面什么也没有）退回全局 `preferredMode`，
+ *    免得一句话说得笼统就整个丢掉。
+ */
+function collectModesByText(originalText, modeInfos) {
+  const map = {};
+  for (const info of modeInfos || []) {
+    /** 从方式词之后找最近的一个「去/到/往」 */
+    const tail = originalText.slice(info.index + info.text.length);
+    const m = tail.match(/(?:去|到|往)\s*([\u4e00-\u9fa5A-Za-z0-9·]{2,16})/);
+    if (!m) continue;
+    /**
+     * ⚠️ 一定要**切到下一个连接词之前** —— 否则
+     *    「骑车去哈工大，再去冰雪大世界」会把
+     *    「哈工大，再去冰雪大世界」整串当地名。
+     */
+    const place = m[1].split(/[，,、；;。！!？?]|再|然后|接着|之后|又/)[0].trim();
+    if (place) map[place] = info.mode;
+  }
+  return map;
+}
+
+/**
+ * 摘出文本里**所有**出行方式表达（含位置），供按地名配对用。
+ *
+ * @returns {Array<{mode:string, text:string, index:number}>}
+ */
+function detectTravelModeInfos(raw) {
+  const found = [];
+  for (const r of TRAVEL_MODE_RES) {
+    const re = new RegExp(r.re.source, 'g');
+    let m;
+    while ((m = re.exec(raw)) !== null) {
+      const after = raw.slice(m.index + m[0].length, m.index + m[0].length + 3);
+      if (!/^\s*(?:去|到|往)/.test(after)) continue;
+      found.push({ mode: r.mode, text: m[0], index: m.index });
+      /** 零长度匹配保护 */
+      if (re.lastIndex === m.index) re.lastIndex++;
+    }
+  }
+  /** 按出现顺序排 —— 配对时靠它保持"先说先配" */
+  return found.sort((a, b) => a.index - b.index);
+}
+
 // ── 主解析 ────────────────────────────────────────────────
 
 /**
@@ -539,6 +628,26 @@ function parse(text, opts) {
      *    该骑车的那段可能给他排成步行。
      */
     preferredMode: null,
+    /**
+     * **按目的地分别记的出行方式**（2026-10-14 加）：
+     * `{ '哈工大': 'bicycling' }`。
+     *
+     * 用户原话："若多个地名则**只自动选择用户说过出行方式的目的地**
+     * （我想骑车去哈工大，再去冰雪大世界 —— 只是去哈工大的方式选为骑车，
+     *   **冰雪大世界依旧需要用户自己选择**）"
+     *
+     * ⚠️ 出行方式是"**到某个目的地**"的属性，不是整句话的属性。
+     *    没说方式的那些地方**不在这个映射里** —— 缺省即"没说"。
+     */
+    preferredModeByText: {},
+    /**
+     * 全句只有一个方式表达、且**没能与任何地名配对**时才算"全局偏好"。
+     *
+     * ⚠️ 有它才能分清两种"只有一个方式"：
+     *   · 「我想骑车去哈工大」    → 配对成功 → 按地名生效，**不是全局**
+     *   · 「我想骑车去」          → 配不上地名 → 当全局偏好（笼统但用户确实说了）
+     */
+    modeIsGlobal: false,
     searchKeyword: null,
     /** 「去 X」里抽出的目标地名（可能在已知库之外） */
     goalText: null,
@@ -604,13 +713,29 @@ function parse(text, opts) {
    *    "用抹过的文本匹配、却拿原文本的下标去比较"的错位）。
    */
   const originalText = raw;
-  out.preferredMode = detectTravelMode(originalText);
+  const modeInfos = detectTravelModeInfos(originalText);
+  out.preferredMode = modeInfos.length ? modeInfos[0].mode : null;
+  /**
+   * ⚠️ 全局 `preferredMode` **只在全句只有一个方式表达时才用它兜底**
+   *    （见 `modeIsGlobal` 的说明）。多个地方各说各的方式时，
+   *    配对映射才是权威，全局值会把方式张冠李戴。
+   */
+  out.preferredModeByText = collectModesByText(originalText, modeInfos);
+  out.modeIsGlobal = modeInfos.length === 1 && Object.keys(out.preferredModeByText).length === 0;
   if (out.preferredMode) {
     out.matched.push({
       field: 'preferredMode',
-      text: (originalText.match(TRAVEL_MODE_INFIX_RE) || [''])[0].trim(),
+      text: modeInfos[0].text.trim(),
       value: out.preferredMode,
       rule: 'travelMode',
+    });
+  }
+  for (const place of Object.keys(out.preferredModeByText)) {
+    out.matched.push({
+      field: 'preferredModeByText',
+      text: place,
+      value: place + ' → ' + out.preferredModeByText[place],
+      rule: 'travelModeByPlace',
     });
   }
   raw = originalText.replace(TRAVEL_MODE_INFIX_RE, '');
@@ -1056,6 +1181,18 @@ function toStructured(parsed, opts) {
      *    而那种失败**不报错**、极难定位。
      */
     preferredMode: normalizePreferredMode(parsed.preferredMode),
+    /**
+     * 按目的地分别记的出行方式（2026-10-14 加）。键是**地名**，
+     * 值是归一化后的方式；认不出的整条丢弃。
+     */
+    preferredModeByText: normalizeModeByText(parsed.preferredModeByText),
+    /**
+     * "这个方式是全局偏好"还是"只属于某个地名"。
+     *
+     * 用户要求："**若多个地名则只自动选择用户说过出行方式的目的地**" ——
+     * 界面据此决定：配对上的按地名生效，没配对上的留给用户自己选。
+     */
+    modeIsGlobal: parsed.modeIsGlobal === true,
   };
 
   const constraints = [];

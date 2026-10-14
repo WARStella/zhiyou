@@ -203,7 +203,16 @@ Page({
         /**
          * ⚠️ 把默认出行方式**同步一份到本地 storage**（2026-10-14）。
          *
-         * 行程页读的是 `zhiyou-preferred-mode`（它自己那个选择器的状态）。
+         * 行程页 `restoreModePreference()` **只读**这个 key，
+         * 用来在 `onLoad` 里同步拿到值（走接口会先显示一帧错的）。
+         *
+         * ⚠️ **本页是唯一的写入方**（2026-10-14 用户要求把出行方式
+         *    从行程页挪到「我的 → 设置」之后）。以前行程页那个 picker
+         *    也写它，于是"默认出行方式"有了两份真相：
+         *      这里写服务端字段（跨设备有效），行程页写本地（只在这台设备上）。
+         *    用户在「我的」改成步行、回行程页又被本地那份覆盖回去。
+         *    现在行程页**只读不写**。
+         *
          * 不同步的话，「我的」里改了默认方式、行程页却还用旧值 ——
          * 用户会以为设置没生效。
          *
@@ -369,7 +378,7 @@ Page({
         }
         const p = (res.data && res.data.profile) || {}
         const nickname = p.nickname || ''
-        /** 与 `loadProfile` 同理：同步给行程页那个选择器 */
+        /** 与 `loadProfile` 同理：同步给行程页只读的那份缓存 */
         try {
           wx.setStorageSync('zhiyou-preferred-mode', p.defaultTravelMode || 'auto')
         } catch (err) {
