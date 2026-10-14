@@ -234,6 +234,20 @@ Page({
   preferredMode: 'auto',
   modeHint: MODE_HINT.auto,
 
+  /**
+   * 逐段出行方式选择器（2026-10-14）。
+   *
+   * `legPickerSeen`：是否已经自动展开过一次。用户要求"点击生成路径后
+   * **出现界面**"，所以第一次生成要自动展开；之后尊重用户的开合状态，
+   * 否则每次重排都弹开，反而碍事。
+   */
+  legPicker: [],
+  legPickerOpen: false,
+  legPickerSeen: false,
+  legOptionsCount: 0,
+  rawLegOptions: [],
+  legModes: {},
+
     // ── 候选（搜索结果或已知地点）──
     mode: 'browse', // browse | search
     candidates: [],
@@ -1172,8 +1186,25 @@ Page({
        * 用它重建等于什么也没恢复。
        */
       rawLegOptions: d.legOptions || [],
-      /** 逐段选择面板默认关着 —— 它只在用户想调整时才需要 */
-      legPickerOpen: false,
+      /**
+       * 后端回传了几段逐段候选。
+       *
+       * ⚠️ 单独存一个数（而不是让模板去读 `rawLegOptions.length`）是为了
+       * 区分两种"选择器为空"：**后端没返回这个字段**（八成是云函数没重新部署）
+       * 与**返回了但每段都没候选**（地图接口没配或配额用尽）。
+       * 两者修法完全不同，界面要说清是哪一种。
+       */
+      legOptionsCount: (d.legOptions || []).length,
+      /**
+       * 生成路线后**自动展开一次**。
+       *
+       * 用户明确要求"点击生成路径后出现界面" —— 所以它不该是
+       * "藏起来等你去点展开"的。`legPickerSeen` 保证只自动展开第一次，
+       * 后续生成（改方式、调整行程）保持用户上次的开合状态，
+       * 否则每次重排都把面板弹开，反而碍事。
+       */
+      legPickerOpen: !this.data.legPickerSeen && (d.legOptions || []).length > 0,
+      legPickerSeen: true,
     }, () => {
       /**
        * setData 的回调在**渲染完成之后**触发 —— 此时地图组件才真正存在，

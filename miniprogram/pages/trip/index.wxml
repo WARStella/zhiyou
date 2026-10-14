@@ -231,10 +231,17 @@
       "点击生成路径后出现界面，让用户分别选择每段路径的出行方式"，
       并在推荐的方式边上打"推荐"字样。
 
-      **默认收起**：路线已生成、决策已完成，这个面板是"想调整时才用"的，
-      展开着会把地图挤走（与小队面板同一个考虑）。
+      ⚠️⚠️ **这里原来写的是 `wx:if="{{legPicker.length}}"`** —— 为空时整块
+      卡片**静默消失**。用户点完生成路线看不到任何东西，也分不清
+      "没有可选的方式"与"这个功能没生效（比如云函数没重新部署）"。
+
+      用户实测报的正是这个："我点击生成路线时还是没有让我选择出行方式啊"。
+
+      **一个可能因为部署问题而不出现的界面，不该静默隐藏。**
+      现在只在"还没生成路线"时才不显示（那时确实没有逐段可选），
+      生成之后一定显示，并在没有候选时说清原因。
     -->
-    <view wx:if="{{legPicker.length}}" class="card leg-picker">
+    <view wx:if="{{trip}}" class="card leg-picker">
       <view class="row lp-head" bindtap="toggleLegPicker" hover-class="lp-head-hover">
         <text class="k">出行方式 · 逐段调整</text>
         <text class="v muted">{{legPickerOpen ? '收起 ▴' : '展开 ▾'}}</text>
@@ -244,7 +251,19 @@
         各段已按最快自动选好。想自己定某一段，点「展开」。
       </view>
 
-      <block wx:if="{{legPickerOpen}}">
+      <!-- 没有可选数据时说清是哪一种情况，别让用户猜 -->
+      <view wx:if="{{legPickerOpen && !legPicker.length}}" class="lp-empty">
+        <view wx:if="{{!legOptionsCount}}">
+          这一版没有返回可选的出行方式数据。若刚更新过云函数，
+          <text class="lp-strong">请重新部署云函数 api</text> 再试。
+        </view>
+        <view wx:else>
+          这条路线只有 {{legOptionsCount}} 段，但每段都没取到可比较的方式
+          （地图接口可能未配置或配额用尽）。逐段调整暂时没有内容可显示。
+        </view>
+      </view>
+
+      <block wx:if="{{legPickerOpen && legPicker.length}}">
         <view wx:for="{{legPicker}}" wx:key="toPlaceId" class="lp-leg">
           <view class="lp-leg-head">
             <text class="lp-seq">{{item.index}}</text>

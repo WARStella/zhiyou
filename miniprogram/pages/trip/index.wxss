@@ -918,3 +918,7 @@
 .lp-opt-sub { width: 100%; font-size: 19rpx; color: #7b8794; margin-top: 4rpx; }
 .lp-unavail { font-size: 20rpx; color: #9aa5b1; }
 .lp-actions { display: flex; margin-top: 12rpx; }
+/* 选择器没内容时的说明（2026-10-14）
+   卡片不再静默消失，所以要能说清"为什么这里没东西"。 */
+.lp-empty { font-size: 22rpx; color: #9aa5b1; padding: 10rpx 0; line-height: 1.7; }
+.lp-strong { color: #b26a00; font-weight: 600; }

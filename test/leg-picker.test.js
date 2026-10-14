@@ -265,6 +265,48 @@ test('恢复推荐：清掉所有逐段选择，回到系统挑的', () => {
 test('没有 legOptions 时选择器为空，不报错', () => {
   const page = pageWithLegOptions([]);
   assert.deepEqual(page.data.legPicker, []);
+  /**
+   * ⚠️ 关键：**卡片不能因此消失**。
+   *
+   * 原来模板写的是 `wx:if="{{legPicker.length}}"` —— 为空时整块静默隐藏，
+   * 用户点完生成路线看不到任何东西，也分不清"没有可选的方式"与
+   * "功能没生效（比如云函数没重新部署）"。
+   *
+   * 用户实测报的正是这个："我点击生成路线时还是没有让我选择出行方式啊"。
+   */
+  assert.equal(page.data.legOptionsCount, 0, '要能区分"没返回字段"与"返回了但每段没候选"');
+});
+
+test('生成路线后**自动展开一次** —— 用户要的是"点击后出现界面"', () => {
+  const page = pageWithLegOptions(LEG_OPTIONS);
+  assert.equal(page.data.legPickerOpen, true, '第一次生成就该展开，不该藏起来等用户去点');
+  assert.equal(page.data.legPickerSeen, true);
+});
+
+test('后续生成不再自动展开 —— 每次重排都弹开会碍事', () => {
+  const page = pageWithLegOptions(LEG_OPTIONS);
+  /** 模拟用户手动收起 */
+  page.setData({ legPickerOpen: false });
+  /** 再生成一次（比如他改了某段的方式点了「应用」） */
+  page.applyTrip(
+    {
+      tripId: 't1',
+      version: 2,
+      nodes: [node('n0', '哈工大', 'pending', 0)],
+      saved: true,
+      summary: { endAt: '2026-10-20T05:00:00.000Z', totalWalkMin: 8, totalStayMin: 90 },
+      startPoint: { latitude: 45.75, longitude: 126.6 },
+      startLeg: { minutes: 12, meters: 900, mode: 'walking', toPlaceName: '哈工大' },
+      legOptions: LEG_OPTIONS,
+    },
+    ''
+  );
+  assert.equal(page.data.legPickerOpen, false, '第二次生成应保持用户收起的状态');
+});
+
+test('生成路线后附带可选的出行方式数量 —— 卡片据此决定说什么', () => {
+  const withOptions = pageWithLegOptions(LEG_OPTIONS);
+  assert.equal(withOptions.data.legOptionsCount, 2);
 });
 
 test('选完点「应用」才重新规划，且逐段选择真的发出去了', async () => {
