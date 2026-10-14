@@ -78,6 +78,12 @@ Page({
      * 下标一旦错位就是"点 A 选中 B"，而且**不报错**。
      */
     markerPlaceIndex: {},
+    /**
+     * 当前路线（从 `zhiyou-active-trip` 读回，见 `loadActiveTrip`）。
+     *
+     * `{ name, points, nodeNames }` —— 只留画线要用的坐标与名字。
+     */
+    route: null,
     photoBusy: false,
     photoNote: '',
     loading: true,
@@ -87,6 +93,124 @@ Page({
 
   onLoad() {
     this.loadPlaces()
+  },
+
+  /**
+   * 每次显示都读一次"当前路线"。
+   *
+   * ── 为什么必须是 onShow 而不是 onLoad（2026-10-14）──────────
+   *
+   * `onLoad` 只在页面**第一次**创建时跑。而地图是 tab 页：
+   * 用户在行程页生成一条路线、再切到地图页时，页面实例早就存在了，
+   * `onLoad` 不会再触发 —— 于是地图**永远不知道有一条路线**，
+   * 但 `onLoad` 里设的默认中心点还留在那儿，结果就是
+   * "路线看不见，视野还偏到别的地方去了"（用户报的原话）。
+   *
+   * 行程页每次生成/更新路线都会写 `zhiyou-active-trip`（同
+   * `team-panel` 的 `zhiyou-active-crew` 那套约定），这里读回来即可。
+   */
+  onShow() {
+    this.loadActiveTrip()
+  },
+
+  /**
+   * 读回当前路线并画在地图上。
+   *
+   * ⚠️ 路线**必须重新取一次** `trip.get`，不能只靠 storage 里的坐标：
+   * 调整（`trip.adjust`）会改节点的顺序与停留时长，storage 那份会过期。
+   * storage 只用来回答"现在有没有路线、是哪一个"。
+   *
+   * 失败一律静默降级（路线画不出来不影响选集合点），但**要留下 note** ——
+   * 静默失败正是这次这个 bug 的特征，不能再复制一遍。
+   */
+  loadActiveTrip() {
+    const that = this
+    let saved = null
+    try {
+      saved = wx.getStorageSync('zhiyou-active-trip') || null
+    } catch (e) {
+      saved = null
+    }
+
+    if (!saved || !saved.tripId) {
+      // 没有路线时清掉上一次的残留，避免换成"上一条路线的线"
+      if (this.data.route) this.setData({ route: null })
+      this.refreshMarkers()
+      return
+    }
+
+    api
+      .callApi('trip.get', { tripId: saved.tripId })
+      .then(function (res) {
+        if (!res || res.ok !== true) {
+          that.setData({ note: '当前路线读取失败：' + ((res && res.error && res.error.message) || '未知原因') })
+          return
+        }
+        const trip = (res.data && res.data.trip) || null
+        const nodes = (trip && trip.nodes) || []
+        const points = nodes
+          .filter(function (n) {
+            return n.location && typeof n.location.latitude === 'number'
+          })
+          .map(function (n) {
+            return { latitude: n.location.latitude, longitude: n.location.longitude }
+          })
+
+        if (points.length < 2) {
+          that.setData({ route: null, note: '当前路线可定位的节点少于 2 个，无法在地图上连线' })
+          that.refreshMarkers()
+          return
+        }
+
+        that.setData({
+          route: {
+            tripId: saved.tripId,
+            name: trip.title || '当前路线',
+            points: points,
+            nodeNames: nodes.map(function (n) {
+              return n.placeName || n.name || n.placeId
+            }),
+          },
+          note: '',
+        })
+        that.fitRoute()
+        that.refreshMarkers()
+      })
+      .catch(function (err) {
+        that.setData({ note: (err && err.errMsg) || '当前路线读取失败' })
+      })
+  },
+
+  /**
+   * 把视野落到整条路线上。
+   *
+   * 用 `includePoints` 而不是自己算中心点：它是地图组件自己实现的，
+   * 会连缩放级别一起算好，比自己写一套经纬度包围盒可靠。
+   *
+   * ⚠️ 必须等**渲染完成**再调用 —— 地图组件此时才真正存在
+   * （行程页的 `fitRouteMap` 踩过同一个坑，这里沿用同样的做法）。
+   */
+  fitRoute() {
+    const points = (this.data.route && this.data.route.points) || []
+    if (!points.length) return
+    const that = this
+    this.setData({}, function () {
+      const ctx = wx.createMapContext('tripmap')
+      if (ctx && typeof ctx.includePoints === 'function') {
+        ctx.includePoints({
+          points: points,
+          padding: [60, 40, 60, 40],
+          fail: function (err) {
+            /**
+             * 失败不阻断 —— 但要说出来。
+             * `includePoints` 失败时地图会停在旧视野上，看起来就是"偏到别的地方去了"，
+             * 而那正是用户在报的现象，所以不能再让它无声发生。
+             */
+            that.setData({ note: '视野缩放失败：' + ((err && err.errMsg) || '未知原因') })
+          },
+        })
+      }
+    })
   },
 
   onTeamState(e) {
@@ -438,22 +562,40 @@ Page({
       })
     }
 
-    // 从"我"到所选集合点的连线（正式版将替换为后端返回的步行路径）
-    const polyline =
-      this.data.myPoint && this.data.meetingPoint
-        ? [
-            {
-              points: [
-                this.data.myPoint,
-                { latitude: this.data.meetingPoint.latitude, longitude: this.data.meetingPoint.longitude },
-              ],
-              color: '#0FA98A',
-              width: 4,
-              dottedLine: true,
-              arrowLine: true,
-            },
-          ]
-        : []
+    /**
+     * 折线有两条，来源不同、含义不同，**都要画**：
+     *
+     *   ① 当前路线（`route.points`）—— 已经生成的那条行程，蓝色实线。
+     *      ⚠️ 这是可以画直线的**占位**：真实步行路径要逐段调
+     *      `trip.legRoute`（会消耗地图配额），等到演示需要时再按段取。
+     *      用它先把"路线在哪儿"表达出来，比什么都不画强得多 ——
+     *      用户报的 bug 正是"看不到生成的路线"。
+     *   ② 我 → 所选集合点 —— 青色虚线，表示"我要往那儿走"。
+     */
+    const polyline = []
+
+    const routePoints = (this.data.route && this.data.route.points) || []
+    if (routePoints.length >= 2) {
+      polyline.push({
+        points: routePoints,
+        color: '#0B3C6E',
+        width: 5,
+        arrowLine: true,
+      })
+    }
+
+    if (this.data.myPoint && this.data.meetingPoint) {
+      polyline.push({
+        points: [
+          this.data.myPoint,
+          { latitude: this.data.meetingPoint.latitude, longitude: this.data.meetingPoint.longitude },
+        ],
+        color: '#0FA98A',
+        width: 4,
+        dottedLine: true,
+        arrowLine: true,
+      })
+    }
 
     ;(this.teamLocations || []).forEach((m, i) => markers.push({
       id: 2000 + i, latitude: m.point.latitude, longitude: m.point.longitude,

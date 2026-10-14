@@ -845,7 +845,33 @@ Page({
        * 才能对它调用 includePoints（见 fitRouteMap 的说明）。
        */
       this.fitRouteMap()
+      this.rememberActiveTrip(d.tripId, d.version)
     })
+  },
+
+  /**
+   * 把"当前路线"写到 storage，供**地图页**读取。
+   *
+   * ── 为什么需要它（2026-10-14）────────────────────────────
+   *
+   * 用户在行程页生成路线、再切到地图页选集合点时，地图页完全不知道
+   * 有一条路线 —— 于是"路线看不见"，而且地图还停在默认中心点上，
+   * 看起来就是"偏到别的地方去了"。
+   *
+   * 约定与 `team-panel` 的 `zhiyou-active-crew` 一致：**只存"是哪一个"**，
+   * 不存内容。路线内容由地图页现取 `trip.get` ——
+   * 因为 `trip.adjust` 会改节点顺序与停留时长，存下来的副本会过期，
+   * 而**过期的路线画在地图上比不画更糟**（用户会按错的线找路）。
+   */
+  rememberActiveTrip(tripId, version) {
+    if (!tripId) return
+    try {
+      wx.setStorageSync('zhiyou-active-trip', { tripId: tripId, version: version || null })
+    } catch (e) {
+      // storage 写失败不该影响行程页本身；但要说出来，否则地图页会"无缘无故"没有路线
+      console.error('[rememberActiveTrip] 写入失败，地图页将看不到这条路线', e)
+      this.setData({ note: '当前路线未能记到本地，地图页可能看不到它（' + ((e && e.errMsg) || '存储失败') + '）' })
+    }
   },
 
   /**

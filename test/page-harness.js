@@ -58,6 +58,11 @@ function loadPage(relPath, opts) {
   };
 
   const wxCalls = [];
+  /**
+   * storage 的内容。**每次 loadPage 一份新的**，但由 `opts.storage` 预置 ——
+   * 模拟"上一个页面已经写过"。
+   */
+  const storage = Object.assign({}, opts.storage || {});
   const prevGlobals = {
     Page: global.Page,
     getApp: global.getApp,
@@ -87,6 +92,23 @@ function loadPage(relPath, opts) {
       showToast: (a) => wxCalls.push({ fn: 'showToast', args: a }),
       openLocation: (a) => wxCalls.push({ fn: 'openLocation', args: a }),
       pageScrollTo: (a) => wxCalls.push({ fn: 'pageScrollTo', args: a }),
+      /**
+       * storage 替身 —— **共享一份**（2026-10-14 新增）。
+       *
+       * 存在的理由：跨页传递靠 storage（`zhiyou-active-trip` / `zhiyou-active-crew`），
+       * 而"行程页写了、地图页读不读得到"恰恰是最容易出错的一环
+       * ——用户报的"生成路线后地图上看不到路线"就是这个 bug。
+       *
+       * 用 `opts.storage` 预置内容即可模拟"上一个页面写过"。
+       */
+      getStorageSync: (k) => (k in storage ? storage[k] : ''),
+      setStorageSync: (k, v) => {
+        storage[k] = v;
+        wxCalls.push({ fn: 'setStorageSync', args: { key: k, value: v } });
+      },
+      removeStorageSync: (k) => {
+        delete storage[k];
+      },
       /**
        * `wx.cloud` 的替身。
        *
@@ -165,6 +187,8 @@ function loadPage(relPath, opts) {
   page.__calls = calls;
   page.__wx = wxCalls;
   page.__setDataLog = [];
+  /** 供测试断言"页面写了什么到本地"（跨页传递靠它） */
+  page.__storage = storage;
 
   /**
    * 显式清理：还原 api 缓存与 `wx` / `getApp` 全局。
