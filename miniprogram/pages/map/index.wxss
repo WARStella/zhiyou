@@ -183,3 +183,13 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* 精度告警（2026-10-14）：精度差时必须显眼 ——
+   基于一个偏了几百米的位置算出来的"我要走多久"是没有意义的，
+   而这种失真在界面上原本完全看不出来。 */
+.note.warn {
+  color: #b45309;
+  background: #fffbeb;
+  border-radius: 8rpx;
+  padding: 12rpx 16rpx;
+}

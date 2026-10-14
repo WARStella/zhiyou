@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 地图与集合页面。
  *
  * 目的（2026-10-13 建立）：
@@ -48,6 +48,15 @@ function walkEstimate(a, b) {
 /** 集合点候选类别（与后端 MEET_CATEGORIES 对齐） */
 const MEET_CATEGORIES = ['meeting', 'entrance', 'exit', 'spot', 'rest']
 
+/**
+ * 单次最多取几段真实路径。
+ *
+ * 每段消耗 1 次地图配额。一条 6 站的路线有 5 段，一次进页面就是 5 次调用；
+ * 有了按段缓存，切回地图页不会再花 —— 但首次仍要有上限，
+ * 否则长途路线会一口气把月配额吃掉一大块。
+ */
+const MAX_LEGS = 6
+
 Page({
   data: {
     // 中心点：哈尔滨中央大街。地点数据由后端下发，这里是加载前的默认视角
@@ -58,6 +67,20 @@ Page({
     places: [],
     myPoint: null,
     mySource: null,
+    /**
+     * ⚠️ `myAccuracyM` 必须**在这里声明**（2026-10-14 修）。
+     *
+     * 它原先只在 `setData` 里被赋值，没进 `data`。模板里
+     * `wx:if="{{myAccuracyM}}"` 读的是初始渲染那份 data —— 一直是 undefined，
+     * 于是"精度约 X 米"从来没显示过。
+     *
+     * 而**精度是判断"这次定位能不能信"的唯一依据**：
+     * 精度 30 米和精度 2000 米，界面上长得一模一样。
+     * 少了它，用户只能说"定位不准"，而没法说清有多不准。
+     */
+    myAccuracyM: null,
+    /** 定位时刻（HH:MM:SS）—— 用来分辨"刚取的"还是"拿了一份旧的" */
+    myLocatedAt: '',
     pickMode: false,
     meetingPoint: null,
     nearby: [],
@@ -84,6 +107,18 @@ Page({
      * `{ name, points, nodeNames }` —— 只留画线要用的坐标与名字。
      */
     route: null,
+    /**
+     * 真实步行路径：`{ ['<起点nodeId>|<终点nodeId>']: { points, distanceMeters, durationMinutes, steps, decoded } }`。
+     *
+     * 来自 `trip.legRoute`（每次消耗 1 次地图配额），所以**按段缓存、不重复请求**。
+     * 键用两个 nodeId 而不是序号：调整路线会改节点顺序，用序号会让缓存错位到别的段上。
+     */
+    legRoutes: {},
+    legsLoading: false,
+    legsNote: '',
+    /** 本次已取回的段数 —— 界面要能说清"还有几段没画" */
+    legsLoaded: 0,
+    legsTotal: 0,
     photoBusy: false,
     photoNote: '',
     loading: true,
@@ -185,6 +220,18 @@ Page({
             tripId: saved.tripId,
             name: trip.title || '当前路线',
             points: points,
+            /**
+             * 逐段取真实路径要用**节点本身**（nodeId + 坐标），
+             * 而 `points` 只是可定位节点的坐标、丢掉了 nodeId。
+             * 两者都留着：`points` 给"把整条路线收进视野"用，`nodes` 给逐段取路径用。
+             */
+            nodes: nodes
+              .filter(function (n) {
+                return n.location && typeof n.location.latitude === 'number'
+              })
+              .map(function (n) {
+                return { nodeId: n.nodeId, placeName: n.placeName || n.name, location: n.location }
+              }),
             nodeNames: nodes.map(function (n) {
               return n.placeName || n.name || n.placeId
             }),
@@ -198,9 +245,116 @@ Page({
          */
         if (!that.recenterOnMe()) that.fitRoute()
         that.refreshMarkers()
+        /** 路线画出来之后再去取真实步行路径（那是逐段的、要花配额，慢一点没关系） */
+        that.loadLegRoutes()
       })
       .catch(function (err) {
         that.setData({ note: (err && err.errMsg) || '当前路线读取失败' })
+      })
+  },
+
+  /**
+   * 取回各段的**真实步行路径**（沿街道的那种，不是两点直连）。
+   *
+   * ── 为什么必须做这件事（2026-10-14）──────────────────────
+   *
+   * 用户报："路径规划功能好像没做。"——服务端其实**全做好了**
+   * （`trip.legRoute` 返回解码后的折线 + 上游原话的转向指引），
+   * 缺的只是地图页从没调它，画的是一条节点直连的占位线。
+   *
+   * 而那条占位线正好违反项目自己定下的纪律，行程页的注释写得很清楚：
+   *
+   *   「`decoded: false` 时**什么都不画**，并如实说明 ——
+   *     宁可没有线，也不能拿示意图冒充真实路线。」
+   *
+   * 所以这里改成逐段取真实路径；取不到的那一段不画。
+   *
+   * ── 配额纪律 ──────────────────────────────────────────────
+   *
+   * 每段消耗 1 次地图配额，所以：
+   *   · 结果**按段缓存**（键是起终点 nodeId），切回地图页不重复请求；
+   *   · 段数超过 `MAX_LEGS` 时**只取前若干段并如实说明**，不闷头烧配额。
+   */
+  loadLegRoutes() {
+    const that = this
+    const route = this.data.route
+    if (!route || !route.tripId) return
+
+    const nodes = route.nodes || []
+    if (nodes.length < 2) return
+
+    /** 待取的所有段（相邻两节点之间） */
+    const pending = []
+    for (let i = 1; i < nodes.length; i++) {
+      const key = nodes[i - 1].nodeId + '|' + nodes[i].nodeId
+      if (!this.data.legRoutes[key]) pending.push({ key: key, from: nodes[i - 1], to: nodes[i], index: i })
+    }
+
+    if (!pending.length) return // 全部命中缓存
+
+    const todo = pending.slice(0, MAX_LEGS)
+    const skipped = pending.length - todo.length
+
+    this.setData({
+      legsLoading: true,
+      legsTotal: nodes.length - 1,
+      legsNote: skipped > 0 ? `本次只取前 ${MAX_LEGS} 段真实路径（每段消耗 1 次地图配额）` : '',
+    })
+
+    /**
+     * **串行**取，不并发：地图接口有 QPS 限制，而且串行能让第一段先画出来
+     * ——用户最想看的就是脚下这一段。
+     */
+    let chain = Promise.resolve()
+    todo.forEach(function (leg) {
+      chain = chain.then(function () {
+        return api
+          .callApi('trip.legRoute', {
+            tripId: route.tripId,
+            nodeId: leg.to.nodeId,
+            fromPoint: leg.from.location,
+          })
+          .then(function (res) {
+            const patch = {}
+            if (res && res.ok === true && res.data && res.data.ok !== false) {
+              const d = res.data
+              const decoded = Boolean(d.route && d.route.decoded)
+              patch['legRoutes.' + leg.key] = {
+                points: (d.route && d.route.points) || [],
+                decoded: decoded,
+                distanceMeters: d.distanceMeters,
+                durationMinutes: d.durationMinutes,
+                steps: (d.route && d.route.steps) || [],
+              }
+            } else {
+              /**
+               * 取不到就**记下失败**，不画线。
+               * 记下来是为了"不再重复请求同一段" —— 否则每次切回地图页
+               * 都会对同一个失败段再烧一次配额，而且用户看不出区别。
+               */
+              patch['legRoutes.' + leg.key] = {
+                points: [],
+                decoded: false,
+                failed: true,
+                reason: (res && res.data && res.data.reason) || (res && res.error && res.error.code) || 'UNKNOWN',
+                message:
+                  (res && res.data && res.data.message) || (res && res.error && res.error.message) || '取路径失败',
+              }
+            }
+            patch.legsLoaded = that.data.legsLoaded + 1
+            that.setData(patch)
+            that.refreshMarkers()
+          })
+      })
+    })
+
+    chain
+      .then(function () {
+        that.setData({ legsLoading: false })
+        that.refreshMarkers()
+      })
+      .catch(function (err) {
+        that.setData({ legsLoading: false, legsNote: (err && err.errMsg) || '取路径失败' })
       })
   },
 
@@ -290,6 +444,7 @@ Page({
               myPoint: { latitude: res.latitude, longitude: res.longitude },
               mySource: 'gps',
               myAccuracyM: res.accuracy,
+              myLocatedAt: new Date().toLocaleTimeString(),
             })
             that.refreshMarkers()
             /**
@@ -421,6 +576,7 @@ Page({
           myPoint: { latitude: res.latitude, longitude: res.longitude },
           mySource: 'gps',
           myAccuracyM: res.accuracy,
+          myLocatedAt: new Date().toLocaleTimeString(),
           pickMode: false,
           note: '已通过定位接口获取位置（位置来源：定位接口）',
         })
@@ -758,24 +914,35 @@ Page({
     }
 
     /**
-     * 折线有两条，来源不同、含义不同，**都要画**：
+     * 折线只画**真实步行路径**，不画两点直连。
      *
-     *   ① 当前路线（`route.points`）—— 已经生成的那条行程，蓝色实线。
-     *      ⚠️ 这是可以画直线的**占位**：真实步行路径要逐段调
-     *      `trip.legRoute`（会消耗地图配额），等到演示需要时再按段取。
-     *      用它先把"路线在哪儿"表达出来，比什么都不画强得多 ——
-     *      用户报的 bug 正是"看不到生成的路线"。
-     *   ② 我 → 所选集合点 —— 青色虚线，表示"我要往那儿走"。
+     * ── 为什么不留占位线（2026-10-14）────────────────────────
+     *
+     * 第一版画的是"节点直连"的蓝线，本意是先把"路线在哪儿"表达出来。
+     * 但那条线正是**项目自己明确拒绝过的东西** —— 行程页的注释：
+     *
+     *   「`decoded: false` 时什么都不画，并如实说明 ——
+     *     宁可没有线，也不能拿示意图冒充真实路线。」
+     *
+     * 理由很实在：两点直连在城市里会横穿街区与建筑，
+     * 用户照着走会走进死路或围墙。**一条会把人带错的线，比没有线更糟。**
+     *
+     * 所以现在：有真实路径就画，没有就不画，并把"还差几段"说清楚。
      */
     const polyline = []
+    const legRoutes = this.data.legRoutes || {}
+    const legNodes = (this.data.route && this.data.route.nodes) || []
 
-    const routePoints = (this.data.route && this.data.route.points) || []
-    if (routePoints.length >= 2) {
+    for (let i = 1; i < legNodes.length; i++) {
+      const leg = legRoutes[legNodes[i - 1].nodeId + '|' + legNodes[i].nodeId]
+      if (!leg || !leg.decoded || !leg.points || leg.points.length < 2) continue
       polyline.push({
-        points: routePoints,
+        points: leg.points,
         color: '#0B3C6E',
-        width: 5,
+        width: 6,
         arrowLine: true,
+        borderColor: '#FFFFFF',
+        borderWidth: 2,
       })
     }
 

@@ -75,6 +75,33 @@ function spyMapCtx(store) {
   });
 }
 
+/** `trip.legRoute` 的成功返回：解码后的真实步行路径 */
+function legRouteOk(from, to) {
+  return {
+    ok: true,
+    data: {
+      ok: true,
+      tripId: 't_1',
+      nodeId: to.nodeId,
+      placeName: to.placeName,
+      distanceMeters: 815,
+      durationMinutes: 12,
+      route: {
+        decoded: true,
+        pointCount: 3,
+        // 真实路径会沿街道拐弯 —— 用它区分"真实路径"和"两点直连"
+        points: [
+          { latitude: from.location.latitude, longitude: from.location.longitude },
+          { latitude: (from.location.latitude + to.location.latitude) / 2, longitude: from.location.longitude + 0.0009 },
+          { latitude: to.location.latitude, longitude: to.location.longitude },
+        ],
+        steps: [{ instruction: '从起点朝西北行进62米右转进入上游街' }],
+      },
+      to: { latitude: to.location.latitude, longitude: to.location.longitude, name: to.placeName },
+    },
+  };
+}
+
 function mapPage(opts) {
   opts = opts || {};
   const store = { includePoints: [], moveToLocation: [] };
@@ -83,6 +110,15 @@ function mapPage(opts) {
       {
         'place.list': { ok: true, data: { places: PLACES } },
         'trip.get': { ok: true, data: { trip: { tripId: 't_1', title: '哈尔滨一日', nodes: NODES } } },
+        /**
+         * 逐段真实路径。默认返回"解码成功"的路径 ——
+         * 因为契约是"**有真实路径才画线**"，不给它就没有线可断言。
+         */
+        'trip.legRoute': (payload) => {
+          const to = NODES.find((n) => n.nodeId === payload.nodeId);
+          const idx = NODES.indexOf(to);
+          return legRouteOk(NODES[idx - 1], to);
+        },
       },
       opts.api
     ),
@@ -108,17 +144,69 @@ test('地图页必须用 onShow 读当前路线 —— onLoad 在 tab 页切回�
   assert.equal(p.data.route.points.length, 3, '三个可定位节点应当都进折线');
 });
 
+test('地图上画的是**真实步行路径**，不是两点直连（回归：用户说"路径规划好像没做"）', async (t) => {
+  const p = mapPage({ storage: { 'zhiyou-active-trip': { tripId: 't_1' } } });
+  t.after(() => p.restore());
+
+  p.onShow();
+  await settle(8);
+
+  const actions = p.__calls.map((c) => c.action);
+  assert.ok(actions.includes('trip.legRoute'), '必须逐段去取真实路径 —— 服务端早就做好了，缺的是这里没调');
+
+  const lines = p.data.polyline.filter((l) => l.color === '#0B3C6E');
+  assert.equal(lines.length, 2, '三个节点两条段，都该画出来');
+  // 中间点带拐弯 → 说明画的是真实路径而不是直连
+  assert.equal(lines[0].points.length, 3);
+  assert.notEqual(
+    lines[0].points[1].longitude,
+    (lines[0].points[0].longitude + lines[0].points[2].longitude) / 2,
+    '中间点必须偏离两点连线 —— 否则画的就是直连'
+  );
+});
+
+test('取不到真实路径时**什么都不画** —— 一条会把人带错的线比没有线更糟', async (t) => {
+  const p = mapPage({
+    storage: { 'zhiyou-active-trip': { tripId: 't_1' } },
+    api: {
+      'trip.legRoute': { ok: true, data: { ok: false, reason: 'UPSTREAM_FAILED', message: '地图服务暂时不可用' } },
+    },
+  });
+  t.after(() => p.restore());
+
+  p.onShow();
+  await settle(8);
+
+  const lines = p.data.polyline.filter((l) => l.color === '#0B3C6E');
+  assert.equal(lines.length, 0, '宁可没有线，也不能拿示意图冒充真实路线');
+
+  /**
+   * 而且**不能再重复请求同一段**：否则每次切回地图页都对同一个失败段
+   * 再烧一次配额，而用户看不出任何区别。
+   */
+  const before = p.__calls.filter((c) => c.action === 'trip.legRoute').length;
+  assert.ok(before > 0);
+  p.loadLegRoutes();
+  await settle(4);
+  assert.equal(
+    p.__calls.filter((c) => c.action === 'trip.legRoute').length,
+    before,
+    '失败过的段也要缓存，不该重复消耗配额'
+  );
+});
+
 test('路线会被画成折线（回归：用户看不到生成的路线）', async (t) => {
   const p = mapPage({ storage: { 'zhiyou-active-trip': { tripId: 't_1' } } });
   t.after(() => p.restore());
 
   p.onShow();
-  await settle();
+  await settle(8);
 
-  const routeLine = p.data.polyline.find((l) => l.color === '#0B3C6E');
-  assert.ok(routeLine, '地图上必须有一条代表当前路线的折线');
-  assert.equal(routeLine.points.length, 3);
-  assert.equal(routeLine.points[0].latitude, 45.7756);
+  const routeLines = p.data.polyline.filter((l) => l.color === '#0B3C6E');
+  assert.equal(routeLines.length, 2, '两段真实路径都要画');
+  assert.equal(p.data.legsTotal, 2);
+  assert.equal(p.data.legsLoaded, 2, '取完要如实报数');
+  assert.equal(p.data.legsLoading, false);
 });
 
 test('已授权时镜头跟我 —— 而不是收到整条路线上', async (t) => {
@@ -161,8 +249,8 @@ test('未授权时不弹权限框 —— 地图是 tab，不能每次点进来�
 
   assert.equal(asked.length, 0, '未授权时不该调用 getLocation（那会弹权限框）');
   assert.equal(p.data.myPoint, null, '拿不到位置就不该假装有');
-  // 路线照常显示
-  assert.ok(p.data.polyline.find((l) => l.color === '#0B3C6E'), '路线该照常画出来');
+  // 真实路径照常取回来（这一步与定位无关）
+  assert.ok(p.__calls.map((c) => c.action).includes('trip.legRoute'), '路线该照常取');
 });
 
 test('拿不到定位但地图上下文可用时，镜头仍交给地图（不硬塞一个默认点）', async (t) => {
@@ -354,6 +442,32 @@ test('集合点不在 places 库里时也要能标出来（手动选点的坐标
   assert.equal(p.data.meetingPoint.fromTeamTask, true, '要能区分"我选的"与"队里定的"');
   const pin = p.data.markers.find((m) => m.latitude === 45.7999);
   assert.ok(pin, '不在库里的集合点也必须出现在地图上');
+});
+
+test('精度必须在 data 里声明 —— 否则"精度约 X 米"永远不显示（已坏过一次）', async (t) => {
+  const p = mapPage({ wx: grantedWx() });
+  t.after(() => p.restore());
+
+  /**
+   * ⚠️ 这条守的是一个**静默失效**：`myAccuracyM` 原先只在 `setData` 里赋值、
+   * 没进 `data`，模板 `wx:if="{{myAccuracyM}}"` 于是永远为假。
+   *
+   * 界面看上去完全正常，只是**从来不显示精度** —— 而精度是判断
+   * "这次定位能不能信"的唯一依据（30 米和 2000 米在界面上长得一样）。
+   * 用户只能说"定位不准"，没法说清有多不准。
+   */
+  const source = require('node:fs').readFileSync(
+    require('node:path').join(__dirname, '..', 'miniprogram', 'pages', 'map', 'index.js'),
+    'utf8'
+  );
+  const dataBlock = source.slice(source.indexOf('data: {'), source.indexOf('onLoad()'));
+  assert.match(dataBlock, /myAccuracyM:\s*null/, 'myAccuracyM 必须在 data 里声明');
+  assert.match(dataBlock, /myLocatedAt:\s*''/, '定位时刻也要声明 —— 用来分辨是不是拿了一份旧位置');
+
+  p.autoLocate();
+  await settle();
+  assert.equal(p.data.myAccuracyM, 20, '取到位置后应当带上精度');
+  assert.ok(p.data.myLocatedAt, '并记下取得时刻');
 });
 
 test('行程页生成路线后会把 tripId 写到本地，供地图页读取', async (t) => {

@@ -24,14 +24,36 @@
     <view wx:if="{{loading}}" class="hint">正在加载地点数据…</view>
     <view wx:if="{{loadError}}" class="err">地点加载失败：{{loadError}}</view>
 
+    <view wx:if="{{route}}" class="card">
+      <view class="row">
+        <text class="k">当前路线</text>
+        <text class="v ok">{{route.name}}</text>
+      </view>
+      <view class="sub">
+        真实步行路径 {{legsLoaded}} / {{legsTotal}} 段
+        <block wx:if="{{legsLoading}}"> · 正在取…</block>
+      </view>
+      <view class="rule">
+        地图上只画**真实步行路径**（沿街道）。取不到的那一段不画 ——
+        两点直连会横穿街区与建筑，照着走会走进死路，比没有线更糟。
+      </view>
+      <view wx:if="{{legsNote}}" class="note">{{legsNote}}</view>
+    </view>
+
     <view class="card">
       <view class="row">
         <text class="k">我的位置</text>
         <text class="v {{myPoint ? 'ok' : 'muted'}}">{{myPoint ? '已获取' : '未获取'}}</text>
       </view>
       <view wx:if="{{myPoint}}" class="sub">
-        来源：{{mySource === 'gps' ? '定位接口（GCJ-02）' : '手动选点'}}<block wx:if="{{myAccuracyM}}"> · 精度约 {{myAccuracyM}} 米</block>
+        来源：{{mySource === 'gps' ? '定位接口（GCJ-02）' : '手动选点'}}
+        <block wx:if="{{myAccuracyM}}"> · 精度约 {{myAccuracyM}} 米</block>
+        <block wx:if="{{myLocatedAt}}"> · {{myLocatedAt}} 取得</block>
         · 经纬度 {{myPoint.latitude}}, {{myPoint.longitude}}
+      </view>
+      <view wx:if="{{myPoint && mySource === 'gps' && myAccuracyM > 500}}" class="note warn">
+        这次定位精度只有约 {{myAccuracyM}} 米 —— 多半是室内、地下或刚开机还没定上卫星。
+        精度差的时候，基于它算的"我要走多久"会明显失真，建议走到室外重新取一次。
       </view>
       <view wx:else class="sub">
         可自动获取当前位置；若定位不可用，也可在地图上手动点选。
