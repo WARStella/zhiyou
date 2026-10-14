@@ -7,6 +7,8 @@ const C = require('../lib/repo/collections');
 const { MANUAL_UNIQUE_INDEXES } = require('../lib/repo/indexes');
 /** `ops.walkStats` 要在报告里对照"现在产品用的那个常数" */
 const geo = require('../lib/geo');
+/** 6 位用户短号（2026-10-14）—— 见 lib/short-id.js 的设计说明 */
+const shortIdMod = require('../lib/short-id');
 
 /** 首次调用自动建档；之后只更新 lastSeenAt。 */
 async function login(ctx) {
@@ -58,6 +60,17 @@ function profileOf(user) {
   if (!user) return null;
   return {
     userId: user._id,
+    /**
+     * 6 位短号 —— 给人看、给人念的那个（2026-10-14 用户要求）。
+     *
+     * `userId` 是 28 位随机串，念不出来、截图里还折两行；
+     * 而它的真实用途只有"组队排障、对照日志"。
+     * 见 `lib/short-id.js` 里"为什么不是 6 位纯数字"的推算。
+     *
+     * ⚠️ 老用户可能还没有这个字段 —— 由 `ensureShortId` 补发。
+     *    为 null 说明**补发失败**（极端情况），界面要能如实显示而不是空白。
+     */
+    shortId: user.shortId || null,
     /** 昵称未设置时为 null —— 界面显示兜底文案（如"未命名"），不要编一个 */
     nickname: user.nickname || null,
     /** 云存储 fileID；界面用 wx.cloud.getTempFileURL 换成可显示的临时地址 */
@@ -74,6 +87,69 @@ function profileOf(user) {
   };
 }
 
+/**
+ * 读出所有已用的短号（顺序发号要用它算下一个）。
+ *
+ * ⚠️ 只取 `shortId` 一个字段，不拉整条记录 —— 用户表里有昵称、头像、
+ * openid 这些不该为了发号而读的东西。
+ */
+async function listUsedShortIds(repo) {
+  const rows = await repo.find(C.USERS, {}, { limit: 20000 });
+  return (rows || []).map((r) => r && r.shortId).filter(Boolean);
+}
+
+/**
+ * 分配一个顺序短号，并**靠唯一索引兜底**处理并发碰撞。
+ *
+ * 做法：从已有编号取最大值 +1，写进用户记录；
+ * 若唯一索引拒绝（并发下别人抢先用了同一个号），重新读最大值再试。
+ *
+ * ⚠️ 唯一索引是**数据库级**的约束，比业务层自己加锁可靠 ——
+ * 而进程之间本来就没有共享内存可锁（云函数是多实例的）。
+ *
+ * @returns {Promise<{shortId: string|null, user: object}>}
+ *   `shortId` 为 null 表示没发出来（连撞多次或超过上限），
+ *   此时**照常返回用户记录** —— 让用户连资料页都打不开更糟。
+ */
+async function assignShortId(repo, user) {
+  const shortId = await shortIdMod.allocateShortId({
+    listExisting: () => listUsedShortIds(repo),
+    /**
+     * 抢占这个号：直接写进用户记录，让唯一索引裁决。
+     * 被拒（重号）时返回 false，让 `allocateShortId` 重算。
+     */
+    tryReserve: async (candidate) => {
+      try {
+        await repo.update(C.USERS, user._id, { shortId: candidate });
+        return true;
+      } catch (e) {
+        /**
+         * ⚠️ 这里**吞掉异常是正确的**，但要分清吞的是哪种：
+         *   · 唯一索引冲突 = 预期内的并发，重试即可；
+         *   · 其它错误（网络、权限）也会走到这里，重试几次后
+         *     `allocateShortId` 返回 null，界面如实显示"暂未分配"。
+         * 两者都不该让资料页打不开。
+         */
+        return false;
+      }
+    },
+  });
+
+  return { shortId, user: shortId ? Object.assign({}, user, { shortId }) : user };
+}
+
+/**
+ * 保证用户有一个短号 —— 没有就分配一个。
+ *
+ * ⚠️ 这是**为已有用户准备的路**：短号是 2026-10-14 才加的字段，
+ * 在那之前建的用户记录里没有它。不能要求他们"重新注册"。
+ */
+async function ensureShortId(repo, user) {
+  if (!user || user.shortId) return user;
+  const r = await assignShortId(repo, user);
+  return r.user;
+}
+
 /** 读自己的资料。找不到记录时**先建一条**（与 login 同一个兜底） */
 async function getProfile(ctx) {
   const { repo, openid } = ctx;
@@ -81,8 +157,20 @@ async function getProfile(ctx) {
 
   let user = await repo.findOne(C.USERS, { openid });
   if (!user) {
+    /**
+     * ⚠️ **先插记录、再发号**，而不是"先算出号、再连着记录一起插"。
+     *
+     * 理由：发号要靠 `repo.update(用户id, ...)` 让唯一索引裁决，
+     * 而那条路需要 `user._id`。两条路（新建 / 补发）用**同一个**
+     * `assignShortId`，就不会出现"只改了其中一处"的问题。
+     *
+     * 顺序号的第一位用户于是拿到 `000001` —— 因为算最大值时
+     * 这条记录的 `shortId` 还是空的，不参与计算。
+     */
     user = await repo.insert(C.USERS, { openid, createdAt: now, lastSeenAt: now });
   }
+  /** 没有短号就发一个（新用户与老用户走同一条路） */
+  user = await ensureShortId(repo, user);
 
   return resp.ok({
     profile: profileOf(user),

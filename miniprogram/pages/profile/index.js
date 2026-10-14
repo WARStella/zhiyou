@@ -41,8 +41,19 @@ Page({
     loading: true,
     error: '',
 
-    /** 个人资料 */
-    userId: '',
+    /**
+     * 完整用户 ID（28 位）。
+     *
+     * ⚠️ **不在界面上显示**（用户要求：只保留在数据库里）。
+     * 它只被内部用一处：给上传的头像生成云存储路径（见 `onChooseAvatar`）。
+     * 所以这里保留但**不要拿去渲染**。
+     */
+    internalUserId: '',
+    /**
+     * 6 位顺序编号 —— 界面显示这个（见 `lib/short-id.js`）。
+     * 为 null 说明补发失败（极端情况），界面如实显示"暂未分配"。
+     */
+    shortId: '',
     nickname: '',
     /** 界面上显示的昵称：未填时为兜底文案 */
     nicknameDisplay: '未命名',
@@ -187,7 +198,8 @@ Page({
         }
         that.setData({
           loading: false,
-          userId: p.userId || '',
+          internalUserId: p.userId || '',
+          shortId: p.shortId || '',
           nickname: nickname,
           nicknameDisplay: nickname || '未命名',
           initial: nickname ? nickname.charAt(0) : '?',
@@ -269,7 +281,8 @@ Page({
 
     this.setData({ saving: true, error: '' })
     const ext = (tempPath.match(/\.(\w+)$/) || [])[1] || 'png'
-    const cloudPath = `avatars/${this.data.userId || 'anon'}-${Date.now()}.${ext}`
+    /** 路径里用 user ID 是为了同一个人多次上传能归到一起，不参与任何鉴权 */
+    const cloudPath = 'avatars/' + (this.data.internalUserId || 'anon') + '-' + Date.now() + '.' + ext
 
     wx.cloud.uploadFile({
       cloudPath: cloudPath,
@@ -347,10 +360,16 @@ Page({
       })
   },
 
-  /** 复制用户 ID —— 组队排障、对照日志时要用 */
+  /**
+   * 复制用户编号。
+   *
+   * 复制的是**6 位顺序号**（000042 这种）—— 用户要把它念给同伴听、
+   * 抄在纸上，28 位的 `_id` 做不到这件事（而且现在**不在界面上显示**）。
+   */
   copyUserId() {
-    if (!this.data.userId) return
-    wx.setClipboardData({ data: this.data.userId })
+    const v = this.data.shortId
+    if (!v) return
+    wx.setClipboardData({ data: v })
   },
 
   /** 进联调自检页（开发工具，不是产品功能） */

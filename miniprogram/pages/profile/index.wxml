@@ -40,13 +40,19 @@
       </block>
 
       <!--
-        用户 ID —— 组队排障、对照日志时要用，所以放在显眼处并可复制。
-        只显示后 8 位（够用于对照），完整值靠点按复制，避免截图时泄露。
+        用户编号（2026-10-14 用户要求："编号按照数据库中编号生成六位序号"）。
+        显示的是 **6 位顺序号**（000001、000002……）。
+
+        ⚠️ **完整 ID 不再显示**（用户要求）—— 它只留在数据库里。
+        用户要的是"能念给同伴听、能抄在纸上"的号，28 位随机串做不到这件事；
+        而它唯一的用途是排障，那时查数据库更直接。
       -->
       <view class="prof-id" bindtap="copyUserId">
-        <text class="prof-id-label">用户 ID</text>
-        <text class="prof-id-value">{{userId ? userId : '—'}}</text>
-        <text class="prof-id-copy">复制</text>
+        <view class="prof-id-head">
+          <text class="prof-id-label">编号</text>
+          <text class="prof-id-copy">复制</text>
+        </view>
+        <text class="prof-id-value">{{shortId || '暂未分配'}}</text>
       </view>
     </view>
   </view>

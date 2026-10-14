@@ -18,7 +18,17 @@
 
 /** collection -> 唯一键字段组（每组构成一个组合唯一索引） */
 const UNIQUE_INDEXES = {
-  users: [['openid']],
+  /**
+   * `shortId` 与 `openid` 各自唯一（2026-10-14 加）。
+   *
+   * `shortId` 是给人看/给人念的 6 位编号（见 `lib/short-id.js`）。
+   * 它必须唯一，否则两个用户会拿到同一个号，
+   * 而"编号撞了要改一个"意味着**已经发出去的号会指向别人** —— 比没有编号更糟。
+   *
+   * ⚠️ 内存实现会模拟这一条，所以本地测试能抓到碰撞；
+   * 云上仍需**手工**建索引（见本文件头的说明）。
+   */
+  users: [['openid'], ['shortId']],
   crews: [['inviteCode']],
   crew_members: [['crewId', 'userId']],
   operations: [['requestId']],
