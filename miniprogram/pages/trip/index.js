@@ -1077,6 +1077,14 @@ Page({
       /** 进度，界面直接显示，不用自己数 */
       reachedCount: reachedCount,
       totalCount: located.length,
+      /**
+       * "是不是全走完了" —— **在 JS 里算好给模板**（2026-10-14）。
+       *
+       * 不在模板里写 `reachedCount >= totalCount`：WXML 不把 `&gt;` 当转义符解码
+       * （编译器直接报 ``unexpected '&'``），而写原始 `>` 又依赖解析器的容忍度。
+       * 与其在两个都不稳的写法之间挑，不如把判断挪到能测的地方。
+       */
+      allReached: located.length > 0 && reachedCount >= located.length,
       /** 下一站的名字 —— 概览里显示"当前该去哪"，不用自己去时间轴上找 */
       nextName:
         lastReachedIdx + 1 < located.length ? located[lastReachedIdx + 1].placeName : null,

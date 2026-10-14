@@ -182,8 +182,13 @@
       -->
       <view wx:if="{{routeMap}}" class="progress-row">
         <text class="progress-main">已走过 {{routeMap.reachedCount}} / {{routeMap.totalCount}} 站</text>
-        <!-- `>` 在属性值里必须写成 `&gt;`（2026-10-14 由 test/wxml-guards 扫出来的既有违规） -->
-        <text wx:if="{{routeMap.reachedCount &gt;= routeMap.totalCount && routeMap.totalCount}}" class="progress-done">全部走完</text>
+        <!--
+          ⚠️ 这里**不做比较运算**：`>=` 与 `&gt;=` 在 WXML 里都不该用。
+          `&gt;` 不会被解码成 `>`，编译器会直接报 ``unexpected '&'``；
+          写原始 `>` 只是依赖解析器的容忍度。判断已在 JS 里算成 routeMap.allReached。
+          （2026-10-14：我一度把它"修"成 &gt;=，结果把能编译的页面改到编译不过。）
+        -->
+        <text wx:if="{{routeMap.allReached}}" class="progress-done">全部走完</text>
         <text wx:elif="{{routeMap.nextName}}" class="progress-next">下一站：{{routeMap.nextName}}</text>
       </view>
       <view class="sum-row">

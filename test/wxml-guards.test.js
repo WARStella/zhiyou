@@ -3,24 +3,28 @@
 /**
  * WXML 模板的静态守卫。
  *
- * ── 为什么需要它（2026-10-14 实际白屏一次）──────────────────
+ * ── 为什么需要它（2026-10-14，两次白屏）────────────────────
  *
- * 用户报："整张「我的位置」卡片都没了。"
+ * 第一次：我加精度告警时，把它插在了 `wx:if` 与 `wx:else` 之间。
+ *   后果不是"这一段不显示"，而是**整页都不渲染** —— 用户报
+ *   「整张【我的位置】卡片都没了」。WXML 编译失败不弹错，表现就是东西凭空没了。
  *
- * 真因不在 JS，在模板：
+ * 第二次：我为了"修"上面那处，把 `>=` 改成了 `&gt;=`，**反而把能编译的页面改到编译不过**：
  *
- *   <view wx:if="{{myPoint}}" class="sub"> … </view>
- *   <view wx:if="{{myAccuracyM > 500}}" class="note warn"> … </view>   ← 我插进来的
- *   <view wx:else class="sub"> … </view>                              ← 不再配对
+ *     Bad attr `wx:if` with message: unexpected '&' at pos25
  *
- * 两条问题叠在一起：
- *   ① `wx:else` 必须**紧跟**它的 `wx:if`，中间插了别的 `wx:if` 就不成立；
- *   ② 属性值里出现未转义的 `>`。
+ *   因为 **WXML 不把 `&gt;` 当转义符解码**，它原样进入表达式。
+ *   也就是说，我第一版守卫给出的建议是**错的**，而我自己照着执行了。
  *
- * 后果不是"这一段不显示"，而是**模板编译不过、整页都不渲染** ——
- * 而小程序里没有编译期报错弹给你看，表现就是"东西凭空没了"。
+ * ── 这个文件现在的立场 ────────────────────────────────────
  *
- * 本文件把那两条变成可执行的检查。**这类错误不值得靠人眼发现第二次。**
+ * 只保留**零误报**的检查。一条会误报的检查比没有更糟 ——
+ * 它训练人忽略告警，于是连"能抓到一次真问题"的价值也失去。
+ *
+ * 因此"`wx:else` 必须紧跟 `wx:if`"那条规则**刻意不写**：
+ * 我写了三版，三版都在合法代码上误报（team-panel 的 block 写法、
+ * 分不清"内容"与"兄弟"、不认跨行标签）。三版都错在同一件事上 ——
+ * **没有真正的解析器却想判断嵌套结构**。判定清单改为注释，供人工复核。
  */
 
 const test = require('node:test');
@@ -45,57 +49,45 @@ function allWxml(dir, out) {
 const FILES = allWxml(MINIPROGRAM);
 
 /**
- * ── 一条**刻意不写**的检查，以及为什么 ────────────────────
- *
- * 白屏那次还有第二个原因：我在 `wx:if` 与 `wx:else` 之间插了一个新的 `wx:if`，
- * 破坏了配对。按理该有一条规则守住它。
- *
- * 我写了三版，三版都在**合法的代码上报错**：
- *   · 第一版把"中间隔着内容"当成违规 → 误报 team-panel 的 block 写法；
- *   · 第二版分不清"block 内部的内容"与"兄弟元素" → 同一处误报；
- *   · 第三版按"最近的兄弟开标签"判定，但不认跨行标签
- *     （`<button …>` / 内容 / `</button>`）→ 又把 button 当成兄弟。
- *
- * 三版都错在同一件事上：**没有真正的解析器却想判断嵌套结构**。
- * 而这种错法特别有害 —— 一个会误报的检查会训练人忽略它，
- * 那它连"能抓到一次真问题"的价值也失去了。
- *
- * 所以这条规则留空，只在下面留一段人工复核清单。真正该守住的是
- * "属性值里的未转义运算符"（它是白屏的直接原因，且那条规则零误报），
- * 以及"标签开闭平衡"。
- *
- * 人工复核清单（改 WXML 的条件块时）：
+ * 改 WXML 条件块时的人工复核清单：
  *   1. `wx:else` / `wx:elif` 的**上一个兄弟元素**必须是它的 `wx:if`；
- *      中间不要插新的元素，哪怕只是一个小提示。
- *   2. 想让"提示"跟着条件走，就把它**放进同一个元素的内部**，
- *      或用 JS 先算好一个布尔量再在模板里单开一个 `wx:if`。
- *   3. 改完点一次「编译」—— WXML 编译失败不会弹错，只会整页白屏。
+ *      中间不要插新元素，哪怕只是一个小提示。
+ *   2. 想让提示跟着条件走，就把它**放进同一个元素内部**，
+ *      或用 JS 先算好布尔量、在模板里单开一个 `wx:if`。
+ *   3. 表达式里**不做比较运算**（`>` `<` `>=` `<=`）：`&gt;` 不被解码、
+ *      原始 `>` 只是靠解析器容忍。一律在 JS 里算好。
+ *   4. 改完点一次「编译」—— WXML 编译失败不会弹错，只会整页白屏。
  */
 
-test('至少扫到了页面与组件（防止 glob 失效导致"检查通过"其实什么都没查）', () => {
+test('至少扫到了页面与组件（防止遍历失效导致"检查通过"其实什么都没查）', () => {
   assert.ok(FILES.length >= 5, `应当扫到多个 wxml，实际 ${FILES.length} 个`);
 });
 
-test('属性值里不得出现未转义的比较运算符（`>` / `<`）', () => {
+test('属性表达式里不得出现比较运算符，也不得用 &gt; / &lt; 绕', () => {
   for (const file of FILES) {
-    const src = fs.readFileSync(file, 'utf8');
-    const lines = src.split(/\r?\n/);
+    const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/);
     lines.forEach((line, idx) => {
-      /** 只看标签属性区：从 `<` 到匹配的 `>` 之间容易误判，所以按"属性里的 {{ }}"来判断 */
       const exprs = line.match(/\{\{[^}]*\}\}/g) || [];
       for (const expr of exprs) {
+        const where = `${path.relative(MINIPROGRAM, file)}:${idx + 1}`;
+
         /**
-         * `>` 在属性值里必须写成 `&gt;`，否则模板编译器会把它当成标签结束。
-         * `<` 同理。**这正是白屏那次的第二个原因。**
+         * `&gt;` / `&lt;` 是**最坏的选择**：看起来像转义，实际不被解码，
+         * 直接导致编译失败（就是那条 `unexpected '&'`）。
          */
         assert.ok(
-          !/>/.test(expr),
-          `${path.relative(MINIPROGRAM, file)}:${idx + 1} 表达式 "${expr}" 里用了未转义的 ">"，` +
-            '应写成 &gt;，或**在 JS 里算好再给模板**（后者更稳）'
+          !/&(gt|lt);/.test(expr),
+          `${where} 表达式里用了 &gt; / &lt; —— WXML 不解码它，会报 unexpected '&' 并整页白屏。` +
+            '请在 JS 里算好布尔量再给模板'
         );
+        /**
+         * 原始 `>` / `<` 有时能编译，但那是解析器的容忍度，不是契约。
+         * 与其赌，不如把判断挪到能测的地方。
+         */
         assert.ok(
-          !/</.test(expr),
-          `${path.relative(MINIPROGRAM, file)}:${idx + 1} 表达式 "${expr}" 里用了未转义的 "<"，应写成 &lt;`
+          !/[<>]/.test(expr),
+          `${where} 表达式里直接用了 < 或 > —— 解析器有时能容忍，但别赌它。` +
+            '请在 JS 里算好布尔量再给模板'
         );
       }
     });
@@ -119,4 +111,17 @@ test('标签开闭平衡 —— 少一个闭合标签同样是"整页不渲染"'
       );
     }
   }
+});
+
+test('被断言过的"算好布尔量再给模板"确实存在（防止有人又把它挪回模板里）', () => {
+  const mapJs = fs.readFileSync(path.join(MINIPROGRAM, 'pages', 'map', 'index.js'), 'utf8');
+  const tripJs = fs.readFileSync(path.join(MINIPROGRAM, 'pages', 'trip', 'index.js'), 'utf8');
+
+  assert.match(mapJs, /myAccuracyBad/, '地图页的精度告警需要一个 JS 算好的布尔量');
+  assert.match(tripJs, /allReached/, '行程页的"全部走完"需要一个 JS 算好的布尔量');
+
+  const mapWxml = fs.readFileSync(path.join(MINIPROGRAM, 'pages', 'map', 'index.wxml'), 'utf8');
+  const tripWxml = fs.readFileSync(path.join(MINIPROGRAM, 'pages', 'trip', 'index.wxml'), 'utf8');
+  assert.match(mapWxml, /myAccuracyBad/, '模板要用那个布尔量');
+  assert.match(tripWxml, /routeMap\.allReached/, '模板要用那个布尔量');
 });
