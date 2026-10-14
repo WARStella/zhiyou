@@ -32,6 +32,56 @@ const parse = (t) => rulebased.parse(t, { now: AT, knownPlaceNames: KNOWN });
 
 // ── 解析层：按地名配对 ─────────────────────────────────────
 
+test('**首字缩写**要认（用户提醒："哈工大确实指的是哈尔滨工业大学"）', () => {
+  /**
+   * ⚠️ 用户原话：
+   *   "哈工大确实指的是哈尔滨工业大学，**用户输入时会经常输入简写**"
+   *   "那哈工大三个字哈尔滨工业大学七个字**明显不会覆盖一半**"
+   *
+   * `matchKnown` 的简称规则是"要覆盖全名一半长度"（3/7 ≈ 0.43 够不到），
+   * 它挡的是"名字里嵌了地标名的民宿"。而中文地名缩写**不是取一半**，
+   * 是**取每个词的首字**：哈工大 ← 哈尔滨·工业·大学。
+   *
+   * 两种规则的形状不同，只能并存 —— 见 `canonicalPlace` 的说明。
+   */
+  const FULL = ['哈尔滨工业大学', '中央大街', '哈尔滨冰雪大世界', '圣索菲亚教堂'];
+  const p = rulebased.parse('我想骑车去哈工大', { now: AT, knownPlaceNames: FULL });
+
+  assert.deepEqual(p.mustVisitTexts, ['哈尔滨工业大学'], '缩写要能对上全名');
+  assert.deepEqual(p.preferredModeByText, { 哈尔滨工业大学: 'bicycling' }, '按地名记的方式也要用全名');
+});
+
+test('**两条路用同一套认地名的规则** —— 不许一条认、一条不认', () => {
+  /**
+   * ⚠️ 这条抓出过一个真错：我给 `preferredModeByText` 加了首字缩写，
+   *    却把「必去目的地」那条路留着老逻辑。于是「我想骑车去哈工大」里：
+   *
+   *        地点被认出来了 → 检索词有了
+   *        必去却是空的   → 它不被当成"一定要去"，只是个检索词
+   *
+   * 同一个系统里**两套认地名的规则**，必然出现这种"一个认、一个不认"。
+   */
+  const FULL = ['哈尔滨工业大学', '中央大街', '哈尔滨冰雪大世界', '圣索菲亚教堂'];
+  const p = rulebased.parse('骑车去索菲亚', { now: AT, knownPlaceNames: FULL });
+
+  assert.deepEqual(p.mustVisitTexts, ['圣索菲亚教堂'], '必去那条路要认缩写');
+  assert.deepEqual(p.preferredModeByText, { 圣索菲亚教堂: 'bicycling' }, '方式那条路也要认');
+});
+
+test('缩写**不许**把"名字里嵌了地标名"的 POI 收进来', () => {
+  /**
+   * ⚠️ 这是 `matchKnown` 那半长度阈值的**存在理由**，缩写规则不能把它破坏掉。
+   *
+   * 实测踩过：用户说「我想去冰雪大世界」，库里有一条检索回来的 POI 叫
+   * 「哈尔滨悦苒民宿(哈尔滨冰雪大世界融创文旅城龙川路地铁站)」——
+   * 名字里嵌了地标名，宽松匹配就会命中它。
+   */
+  const FULL = ['哈尔滨冰雪大世界', '哈尔滨悦苒民宿(哈尔滨冰雪大世界融创文旅城龙川路地铁站)'];
+  const p = rulebased.parse('我想去冰雪大世界', { now: AT, knownPlaceNames: FULL });
+
+  assert.deepEqual(p.mustVisitTexts, ['哈尔滨冰雪大世界'], '要挑那个真正的景点，不是嵌了它名字的民宿');
+});
+
 test('一个地名：方式配到它身上', () => {
   const p = parse('我想骑车去哈工大');
   assert.deepEqual(p.preferredModeByText, { 哈工大: 'bicycling' });

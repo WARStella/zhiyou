@@ -561,7 +561,7 @@ const TRAVEL_MODE_INFIX_RE =
  *    "骑车去吧"后面什么也没有）退回全局 `preferredMode`，
  *    免得一句话说得笼统就整个丢掉。
  */
-function collectModesByText(originalText, modeInfos) {
+function collectModesByText(originalText, modeInfos, knownPlaceNames) {
   const map = {};
   for (const info of modeInfos || []) {
     /** 从方式词之后找最近的一个「去/到/往」 */
@@ -574,9 +574,115 @@ function collectModesByText(originalText, modeInfos) {
      *    「哈工大，再去冰雪大世界」整串当地名。
      */
     const place = m[1].split(/[，,、；;。！!？?]|再|然后|接着|之后|又/)[0].trim();
-    if (place) map[place] = info.mode;
+    if (!place) continue;
+
+    /**
+     * ⚠️⚠️ **键要用规范化后的名字**（2026-10-14 用户提醒：
+     *    "哈工大确实指的是哈尔滨工业大学，**用户输入时会经常输入简写**"）。
+     *
+     * 用户说「骑车去哈工大」，而库里那条叫「哈尔滨工业大学」。
+     * 键若留着"哈工大"，下游按名字匹配就对不上 ——
+     * 而**界面层没有、也不该有**这套简称判定（那是解析层的知识）。
+     *
+     * 两条规则互补：
+     *   `matchKnown`     —— 简称要覆盖全名一半长度（挡"嵌了地标名的民宿"）
+     *   `matchInitialism` —— 中文地名的**首字缩写**（哈工大 = 哈尔滨·工业·大学）
+     */
+    const canonical = canonicalPlace(place, knownPlaceNames);
+    map[canonical || place] = info.mode;
   }
   return map;
+}
+
+/**
+ * 按**首字缩写**匹配地名（2026-10-14 加）。
+ *
+ * ── 为什么 `matchKnown` 不够 ─────────────────────────────
+ *
+ * 用户提醒："哈工大确实指的是哈尔滨工业大学，**用户输入时会经常输入简写**"。
+ *
+ * `matchKnown` 的简称规则是"要覆盖全名一半长度"（为了挡住
+ * "名字里嵌了地标名的民宿"）。而中文地名缩写**恰恰不是取一半**，
+ * 是**取每个词的首字**：
+ *
+ *     哈工大   ← 哈尔滨·工业·大学
+ *     北大     ← 北京·大学
+ *     哈工程   ← 哈尔滨·工程·大学
+ *
+ * 「哈工大」3 字 vs「哈尔滨工业大学」7 字 ≈ 0.43，够不到 0.5 的门槛，
+ * 于是这类缩写永远配不上。**这不是把阈值调小能解决的** ——
+ * 两种规则的形状不同，调小只会让"民宿名"那种误配重新进来。
+ *
+ * ── 判据 ────────────────────────────────────────────────
+ *
+ * 首字必须相同，且缩写的每个字要**按顺序**出现在地名里
+ * （不要求连续 —— "哈工大"在"哈尔滨工业大学"里是 哈…工…大）。
+ * 缩写不短于 2 个字：单字（"哈"）太容易误配。
+ *
+ * ⚠️ 命中多个就返回 null —— 宁可让下游按原词试，也不要张冠李戴。
+ */
+function matchInitialism(text, knownPlaceNames) {
+  if (!Array.isArray(knownPlaceNames) || !knownPlaceNames.length) return null;
+  const t = String(text || '').trim();
+  if (t.length < 2) return null;
+
+  const hits = [];
+  for (const n of knownPlaceNames) {
+    if (!n || typeof n !== 'string') continue;
+    const base = baseName(n) || n;
+    if (t[0] !== base[0]) continue;
+    let i = 0;
+    for (const ch of base) {
+      if (i < t.length && ch === t[i]) i++;
+    }
+    if (i === t.length) hits.push(base);
+  }
+  if (!hits.length) return null;
+  /**
+   * ⚠️ 命中多个时**取最短的那个**，与 `matchKnown` 的择优规则一致
+   *    （"先按匹配强度，再按名字长度"）。
+   *
+   * 比"返回 null 让下游自己试"好：下游没有这套规则，
+   * 返回 null 等于**这次缩写白说了**，用户会看到方式没生效。
+   * 而取最短名是这类匹配里最保守的选择 —— 长长的名字里嵌一个
+   * 短缩写，几乎总是"那条 POI 恰好含这几个字"而不是用户指它。
+   */
+  hits.sort((a, b) => a.length - b.length);
+  return hits[0];
+}
+
+/**
+ * ⚠️ **认地名的唯一入口**（2026-10-14 用户提醒后收口）。
+ *
+ * 用户原话："**哈工大确实指的是哈尔滨工业大学，用户输入时会经常输入简写**"
+ *           "那哈工大三个字哈尔滨工业大学七个字**明显不会覆盖一半**"
+ *
+ * ── 我第一版的错：只在一处补了缩写规则 ─────────────────────
+ *
+ * 我给 `preferredModeByText` 的地名加了首字缩写匹配，却把
+ * 「必去目的地」（`mustVisitTexts`）那条路留着老逻辑。
+ * 结果「我想骑车去哈工大」里：
+ *
+ *     地点被认出来了 → 检索词有了
+ *     必去却是空的   → 它**不被当成"一定要去"，只是个检索词**
+ *
+ * 同一个系统里**两套认地名的规则**，必然出现这种"一个认、一个不认"。
+ * 所以收口到这里：所有认地名的地方都调它，两条规则按顺序兜。
+ *
+ * ── 两条规则为什么都要 ────────────────────────────────────
+ *
+ *   `matchKnown`      简称要覆盖全名一半长度 —— 挡的是
+ *                     "名字里嵌了地标名的民宿"（冰雪大世界 vs
+ *                     「哈尔滨悦苒民宿(…冰雪大世界…龙川路地铁站)」）
+ *   `matchInitialism` 中文地名的**首字缩写** —— 哈工大 = 哈尔滨·工业·大学
+ *
+ * ⚠️ **不能靠调小 `matchKnown` 的阈值来兼容缩写**：
+ *    3/7 ≈ 0.43 与 5/30 ≈ 0.17 在阈值上离得不远，
+ *    调小到能收"哈工大"就会把那条民宿名一起收回来。
+ *    两种规则的**形状**不同，只能并存，不能合并。
+ */
+function canonicalPlace(text, knownPlaceNames) {
+  return matchKnown(text, knownPlaceNames) || matchInitialism(text, knownPlaceNames);
 }
 
 /**
@@ -720,7 +826,7 @@ function parse(text, opts) {
    *    （见 `modeIsGlobal` 的说明）。多个地方各说各的方式时，
    *    配对映射才是权威，全局值会把方式张冠李戴。
    */
-  out.preferredModeByText = collectModesByText(originalText, modeInfos);
+  out.preferredModeByText = collectModesByText(originalText, modeInfos, opts.knownPlaceNames);
   out.modeIsGlobal = modeInfos.length === 1 && Object.keys(out.preferredModeByText).length === 0;
   if (out.preferredMode) {
     out.matched.push({
@@ -845,7 +951,8 @@ function parse(text, opts) {
          */
         if (GENERIC_CATEGORY_WORDS.indexOf(cleaned) >= 0) continue;
 
-        const canonical = matchKnown(cleaned, known);
+        /** ⚠️ 用收口后的入口 —— 首字缩写（哈工大）也要认，见 canonicalPlace 的说明 */
+        const canonical = canonicalPlace(cleaned, known);
 
         /**
          * 采信规则：
@@ -1336,6 +1443,8 @@ module.exports = {
   parseClock,
   // 供调用方（与测试）复用
   matchKnown,
+  matchInitialism,
+  canonicalPlace,
   baseName,
   pickKnownPlaceNames,
   isVisitableCategory,
