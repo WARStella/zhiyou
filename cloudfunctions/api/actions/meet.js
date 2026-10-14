@@ -207,6 +207,7 @@ async function create(ctx) {
   let linkToTrip = {};
   if (p.tripId) {
     const trip = await repo.get(C.TRIPS, p.tripId);
+    assert(trip && trip.mode === 'team' && trip.crewId === p.crewId, CODES.INVALID_PARAM, '集合只能关联本小队的共同路线');
     if (trip) {
       const anchor = (trip.nodes || [])
         .slice()
@@ -353,127 +354,6 @@ async function arrive(ctx) {
   });
 }
 
-/**
- * 发起人点击"前往下一站"，写 **③ departedAt**，此刻才评估并一次性提出调整候选。
- */
-async function depart(ctx) {
-  const { repo, openid } = ctx;
-  require_fields(ctx.payload, ['meetTaskId']);
-  const now = new Date(ctx.now ? ctx.now : Date.now());
-
-  assert(ctx.expectedVersion != null, CODES.INVALID_PARAM, '出发必须携带 expectedVersion');
-  const { task, updated, result } = await mutateTask(ctx, ctx.payload.meetTaskId, (current) => {
-    assert(current.initiatorUserId === openid, CODES.FORBIDDEN_NOT_MEMBER, '只有发起人可以确认出发');
-    assert(ctx.expectedVersion === current.version, CODES.VERSION_CONFLICT, '集合版本已更新，请刷新');
-    if (current.status === meetDomain.MEET_STATUS.DEPARTED) return { patch: null, alreadyDeparted: true };
-    const r = meetDomain.applyDepart(current, now, ctx.expectedVersion);
-    if (r.error) throw fail(r.error.code, r.error.message, r.error.details);
-    return r;
-  });
-  if (result.alreadyDeparted) return resp.ok({
-    meetTaskId: task._id, status: task.status, departedAt: time.toISO(task.departedAt),
-    alreadyDeparted: true, delayMin: Math.max(0, Math.round(time.diffMin(task.departedAt, task.plannedMeetAt))),
-  });
-
-  const delayMin = Math.max(0, Math.round(time.diffMin(now, task.plannedMeetAt)));
-  let tripImpact = null;
-  let proposal = null;
-
-  // ③ 之后才更新后续行程的可行性判断
-  if (task.tripId) {
-    const trip = await repo.get(C.TRIPS, task.tripId);
-    if (trip) {
-      const { map: placesById } = await tripActions.loadPlaces(
-        repo,
-        (trip.nodes || []).map((n) => n.placeId)
-      );
-      const params = resolveParams(trip.params);
-      const impact = meetDomain.evaluateDepartImpact({
-        task: updated,
-        trip,
-        placesById,
-        params,
-        constraints: constraintMod.normalize(trip.constraints || []),
-        departedAt: now,
-      });
-
-      tripImpact = {
-        affectsTrip: impact.affectsTrip,
-        delayMin: impact.delayMin,
-        shouldReevaluate: impact.shouldReevaluate,
-        conflicts: impact.conflicts || [],
-        remainingEndAt: impact.remainingTimeline ? time.toISO(impact.remainingTimeline.endAt) : null,
-        remainingWalkMin: impact.remainingTimeline ? impact.remainingTimeline.totalWalkMin : null,
-      };
-
-      // §7.3 第三条：确实不可行时，在 ③ 一次性提出调整候选，而不是在 ② 反复提示
-      if (impact.shouldReevaluate) {
-        const baseNodes = (trip.nodes || [])
-          .filter((n) => n.status !== 'done' && n.status !== 'skipped')
-          .sort((a, b) => a.seq - b.seq);
-        if (baseNodes.length) {
-          const gen = generateCandidates({
-            baseNodes,
-            trigger: { type: 'manual_progress', payload: { shiftedByMin: delayMin } },
-            constraints: constraintMod.normalize(trip.constraints || []),
-            placesById,
-            params,
-            startAt: now,
-          });
-          const saved = await repo.insert(C.CHANGE_PROPOSALS, {
-            tripId: trip._id,
-            baseVersion: trip.version,
-            status: 'proposed',
-            trigger: { type: 'meet_delay', payload: { meetTaskId: task._id, delayMin } },
-            candidates: gen.candidates,
-            selectedCandidateId: null,
-            confirmations: [],
-            decidedAt: null,
-            expiresAt: new Date(now.getTime() + 30 * time.MIN),
-            createdByUserId: openid,
-            createdAt: now,
-          });
-          proposal = {
-            proposalId: saved._id,
-            candidates: gen.candidates,
-            feasibleCount: gen.feasibleCount,
-            reason: `集合比计划晚了 ${delayMin} 分钟`,
-          };
-        }
-      }
-
-      // 记录集合对行程的延迟，供 11/3 核查
-      await repo.update(C.MEET_TASKS, task._id, {
-        linkToTrip: Object.assign({}, updated.linkToTrip, { delayMin }),
-      });
-    }
-  }
-
-  await logEvent(repo, {
-    ts: now,
-    type: 'state_change',
-    action: 'meet.depart',
-    userId: openid,
-    crewId: task.crewId,
-    tripId: task.tripId || null,
-    meetTaskId: task._id,
-    detail: { delayMin, shouldReevaluate: tripImpact ? tripImpact.shouldReevaluate : false },
-  });
-
-  return resp.ok({
-    meetTaskId: task._id,
-    status: updated.status,
-    // ③ 实际开始前往下一站时间
-    departedAt: time.toISO(updated.departedAt),
-    delayMin,
-    tripImpact,
-    proposal,
-    message: tripImpact && tripImpact.shouldReevaluate
-      ? `集合延迟 ${delayMin} 分钟，已影响后续安排，请确认调整后再出发`
-      : '已记录出发，后续安排仍然可行',
-  });
-}
-
 /** 读取集合任务。分享卡片打开时调用：既校验权限，又读最新状态（§8.2）。 */
 async function get(ctx) {
   const { repo, openid } = ctx;
@@ -515,4 +395,4 @@ async function get(ctx) {
   });
 }
 
-module.exports = { recommend, create, confirm, arrive, depart, get, MEET_CATEGORIES };
+module.exports = { recommend, create, confirm, arrive, depart: require('./departure').depart, get, MEET_CATEGORIES };

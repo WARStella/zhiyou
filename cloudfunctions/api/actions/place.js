@@ -9,6 +9,7 @@ const { isVisitableCategory, isVisitablePlace, LODGING_NAME_RE } = require('../l
 const { stablePlaceId } = require('../lib/place-id');
 const { logEvent } = require('../lib/trace');
 const C = require('../lib/repo/collections');
+const { isPlaceholderPlace } = require('../lib/placeholder-place');
 
 /**
  * 地点查询与检索。
@@ -59,7 +60,8 @@ async function list(ctx) {
   );
 
   // verifiedOnly 现在明确指"可作集合点"，避免语义漂移
-  const filtered = p.verifiedOnly ? rows.filter((pl) => canBeMeetingPoint(pl)) : rows;
+  const realRows = rows.filter(pl => !isPlaceholderPlace(pl));
+  const filtered = p.verifiedOnly ? realRows.filter((pl) => canBeMeetingPoint(pl)) : realRows;
 
   const places = filtered.map((pl) => {
     const elig = placeEligibility(pl);
@@ -98,7 +100,7 @@ async function detail(ctx) {
   require_fields(ctx.payload, ['placeId']);
 
   const place = await repo.get(C.PLACES, ctx.payload.placeId);
-  if (!place) throw fail(CODES.NOT_FOUND, '地点不存在');
+  if (!place || isPlaceholderPlace(place)) throw fail(CODES.NOT_FOUND, '地点不存在');
 
   const elig = placeEligibility(place);
 

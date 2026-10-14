@@ -3,7 +3,7 @@
 const resp = require('../lib/resp');
 const { randomUUID } = require('node:crypto');
 const { CODES, require_fields, assert, fail } = require('../lib/errors');
-const { requireCrewMember, getMembership, canBeTripNode, canBeMeetingPoint } = require('../lib/authz');
+const { requireCrewMember, requireCrewOwner, getMembership, canBeTripNode, canBeMeetingPoint } = require('../lib/authz');
 const { resolveParams } = require('../lib/params');
 const timelineMod = require('../domain/timeline');
 const { checkFeasibility } = require('../domain/feasibility');
@@ -907,7 +907,7 @@ async function adjust(ctx) {
 
   const trip = await repo.get(C.TRIPS, p.tripId);
   if (!trip) throw fail(CODES.NOT_FOUND, '行程不存在');
-  if (trip.mode === 'team') await requireCrewMember(repo, trip.crewId, openid);
+  if (trip.mode === 'team') await requireCrewOwner(repo, trip.crewId, openid);
   else assert(trip.ownerUserId === openid, CODES.FORBIDDEN_NOT_MEMBER, '无权修改该行程');
 
   // 只重算未完成的节点：已完成的节点是既成事实，不应被重算覆盖
@@ -1135,7 +1135,7 @@ async function confirmChange(ctx) {
 
   const trip = await repo.get(C.TRIPS, proposal.tripId);
   if (!trip) throw fail(CODES.NOT_FOUND, '行程不存在');
-  if (trip.mode === 'team') await requireCrewMember(repo, trip.crewId, openid);
+  if (trip.mode === 'team') await requireCrewOwner(repo, trip.crewId, openid);
   else assert(trip.ownerUserId === openid, CODES.FORBIDDEN_NOT_MEMBER, '无权修改该行程');
 
   // ← 核心校验：提案基于的版本必须仍是当前版本
@@ -1245,7 +1245,7 @@ async function progress(ctx) {
 
   const trip = await repo.get(C.TRIPS, ctx.payload.tripId);
   if (!trip) throw fail(CODES.NOT_FOUND, '行程不存在');
-  if (trip.mode === 'team') await requireCrewMember(repo, trip.crewId, openid);
+  if (trip.mode === 'team') await requireCrewOwner(repo, trip.crewId, openid);
   else assert(trip.ownerUserId === openid, CODES.FORBIDDEN_NOT_MEMBER, '无权修改该行程');
 
   const valid = ['pending', 'arrived', 'skipped', 'done'];
@@ -1367,7 +1367,7 @@ async function legRoute(ctx) {
 
   const trip = await repo.get(C.TRIPS, p.tripId);
   if (!trip) throw fail(CODES.NOT_FOUND, '行程不存在');
-  if (trip.mode === 'team') await requireCrewMember(repo, trip.crewId, openid);
+  if (trip.mode === 'team') await requireCrewOwner(repo, trip.crewId, openid);
   else assert(trip.ownerUserId === openid, CODES.FORBIDDEN_NOT_MEMBER, '无权读取该行程');
 
   const nodes = trip.nodes || [];

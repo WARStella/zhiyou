@@ -410,9 +410,11 @@ test('集合延迟会反馈到后续行程，并一次性给出调整候选', as
   for (const who of ['A', 'B', 'C']) expectOk(await w[who]('meet.arrive', { meetTaskId }));
 
   const departed = expectOk(
-    await w.A('meet.depart', { meetTaskId }, { expectedVersion: 1, now: w.plusMin(70) })
+    await w.A('meet.prepareDepart', { meetTaskId }, { expectedVersion: 1, now: w.plusMin(70) })
   );
 
+  assert.equal((await w.repo.get(C.MEET_TASKS, meetTaskId)).departedAt, null);
+  assert.equal(departed.canDepart, false);
   assert.equal(departed.delayMin, 40, '延迟 40 分钟');
   assert.ok(departed.tripImpact, '必须反馈到行程');
   assert.equal(departed.tripImpact.delayMin, 40);
