@@ -421,6 +421,97 @@ const STAY_DURATION_RE =
 const GOAL_RE =
   /(?:想|要|打算|准备|计划|愿意)?\s*去\s*([\u4e00-\u9fa5A-Za-z0-9·]{2,30}?)(?=再|然后|接着|之后|又|，|,|。|；|;|！|!|？|\?|$)/g;
 
+/**
+ * ── 出行方式（2026-10-14 用户报的漏洞）────────────────────────
+ *
+ * 用户原话："当我在行程框内输入**我想骑车去哈工大**时只会帮我选四个
+ *            和哈工大相关的地点"
+ *
+ * ── 为什么这是个真漏洞 ────────────────────────────────────
+ *
+ * "骑车"是**出行方式约束**，而规则解析器里**一个字都没识别它** ——
+ * 它被当成地名的一部分（"骑车去哈工"），于是：
+ *   · 目的地认不出来；
+ *   · 就算认出来了，出行方式也丢了，规划按"自动"算，用户说的骑车白说。
+ *
+ * ⚠️ 匹配**必须紧跟「去」**，否则「我想去地铁站」会被读成"要用地铁" ——
+ *    而用户说的是**目的地是地铁站**。这个反例是设计这条规则时最先确认的。
+ *
+ * 用词干（`骑车` 而不是 `骑车去`）加 lookahead 到「去」，
+ * 与文件里类目词那条"用词干而不是全词"的教训同源。
+ */
+const TRAVEL_MODE_RES = [
+  { re: /骑车|骑行|单车|自行车|脚踏车/, mode: 'bicycling' },
+  { re: /步行|走路|走过去|徒步/, mode: 'walking' },
+  { re: /开车|驾车|自驾|打车|出租车|网约车|拼车/, mode: 'driving' },
+  { re: /公交|地铁|轻轨|坐车|乘车|巴士/, mode: 'transit' },
+];
+
+/**
+ * 出行方式的白名单与容错（2026-10-14 加）。
+ *
+ * ⚠️ 存在的理由：走 AI 解析时这个值是**模型直接给的**，
+ *    而模型很爱给同义词或中文（`bike` / `bicycle` / `自行车` / `骑行` / `走`）。
+ *    原样透传的话，下游 `isPreferredMode` 判断失败，
+ *    最后表现为"用户说的出行方式没生效"——**而且不报错**。
+ *
+ * 认不出就置 null：宁可当成"没说"（系统用默认值，界面上显示"自动"），
+ * 也不要塞一个谁也认不出的野值进去。
+ */
+const PREFERRED_MODE_ALIASES = {
+  walking: ['walking', 'walk', 'foot', 'onfoot', '步行', '走路', '徒步', '走'],
+  bicycling: ['bicycling', 'bicycle', 'bike', 'cycling', 'cycle', '单车', '自行车', '骑车', '骑行'],
+  driving: ['driving', 'drive', 'car', 'taxi', '驾车', '开车', '自驾', '打车', '出租车'],
+  transit: ['transit', 'bus', 'subway', 'metro', '公交', '地铁', '轻轨', '坐车', '乘车'],
+};
+
+function normalizePreferredMode(v) {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim().toLowerCase();
+  if (!s) return null;
+  for (const mode of Object.keys(PREFERRED_MODE_ALIASES)) {
+    if (PREFERRED_MODE_ALIASES[mode].indexOf(s) >= 0) return mode;
+  }
+  return null;
+}
+
+/**
+ * 判断"出行方式词 + 去"这个组合 —— 只看紧跟在方式词后面的那个「去」。
+ *
+ * @returns {string|null} 出行方式，或 null
+ */
+function detectTravelMode(raw) {
+  for (const r of TRAVEL_MODE_RES) {
+    const m = raw.match(r.re);
+    if (!m) continue;
+    /**
+     * ⚠️ 方式词后面**必须紧跟「去」**（允许一个"坐"之类的赘字）。
+     *    不检查的话「我想去地铁站」会被判成 transit。
+     */
+    const after = raw.slice(m.index + m[0].length, m.index + m[0].length + 3);
+    if (/^\s*(?:去|到|往)/.test(after)) return r.mode;
+  }
+  return null;
+}
+
+/**
+ * 把"出行方式 + 去"从文本里抹掉，让 `MUST_STRONG_RES` / `GOAL_RE`
+ * 能正常认出后面的地名。
+ *
+ * ── 为什么必须抹（不止是"锦上添花"）────────────────────────
+ *
+ * `MUST_STRONG_RES` 里有「想去」「要去」，而「想**骑车去**哈工大」里
+ * 那个「想去」并不相邻。首版没抹，结果：
+ *
+ *     输入「我想骑车去哈工大」→ mustVisitTexts = []   ← 目的地丢了
+ *     输入「我想去哈工大」    → mustVisitTexts = ["哈工大"]  ✓
+ *
+ * 多两个字就把"必去"降级成了"顺路看看"，于是一句话规划变成
+ * "在哈工大附近随便挑几个点"—— 正是用户报的现象。
+ */
+const TRAVEL_MODE_INFIX_RE =
+  /(?:骑车|骑行|单车|自行车|脚踏车|步行|走路|走过去|徒步|开车|驾车|自驾|打车|出租车|网约车|拼车|公交|地铁|轻轨|坐车|乘车|巴士)\s*(?=(?:去|到|往))/g;
+
 // ── 主解析 ────────────────────────────────────────────────
 
 /**
@@ -433,12 +524,21 @@ const GOAL_RE =
 function parse(text, opts) {
   opts = opts || {};
   const now = opts.now ? new Date(opts.now) : new Date();
-  const raw = String(text == null ? '' : text).trim();
+  let raw = String(text == null ? '' : text).trim();
 
   const out = {
     rawText: raw,
     parser: 'rulebased',
     anchorText: null,
+    /**
+     * 用户说的出行方式（2026-10-14 加）：
+     * `walking` / `bicycling` / `driving` / `transit`。
+     *
+     * ⚠️ 以前**完全没有这个字段** —— 「我想骑车去哈工大」里的「骑车」
+     *    被当成了地名的一部分，用户说了白说：规划仍按「自动」算，
+     *    该骑车的那段可能给他排成步行。
+     */
+    preferredMode: null,
     searchKeyword: null,
     /** 「去 X」里抽出的目标地名（可能在已知库之外） */
     goalText: null,
@@ -477,6 +577,43 @@ function parse(text, opts) {
     out.uncertainties.push({ field: 'rawText', why: '没有输入内容' });
     return out;
   }
+
+  /**
+   * ── 出行方式先摘出来（2026-10-14 用户报的漏洞）──────────────
+   *
+   * 用户原话："我想骑车去哈工大时只会帮我选四个和哈工大相关的地点"
+   *
+   * 两件事一起做：
+   *   ① 把"骑车"识别成 `preferredMode`（否则用户说了白说，
+   *      规划仍按"自动"算，该骑车的地方可能给他排步行）；
+   *   ② 把"骑车"从文本里**抹掉**再跑其余规则 ——
+   *      否则「想**骑车去**哈工大」里的「想去」不相邻，
+   *      `MUST_STRONG_RES` 抓成「骑车去哈工」（而它不在库里，被丢弃），
+   *      `MUST_WEAK_RE` 的「去哈工大」又因值已在 `hits` 里而跳过，
+   *      结果 `mustVisitTexts` 为空 ——
+   *      **目的地被降级成"在它附近随便挑几个点"**，正是用户报的现象。
+   *
+   * ⚠️ 只在**方式词后面紧跟「去/到/往」**时才抹
+   *    （见 `TRAVEL_MODE_INFIX_RE` 的 lookahead）——
+   *    「我想去地铁站」里的"地铁"是**地名的一部分**，抹了就成了「我想去站」。
+   *
+   * ⚠️ **原话保留在 `originalText`**，`out.rawText` 照旧是用户原话
+   *    （附录 C 的评测要按原话打分）。下面所有规则改用抹过的副本 ——
+   *    注意是**重新赋值给 `raw`**，这样各处 `raw.match(...)` 与
+   *    `m.index` 的下标仍然彼此一致，不必逐条改（改漏一条就会出现
+   *    "用抹过的文本匹配、却拿原文本的下标去比较"的错位）。
+   */
+  const originalText = raw;
+  out.preferredMode = detectTravelMode(originalText);
+  if (out.preferredMode) {
+    out.matched.push({
+      field: 'preferredMode',
+      text: (originalText.match(TRAVEL_MODE_INFIX_RE) || [''])[0].trim(),
+      value: out.preferredMode,
+      rule: 'travelMode',
+    });
+  }
+  raw = originalText.replace(TRAVEL_MODE_INFIX_RE, '');
 
   // ① 结束时间
   for (const re of END_TIME_RES) {
@@ -902,6 +1039,23 @@ function toStructured(parsed, opts) {
         : null,
     maxWalkMinutes: null, // 含糊表达**不换算**（§6.2）
     preferences: [],
+    /**
+     * 出行方式（2026-10-14 加）：`walking` / `bicycling` / `driving` / `transit`。
+     *
+     * ⚠️⚠️ **这个对象是逐字段列举的** —— `parse` 认出了新字段、
+     *    但这里没加一行，它就会被**静默丢掉**，而且不报错。
+     *    项目里已经因为同一个形态栽过好几次（`spec`、`startLegView`、
+     *    `legToNext`、响应拼装都是逐字段列举）。
+     *    **在 `parse` 里加字段时，必须回来这里也加一行。**
+     *
+     * ⚠️ 走 AI 解析时，这个值是**模型直接给的**，所以必须校验：
+     *    它完全可能返回 `"bike"` / `"自行车"` / `"骑行"` 这类不在枚举里的值。
+     *    这里**单点收口**（两条解析路径都经过本函数），
+     *    认不出的值一律置 null 而不是原样透传 —— 一个野值会让下游
+     *    `isPreferredMode` 判断失败，最后表现为"用户说的出行方式没生效"，
+     *    而那种失败**不报错**、极难定位。
+     */
+    preferredMode: normalizePreferredMode(parsed.preferredMode),
   };
 
   const constraints = [];

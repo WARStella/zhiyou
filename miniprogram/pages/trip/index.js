@@ -247,6 +247,16 @@ Page({
   modeLabel: MODE_OPTIONS[0].label,
 
   /**
+   * 出行方式是**用户手动选的**（2026-10-14 加）。
+   *
+   * 作用：`intent.parse` 从"我想骑车去哈工大"里解析出 `bicycling` 时，
+   * 只有用户没自己选过才覆盖表单 —— 否则他改完又被一句话改回去。
+   */
+  modeManual: false,
+  /** 当前这个方式是**从这句话解析来的**（界面上要给个小标注） */
+  modeFromParse: false,
+
+  /**
    * 逐段出行方式选择器（2026-10-14）。
    *
    * `legPickerOpen`：面板是否展开。
@@ -420,6 +430,16 @@ Page({
       modeHint: MODE_HINT[opt.value] || '',
       /** 显示文案在 JS 里算 —— 模板不做数组索引（见 data 里的说明） */
       modeLabel: opt.label,
+      /**
+       * ⚠️ 标记"**这是用户自己选的**"（2026-10-14 加）。
+       *
+       * `intent.parse` 会从"我想骑车去哈工大"里解析出出行方式并填进表单，
+       * 但**不能盖掉用户手动选过的**——他改完又被一句话解析改回去，
+       * 比不填更让人困惑。`doSearch` 里据此判断要不要覆盖。
+       */
+      modeManual: true,
+      /** 一旦用户自己选过，就不再是"解析来的"，提示语要跟着撤掉 */
+      modeFromParse: false,
     })
     /** 存下来 —— 用户下次进来不用重选 */
     try {
@@ -505,6 +525,30 @@ Page({
          * 规划器按地点名匹配，匹配不上才回落到 stayMin。
          */
         patch.stayByText = (d.structured && d.structured.stayByText) || null
+
+        /**
+         * ── 出行方式（2026-10-14 用户报的漏洞）────────────────────
+         *
+         * 用户原话："我想骑车去哈工大时只会帮我选四个和哈工大相关的地点"
+         *
+         * "骑车"是一句**出行方式约束**，而它以前既没被解析出来、
+         * 也没地方接。现在解析器能认（`preferredMode`），这里把它填进表单。
+         *
+         * ⚠️ **只覆盖用户没有手动选过的方式**（`modeManual`）。
+         *    用户点过 picker 就是他明确的选择，不能被一句话的解析结果盖掉 ——
+         *    那会让他改了又自己变回去，比不填更让人困惑。
+         */
+        if (d.structured && d.structured.preferredMode && !that.data.modeManual) {
+          const idx = MODE_OPTIONS.findIndex(function (o) {
+            return o.value === d.structured.preferredMode
+          })
+          if (idx >= 0) {
+            patch.preferredMode = MODE_OPTIONS[idx].value
+            patch.travelModeIndex = idx
+            patch.modeLabel = MODE_OPTIONS[idx].label
+            patch.modeFromParse = true
+          }
+        }
 
         that.setData(patch)
 

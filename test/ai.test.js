@@ -15,7 +15,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { parseJsonLoose, insideFence, betweenBraces } = require('../cloudfunctions/api/lib/ai/json');
-const { createHttpParser } = require('../cloudfunctions/api/lib/ai/http');
+const { createHttpParser, PROMPT_VERSION } = require('../cloudfunctions/api/lib/ai/http');
 const { parseIntents } = require('../cloudfunctions/api/lib/ai');
 const { makeWorld, expectOk, expectFail } = require('./helpers');
 
@@ -108,7 +108,15 @@ test('模型解析：正常返回能解析出结构化需求', async () => {
   assert.equal(r.ok, true);
   assert.equal(r.parsed.anchorText, '中央大街');
   assert.equal(r.usage.total_tokens, 42, 'token 用量要带出来，供成本核算');
-  assert.equal(r.promptVersion, 'intent-v4', '提示词版本要随结果回传，否则评测无法归因');
+  /**
+   * ⚠️ 断言要**引用导出的常量**，不要写死版本号字面量。
+   *
+   * 原来这里写的是 `'intent-v4'` —— 于是每次改提示词都要顺手改测试，
+   * 而那种修改是**纯机械的**，改的时候不会有人真去看提示词改了什么。
+   * 它要守的是"版本随结果回传"，不是"版本恰好等于 v4"。
+   */
+  assert.equal(r.promptVersion, PROMPT_VERSION, '提示词版本要随结果回传，否则评测无法归因');
+  assert.match(PROMPT_VERSION, /^intent-v\d+$/, '版本号格式要稳定，便于归因');
 
   // 请求要带上 Key 与 Key 不能出现在结果里
   assert.match(http.calls[0].url, /chat\/completions/);

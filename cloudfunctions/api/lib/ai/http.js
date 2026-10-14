@@ -58,6 +58,7 @@ const SYSTEM_PROMPT = `你是一个城市徒步游览的需求解析器。把用
   "pace": "relaxed" | "normal" | "packed",
   "mustVisitTexts": ["一定要去的地方"],
   "avoidTexts": ["明确不想去的地方"],
+  "preferredMode": "walking" | "bicycling" | "driving" | "transit" 或 null,
   "stayMinutes": 每个地点都待同样久时的分钟数（整数）或 null,
   "stayMinutesByText": {"地点关键词": 分钟数},
   "extendStayMin": 在**已有行程**上多待多少分钟，或 null,
@@ -91,13 +92,34 @@ const SYSTEM_PROMPT = `你是一个城市徒步游览的需求解析器。把用
   系统会逐个搜索 —— 只给一个会导致另一个地方完全搜不到。
 - searchKeywords 里**不要**放动词、时间、数量（不要"哈工大玩一小时"，只要"哈工大"）。
 - 用户明确不想去的地方**不要**放进 searchKeywords。
+- ⚠️ **出行方式的词不要混进 searchKeywords**。用户说「我想骑车去哈工大」，
+  检索词只有「哈工大」，**不是**「骑车去哈工大」也不是「骑车」——
+  混进去会让搜索变成"找哈工大相关的地点"，而用户要的是"**去**哈工大"。
+
+关于 preferredMode（出行方式）：
+- 用户明确说了怎么去时填它：
+  「骑车 / 骑行 / 自行车」→ "bicycling"；「步行 / 走路 / 走过去」→ "walking"；
+  「开车 / 自驾 / 打车」→ "driving"；「公交 / 地铁 / 坐车」→ "transit"。
+- **没说就填 null** —— 这是正常情况，不要进 uncertainties，系统会用默认值。
+- ⚠️ **只有当它是"怎么去"时才填**。用户说「我想去**地铁站**」时，
+  「地铁」是**目的地名字的一部分**，preferredMode 必须是 null，
+  而且「地铁站」要完整进 searchKeywords。
+  同理「骑车公园」「步行街」都不是出行方式。
+  判断标准：这个词**后面紧跟着"去/到/往"**才是出行方式。
+
+关于 mustVisitTexts 与 preferredMode 的关系：
+- 「我想骑车去哈工大」里，**「哈工大」是必须去的具体目的地**，
+  它不是"顺路看看的地方"，也不是"一片区域"。
+  anchorText 要留 null，mustVisitTexts 要有「哈工大」。
+  把它漏掉会让系统以为用户只是想在哈工大附近随便逛逛 ——
+  那是**完全不同的一次规划**。
 
 关于 matched：
 - 把**每一个**解析出来的字段都记一条，text 是原文里对应的片段。
 - 这个数组会直接显示给用户看"我理解到了什么"，**留空会让用户以为什么都没听懂**。`;
 
 /** 提示词版本 —— 改了提示词就必须改它，否则评测结果无法归因 */
-const PROMPT_VERSION = 'intent-v4';
+const PROMPT_VERSION = 'intent-v5';
 
 function createHttpParser(opts) {
   opts = opts || {};

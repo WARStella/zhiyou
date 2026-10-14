@@ -167,6 +167,33 @@ function scoreSample(sample, parsed) {
     );
   }
 
+  // ── 出行方式（2026-10-14 加）──
+  //
+  // 起因是一个真实缺陷：「我想骑车去哈工大」里的「骑车」既没被识别，
+  // 还把「想去」这个强信号搅坏了 —— 目的地没进必去，于是一句话规划
+  // 退化成"在哈工大附近随便挑几个点"。加这条期望是为了**锁住它不再退化**。
+  if (exp.preferredMode !== undefined) {
+    push(
+      'preferredMode',
+      parsed && parsed.preferredMode === exp.preferredMode,
+      parsed && parsed.preferredMode ? KIND.WRONG : KIND.MISS,
+      `期望出行方式 ${exp.preferredMode}，实际 ${parsed && parsed.preferredMode}`
+    );
+  }
+  /**
+   * ⚠️ 单独一条"**不该**识别出出行方式"的期望，见「我想去**地铁站**」：
+   *    那里"地铁"是**地名的一部分**，识别成 transit 就是把目的地读丢了。
+   *    只断言"期望某个值"是抓不到这类误判的。
+   */
+  if (exp.preferredModeIsNull) {
+    push(
+      'preferredModeIsNull',
+      Boolean(parsed) && !parsed.preferredMode,
+      parsed && parsed.preferredMode ? KIND.WRONG : KIND.MISS,
+      `不该识别出出行方式，实际 ${parsed && parsed.preferredMode}`
+    );
+  }
+
   // ── 停留时长（统一）──
   if (exp.stayMinutes != null) {
     push(

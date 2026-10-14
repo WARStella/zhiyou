@@ -219,6 +219,45 @@
       "source": "synthetic-nonsense",
       "note": "认不出任何地点 —— 应当如实说，**不能编一个检索词**",
       "expected": { "searchKeywordsEmpty": true }
+    },
+    {
+      "id": "s26",
+      "text": "我想骑车去哈工大",
+      "source": "real-defect-2026-10-14",
+      "note": "用户报的原话。两个缺陷：①「骑车」没被识别成出行方式；②「骑车」插在「想去」中间把强信号搅坏了 —— 目的地没进必去，一句话规划退化成'在哈工大附近随便挑几个点'",
+      "expected": {
+        "preferredMode": "bicycling",
+        "mustVisitTextsContain": ["哈工大"],
+        "searchKeywordsContain": ["哈工大"]
+      }
+    },
+    {
+      "id": "s27",
+      "text": "我想去地铁站",
+      "source": "real-defect-2026-10-14",
+      "note": "**反向用例**：这里的「地铁」是地名的一部分，不是出行方式。识别成 transit 就是把目的地读丢了 —— 只断言'期望某个方式'是抓不到这类误判的",
+      "expected": {
+        "preferredModeIsNull": true,
+        "searchKeywordsContain": ["地铁站"]
+      }
+    },
+    {
+      "id": "s28",
+      "text": "坐地铁去中央大街",
+      "source": "synthetic-travel-mode",
+      "expected": {
+        "preferredMode": "transit",
+        "searchKeywordsContain": ["中央大街"]
+      }
+    },
+    {
+      "id": "s29",
+      "text": "我想步行去索菲亚教堂",
+      "source": "synthetic-travel-mode",
+      "expected": {
+        "preferredMode": "walking",
+        "searchKeywordsContain": ["索菲亚教堂"]
+      }
     }
   ]
 }

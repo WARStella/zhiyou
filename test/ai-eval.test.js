@@ -282,3 +282,118 @@ test('今天的 6 个真实缺陷，修复后的行为应当全部通过', () =>
     assert.deepEqual(bad, [], `${id}（${s.note || ''}）不该有失败：${JSON.stringify(bad)}`);
   }
 });
+
+/**
+ * ── 出行方式：用户报的真实缺陷（2026-10-14）──────────────────
+ *
+ * 用户原话："当我在行程框内输入**我想骑车去哈工大**时只会帮我选四个
+ *            和哈工大相关的地点"
+ *
+ * ── 根因（两个，都要锁住）────────────────────────────────
+ *
+ * ① 「骑车」**完全没有被识别**成出行方式 —— 用户说了白说，
+ *    规划仍按"自动"算，该骑车的那段可能给他排成步行。
+ *
+ * ② 更隐蔽：「骑车」插在「想」与「去」中间，把 `MUST_STRONG_RES` 的
+ *    「想去」搅坏了 —— 它抓成「骑车去哈工」（不在库里，被丢弃），
+ *    而 `MUST_WEAK_RE` 的「去哈工大」又因值已在 hits 里而跳过。
+ *    结果**目的地没进必去**，一句话规划退化成
+ *    "在哈工大附近随便挑几个点" —— 正是用户看到的现象。
+ *
+ * ⚠️ ②这个形态值得记：**多加两个字就把"必去"降级成了"顺路看看"**，
+ *    而且全程不报错。没有这两条样例，它会一直躺在那儿。
+ */
+test('出行方式：真实缺陷 s26 与反向用例 s27 都要挡住', () => {
+  const { rulebased } = require('../cloudfunctions/api/lib/ai');
+  /** 真实调用会带已知地点名 —— 不带的话弱信号「去 X」按设计不收 */
+  const known = ['哈工大', '中央大街', '索菲亚教堂', '冰雪大世界', '兆麟公园', '太阳岛'];
+  const at = new Date('2026-10-14T09:00:00+08:00');
+
+  for (const id of ['s26', 's27', 's28', 's29']) {
+    const s = FIX.samples.find((x) => x.id === id);
+    assert.ok(s, `样例 ${id} 不存在`);
+
+    const parsed = rulebased.parse(s.text, { now: at, knownPlaceNames: known });
+    const bad = scoreSample(s, parsed).checks.filter((c) => !c.ok);
+    assert.deepEqual(bad, [], `${id}「${s.text}」不该有失败：${JSON.stringify(bad)}`);
+  }
+});
+
+test('s26：「骑车」既不能丢，也不能把目的地吃掉', () => {
+  const { rulebased } = require('../cloudfunctions/api/lib/ai');
+  const known = ['哈工大', '中央大街'];
+  const p = rulebased.parse('我想骑车去哈工大', {
+    now: new Date('2026-10-14T09:00:00+08:00'),
+    knownPlaceNames: known,
+  });
+
+  assert.equal(p.preferredMode, 'bicycling', '「骑车」必须被识别成出行方式');
+  assert.deepEqual(p.mustVisitTexts, ['哈工大'], '「哈工大」必须进必去 —— 它是目的地，不是"附近随便看看"');
+  assert.equal(p.searchKeyword, '哈工大');
+  /** 依据要留痕，便于人工核对解析对不对 */
+  assert.ok(
+    p.matched.some((m) => m.field === 'preferredMode'),
+    '解析依据里要留下"骑车→bicycling"这条'
+  );
+});
+
+test('s27：「我想去地铁站」里的「地铁」是地名，不是出行方式', () => {
+  /**
+   * ⚠️ 这是**反向用例**，比正向更容易漏。
+   *
+   * 若把"地铁"识别成 transit，目的地就丢了 —— 用户说要去地铁站，
+   * 系统却以为他想坐地铁去哪儿。只断言"期望某个方式"抓不到这类误判。
+   */
+  const { rulebased } = require('../cloudfunctions/api/lib/ai');
+  const p = rulebased.parse('我想去地铁站', {
+    now: new Date('2026-10-14T09:00:00+08:00'),
+    knownPlaceNames: ['地铁站'],
+  });
+
+  assert.equal(p.preferredMode, null, '不该识别出出行方式');
+  assert.equal(p.searchKeyword, '地铁站', '地名要完整保留');
+});
+
+test('「骑车」只在紧跟「去/到/往」时才算出行方式', () => {
+  const { rulebased } = require('../cloudfunctions/api/lib/ai');
+  const at = new Date('2026-10-14T09:00:00+08:00');
+
+  /** 紧跟 → 是出行方式 */
+  assert.equal(rulebased.parse('骑车去哈工大', { now: at }).preferredMode, 'bicycling');
+  assert.equal(rulebased.parse('我想骑行到中央大街', { now: at }).preferredMode, 'bicycling');
+
+  /** 不紧跟 → 不是（这里的"骑车"是在描述别的） */
+  assert.equal(rulebased.parse('我想去骑车公园', { now: at }).preferredMode, null);
+});
+
+/**
+ * ⚠️ 走 AI 解析时 `preferredMode` 是**模型直接给的**，必须校验。
+ *
+ * 用户连了 API 之后走的就是这条路 —— 只修规则解析器的正则，
+ * 对他那条路一点用都没有。所以提示词里加了字段（`intent-v5`），
+ * 而**校验放在 `toStructured`**：两条解析路径都经过它，单点收口。
+ */
+test('出行方式的归一化：模型的同义写法要认，野值要挡住', () => {
+  const { rulebased } = require('../cloudfunctions/api/lib/ai');
+  const at = new Date('2026-10-14T09:00:00+08:00');
+  const norm = (v) => rulebased.toStructured({ rawText: 'x', preferredMode: v }, { now: at }).structured.preferredMode;
+
+  /** 模型爱给这些 —— 都要归位，否则用户说的方式静默失效 */
+  assert.equal(norm('bicycling'), 'bicycling');
+  assert.equal(norm('bike'), 'bicycling');
+  assert.equal(norm('bicycle'), 'bicycling');
+  assert.equal(norm('自行车'), 'bicycling');
+  assert.equal(norm('骑行'), 'bicycling');
+  assert.equal(norm('BICYCLING'), 'bicycling', '大小写不该影响');
+  assert.equal(norm(' 骑行 '), 'bicycling', '首尾空格不该影响');
+  assert.equal(norm('走'), 'walking');
+  assert.equal(norm('地铁'), 'transit');
+  assert.equal(norm('drive'), 'driving');
+
+  /** 认不出就置 null，**不原样透传** —— 野值会让下游静默失效 */
+  assert.equal(norm('飞机'), null);
+  assert.equal(norm('bikee'), null);
+  assert.equal(norm(''), null);
+  assert.equal(norm(null), null);
+  assert.equal(norm(undefined), null);
+});
