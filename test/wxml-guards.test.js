@@ -182,6 +182,66 @@ test('给组件的 String 属性传值时要有空串兜底，别让 null 覆盖
 });
 
 /**
+ * 模板里不得出现「先索引、再取属性」的表达式。
+ *
+ * 2026-10-14 加。起因是「我的」页白屏，报：
+ *   TypeError: Cannot read properties of undefined (reading '0')
+ *   at b.setData (WASubContext.js)
+ *
+ * 源头是模板里这一行：
+ *   {{travelModeOptions[travelModeIndex].label || '自动'}}
+ *
+ * 而 `travelModeOptions` 初始是**空数组** —— 首帧 `[0]` 是 `undefined`，
+ * 读 `.label` 直接抛异常，**整页不渲染**。
+ *
+ * ⚠️ `|| '自动'` 兜不住：它在**取完属性之后**才生效。
+ *    这与"WXML 里不能用 &gt; / &lt;"是同一类坑 ——
+ *    **表达式本身在取不到值时会先炸，后面的兜底救不了**。
+ *
+ * ⚠️ 为什么这值得一条守卫：这类崩溃**只在首帧、只在模板求值时发生**，
+ *    页面级测试直接调 `setData` 是碰不到的（我自己的测试全绿，用户一打开就白屏）。
+ *
+ * 正确做法：在 JS 里算好一个字符串（`travelModeLabel`），模板只做插值。
+ */
+test('模板里不得先索引再取属性 —— 首帧会抛异常并打白整页', () => {
+  const offenders = [];
+  for (const file of FILES) {
+    const lines = fs.readFileSync(file, 'utf8').split('\n');
+    let inComment = false;
+    lines.forEach((line, i) => {
+      const t = line.trim();
+      /**
+       * ⚠️ **必须先排掉注释** —— 我第一版没排，于是这个检查对着
+       * 我自己写的"反面例子"注释报错（那行注释里正举着
+       * `{{travelModeOptions[travelModeIndex].label}}` 当反例）。
+       *
+       * 与 WXSS 那条守卫踩过的是**同一个坑**：没有区分
+       * "代码"与"描述代码的文字"。
+       */
+      if (inComment) {
+        if (t.includes('-->')) inComment = false;
+        return;
+      }
+      if (t.startsWith('<!--')) {
+        if (!t.includes('-->')) inComment = true;
+        return;
+      }
+      /** 匹配 `{{ ... [ ... ] . 属性 ... }}` */
+      if (/\{\{[^}]*\[[^\]]+\]\s*\./.test(t)) {
+        offenders.push(`${path.relative(MINIPROGRAM, file)}:${i + 1}  ${t}`);
+      }
+    });
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    '模板里先索引再取属性会在取不到值时抛异常（整页白屏）。\n' +
+      '请在 JS 里算好值再插值：\n' +
+      offenders.join('\n')
+  );
+});
+
+/**
  * 改 WXML 条件块时的人工复核清单：
  *   1. `wx:else` / `wx:elif` 的**上一个兄弟元素**必须是它的 `wx:if`；
  *      中间不要插新元素，哪怕只是一个小提示。

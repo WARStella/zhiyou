@@ -233,6 +233,18 @@ Page({
   modeIndex: 0,
   preferredMode: 'auto',
   modeHint: MODE_HINT.auto,
+  /**
+   * 出行方式的**显示文案** —— 在 JS 里算好，模板只做插值。
+   *
+   * ⚠️ 原来模板里写的是 `{{modeOptions[modeIndex].label}}`。
+   * 它**当时没炸**，只因为 `modeOptions` 的初始值不是空数组（有 5 项）。
+   * 这是**侥幸**：顺序发号那批我在「我的」页写了同样的写法，
+   * 而那里的数组初始是空的 —— 首帧直接抛
+   * `Cannot read properties of undefined (reading '0')`，整页白屏。
+   *
+   * 现在两处都算在 JS 里，模板不做数组索引。
+   */
+  modeLabel: MODE_OPTIONS[0].label,
 
   /**
    * 逐段出行方式选择器（2026-10-14）。
@@ -312,6 +324,7 @@ Page({
       modeIndex: idx,
       preferredMode: MODE_OPTIONS[idx].value,
       modeHint: MODE_HINT[MODE_OPTIONS[idx].value] || '',
+      modeLabel: MODE_OPTIONS[idx].label,
     })
   },
 
@@ -395,7 +408,13 @@ Page({
   onModeChange(e) {
     const idx = Number(e.detail.value) || 0
     const opt = MODE_OPTIONS[idx] || MODE_OPTIONS[0]
-    this.setData({ modeIndex: idx, preferredMode: opt.value, modeHint: MODE_HINT[opt.value] || '' })
+    this.setData({
+      modeIndex: idx,
+      preferredMode: opt.value,
+      modeHint: MODE_HINT[opt.value] || '',
+      /** 显示文案在 JS 里算 —— 模板不做数组索引（见 data 里的说明） */
+      modeLabel: opt.label,
+    })
     /** 存下来 —— 用户下次进来不用重选 */
     try {
       wx.setStorageSync('zhiyou-preferred-mode', opt.value)

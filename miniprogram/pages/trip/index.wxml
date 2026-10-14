@@ -114,7 +114,11 @@
       <view class="row">
         <text class="k">出行方式</text>
         <picker mode="selector" range="{{modeOptions}}" range-key="label" value="{{modeIndex}}" bindchange="onModeChange">
-          <view class="v link">{{modeOptions[modeIndex].label}}</view>
+          <!--
+          ⚠️ 不要写 `{{modeOptions[modeIndex].label}}` —— 见 data 里 `modeLabel` 的说明。
+          模板里先索引再取属性，在数组为空时会抛异常并打白整页。
+        -->
+        <view class="v link">{{modeLabel}}</view>
         </picker>
       </view>
       <view class="sub">{{modeHint}}</view>

@@ -40,19 +40,19 @@
       </block>
 
       <!--
-        用户编号（2026-10-14 用户要求："编号按照数据库中编号生成六位序号"）。
-        显示的是 **6 位顺序号**（000001、000002……）。
+        用户 ID（2026-10-14 用户要求）—— 显示**完整 ID**，可点按复制。
 
-        ⚠️ **完整 ID 不再显示**（用户要求）—— 它只留在数据库里。
-        用户要的是"能念给同伴听、能抄在纸上"的号，28 位随机串做不到这件事；
-        而它唯一的用途是排障，那时查数据库更直接。
+        用途是**运维检索**（用户原话）：拿它在数据库、云函数日志里直接搜。
+        所以 28 位要完整显示、可复制、可对照 —— 截断或换成短号都会让检索落空。
+
+        它必然折行，所以标签与"复制"放同一行、值单独占下一行。
       -->
       <view class="prof-id" bindtap="copyUserId">
         <view class="prof-id-head">
-          <text class="prof-id-label">编号</text>
+          <text class="prof-id-label">用户 ID</text>
           <text class="prof-id-copy">复制</text>
         </view>
-        <text class="prof-id-value">{{shortId || '暂未分配'}}</text>
+        <text class="prof-id-value">{{userId || '—'}}</text>
       </view>
     </view>
   </view>
@@ -70,7 +70,18 @@
         value="{{travelModeIndex}}"
         bindchange="onTravelModeChange"
       >
-        <view class="v link">{{travelModeOptions[travelModeIndex].label || '自动'}}</view>
+        <!--
+          ⚠️ **不要写 `{{travelModeOptions[travelModeIndex].label}}`**。
+
+          这个选项表是 `user.getProfile` 回来之后才填的，而首帧它是**空数组** ——
+          于是 `[0]` 是 `undefined`，读 `.label` 直接抛
+          `Cannot read properties of undefined (reading '0')`，
+          整个页面白屏。`|| '自动'` 兜不住：它在**取完属性之后**才生效。
+
+          所以在 JS 里算好一个字符串（`travelModeLabel`），模板只做插值。
+          数组为空时那个字段是 `'自动'`，不会崩。
+        -->
+        <view class="v link">{{travelModeLabel}}</view>
       </picker>
     </view>
     <view class="sub">

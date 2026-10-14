@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 地图与集合页面。
  *
  * 目的（2026-10-13 建立）：
@@ -108,6 +108,18 @@ Page({
      * 而列表每次刷新都会重建。
      */
     photos: {},
+    /**
+     * 当前选中地点的照片列表 —— **在 JS 里算好，模板不做数组索引**。
+     *
+     * ⚠️ 模板原来写的是 `photos[meetingPoint.placeId].photos`。
+     * 有 `wx:if` 守卫时能跑，但同一行里取两次、其中一次在守卫之外 ——
+     * 以后有人改条件就很容易漏掉守卫。
+     *
+     * 这类错的后果很重：「我的」页就因为同样的写法
+     * （`travelModeOptions[travelModeIndex].label`，而数组首帧为空）
+     * 抛了 `Cannot read properties of undefined`，**整页白屏**。
+     */
+    currentPhotos: [],
     /** `{ [markerId]: tempFileURL }` —— marker 的 iconPath 只吃本地/网络路径 */
     photoUrls: {},
     /**
@@ -168,7 +180,7 @@ Page({
      * 是用户要的信息，而不是我们替他做的选择（`onTeamState` 会把它填回来）。
      */
     if (!(this.teamMeeting && this.teamMeeting.name)) {
-      this.setData({ meetingPoint: null, photoNote: '' })
+      this.setData({ meetingPoint: null, photoNote: '', currentPhotos: [] })
     }
 
     /**
@@ -673,7 +685,7 @@ Page({
     })
     if (!place) return false
 
-    this.setData({ meetingPoint: place, photoNote: '' })
+    this.setData({ meetingPoint: place, photoNote: '', currentPhotos: this.photosOf(place) })
     this.refreshMarkers()
     return true
   },
@@ -685,8 +697,21 @@ Page({
    * 而且会以为"地图上本来就有一个集合点"。
    */
   clearMeeting() {
-    this.setData({ meetingPoint: null, photoNote: '' })
+    this.setData({ meetingPoint: null, photoNote: '', currentPhotos: [] })
     this.refreshMarkers()
+  },
+
+  /**
+   * 取某个地点已保存的照片列表（模板不做数组索引，见 `currentPhotos` 的说明）。
+   *
+   * 取不到时一律回空数组 —— 让模板拿到一个**能安全 `.length`** 的值，
+   * 而不是 undefined。
+   */
+  photosOf(place) {
+    const id = place && place.placeId
+    if (!id) return []
+    const rec = (this.data.photos || {})[id]
+    return (rec && Array.isArray(rec.photos)) ? rec.photos : []
   },
 
   /** 计算到各集合点候选的步行估算，按最耗时的成员（此处即本人）排序 */
@@ -752,6 +777,16 @@ Page({
         const patch = {}
         patch['photos.' + place.placeId] = { photos, verification, note: d.notice || '' }
         patch.photoNote = that.describePhotos(photos, d, verification)
+        /**
+         * ⚠️ 刚取回的照片要立刻反映到 `currentPhotos`。
+         *
+         * `currentPhotos` 是"算好给模板用的"（模板不做数组索引），
+         * 所以每次照片变化都必须重算 —— 漏了的话照片取回来了、
+         * 界面上却什么都不显示，而且不报错。
+         */
+        if (that.data.meetingPoint && that.data.meetingPoint.placeId === place.placeId) {
+          patch.currentPhotos = photos
+        }
         that.setData(patch)
 
         // 有 fileID 才需要换临时 URL；没有的话 marker 继续用本地图标

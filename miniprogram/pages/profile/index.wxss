@@ -164,8 +164,9 @@
   color: #65758a;
 }
 
-/* 用户编号：可点按复制。
-   短号 6 位、一行放得下；完整 ID 只作参考，小字折行显示。 */
+/* 用户 ID：可点按复制。
+   28 位必然折行，所以用小字 + 等宽 + 任意断行，让它整齐地占两行。
+   ⚠️ 不要为了"好看"截断它 —— 它要拿去数据库里检索。 */
 .prof-id {
   margin-top: 10rpx;
 }
@@ -181,12 +182,12 @@
 }
 .prof-id-value {
   display: block;
-  font-size: 32rpx;
-  font-weight: 700;
-  color: #0b3c6e;
-  /* 等宽 + 字距：念号、抄号时不易看错 */
+  font-size: 22rpx;
+  color: #20334a;
   font-family: monospace;
-  letter-spacing: 4rpx;
+  word-break: break-all;
+  line-height: 1.5;
+  margin-top: 4rpx;
 }
 .prof-id-copy {
   font-size: 21rpx;

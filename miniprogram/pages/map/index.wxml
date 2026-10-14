@@ -119,7 +119,14 @@
       </button>
       <view wx:if="{{photoNote}}" class="note">{{photoNote}}</view>
 
-      <block wx:if="{{photos[meetingPoint.placeId] && photos[meetingPoint.placeId].photos.length}}">
+      <!--
+        ⚠️ 照片列表由 JS 算成 `currentPhotos`，模板不做数组索引。
+        原来写的是 `photos[meetingPoint.placeId].photos` ——
+        有 `wx:if` 守卫时能跑，但**同一行里取两次、其中一次在守卫之外**，
+        以后有人改动条件就很容易漏掉守卫。
+        与「我的」页白屏同一类问题：模板里先索引再取属性，取不到就整页不渲染。
+      -->
+      <block wx:if="{{currentPhotos.length}}">
         <view class="row">
           <text class="k">照片</text>
           <text class="v muted">来自网络 · 未实地核验</text>
@@ -127,7 +134,7 @@
         <view class="photos">
           <view
             class="shot"
-            wx:for="{{photos[meetingPoint.placeId].photos}}"
+            wx:for="{{currentPhotos}}"
             wx:key="url"
             wx:for-item="ph"
           >

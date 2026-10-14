@@ -36,24 +36,44 @@ function avatarColor(seed) {
   return AVATAR_COLORS[h % AVATAR_COLORS.length]
 }
 
+/**
+ * 从选项表里取某个值的显示文案；取不到就回"自动"。
+ *
+ * ⚠️ 存在的理由是**模板里不能做数组索引**：
+ * 选项表在首帧是空数组，`options[0].label` 会抛异常并把整页打白。
+ * 算在这里，模板只做插值。
+ */
+function labelOfMode(options, value) {
+  const hit = (options || []).find((o) => o && o.value === value)
+  return (hit && hit.label) || '自动'
+}
+
 Page({
   data: {
     loading: true,
     error: '',
 
     /**
-     * 完整用户 ID（28 位）。
+     * 用户 ID（28 位）—— 界面上显示的就是它（2026-10-14 用户要求）。
      *
-     * ⚠️ **不在界面上显示**（用户要求：只保留在数据库里）。
-     * 它只被内部用一处：给上传的头像生成云存储路径（见 `onChooseAvatar`）。
-     * 所以这里保留但**不要拿去渲染**。
+     * 用途是**运维检索**：拿它在数据库、云函数日志里直接搜。
+     * 所以要完整、可复制、可对照 —— 截断或换成短号都会让检索落空。
+     *
+     * （后端仍会算一个 6 位 `shortId` 存在用户记录里，但**界面不显示它**：
+     *   它不在任何日志里，对检索没有帮助。用户明确说不需要编号。）
      */
-    internalUserId: '',
-    /**
-     * 6 位顺序编号 —— 界面显示这个（见 `lib/short-id.js`）。
-     * 为 null 说明补发失败（极端情况），界面如实显示"暂未分配"。
-     */
+    userId: '',
+    /** 后端给的 6 位编号 —— 保留在 data 里以防将来要用，界面不渲染 */
     shortId: '',
+    /**
+     * 默认出行方式的**显示文案** —— 在 JS 里算好，模板只做插值。
+     *
+     * ⚠️ 不能让模板去写 `{{travelModeOptions[i].label}}`：
+     * 选项表是 `user.getProfile` 回来之后才填的，首帧是**空数组**，
+     * 于是 `[0]` 是 undefined、读 `.label` 直接抛
+     * `Cannot read properties of undefined (reading '0')` —— 整页白屏。
+     */
+    travelModeLabel: '自动',
     nickname: '',
     /** 界面上显示的昵称：未填时为兜底文案 */
     nicknameDisplay: '未命名',
@@ -198,7 +218,7 @@ Page({
         }
         that.setData({
           loading: false,
-          internalUserId: p.userId || '',
+          userId: p.userId || '',
           shortId: p.shortId || '',
           nickname: nickname,
           nicknameDisplay: nickname || '未命名',
@@ -208,6 +228,15 @@ Page({
           defaultTravelMode: p.defaultTravelMode || 'auto',
           travelModeOptions: options,
           travelModeIndex: idx,
+          /**
+           * ⚠️ **显示文案在 JS 里算好**，模板只做插值。
+           *
+           * 模板里写 `{{travelModeOptions[travelModeIndex].label}}` 会在
+           * **首帧**崩掉：`travelModeOptions` 初始是空数组，`[0]` 是
+           * undefined，读 `.label` 抛 `Cannot read properties of undefined`，
+           * 整页白屏。`|| '自动'` 兜不住 —— 它在**取完属性之后**才生效。
+           */
+          travelModeLabel: (options[idx] && options[idx].label) || '自动',
         })
         /** 头像要换成临时地址才能显示（fileID 不能直接给 image 用） */
         if (p.avatarFileId) that.resolveAvatar(p.avatarFileId)
@@ -282,7 +311,7 @@ Page({
     this.setData({ saving: true, error: '' })
     const ext = (tempPath.match(/\.(\w+)$/) || [])[1] || 'png'
     /** 路径里用 user ID 是为了同一个人多次上传能归到一起，不参与任何鉴权 */
-    const cloudPath = 'avatars/' + (this.data.internalUserId || 'anon') + '-' + Date.now() + '.' + ext
+    const cloudPath = 'avatars/' + (this.data.userId || 'anon') + '-' + Date.now() + '.' + ext
 
     wx.cloud.uploadFile({
       cloudPath: cloudPath,
@@ -312,7 +341,7 @@ Page({
     const idx = Number(e.detail.value) || 0
     const opt = this.data.travelModeOptions[idx]
     if (!opt) return
-    this.setData({ travelModeIndex: idx, defaultTravelMode: opt.value })
+    this.setData({ travelModeIndex: idx, defaultTravelMode: opt.value, travelModeLabel: opt.label })
     this.save({ defaultTravelMode: opt.value }, '默认出行方式已保存')
   },
 
@@ -353,6 +382,11 @@ Page({
           nicknameDisplay: nickname || '未命名',
           initial: nickname ? nickname.charAt(0) : '?',
           defaultTravelMode: p.defaultTravelMode || 'auto',
+          /**
+           * 同步显示文案 —— 服务端会做值域校验，
+           * 界面要用**它回读的结果**而不是提交值（两者可能不同）。
+           */
+          travelModeLabel: labelOfMode(that.data.travelModeOptions, p.defaultTravelMode),
         })
       })
       .catch(function (err) {
@@ -361,13 +395,15 @@ Page({
   },
 
   /**
-   * 复制用户编号。
+   * 复制用户 ID。
    *
-   * 复制的是**6 位顺序号**（000042 这种）—— 用户要把它念给同伴听、
-   * 抄在纸上，28 位的 `_id` 做不到这件事（而且现在**不在界面上显示**）。
+   * ⚠️ 复制的是**完整 ID**（28 位），不是那个 6 位编号 ——
+   * 用户的原话是"运维时出现问题可以检索"，而要检索的对象
+   * （数据库 `_id`、云函数日志、与 `openid` 关联的那条记录）
+   * **用的都是完整 ID**。复制一个日志里根本不会出现的短号没有用处。
    */
   copyUserId() {
-    const v = this.data.shortId
+    const v = this.data.userId
     if (!v) return
     wx.setClipboardData({ data: v })
   },
