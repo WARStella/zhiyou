@@ -15,7 +15,49 @@
       bindtap="onMapTap"
       bindmarkertap="onMarkerTap"
       bindcallouttap="onMarkerTap"
+      bindregionchange="onMapRegionChange"
     ></map>
+
+    <!--
+      ══════════ 中间图钉（手动选点模式）══════════════════════
+
+      用户要求："手动选点同样改为小控件，但是点击后只需拖动地图即可
+      确定图钉的位置，图钉在拖动时保持在屏幕中心不动，
+      再次点击控件退出模式时才会随地图拖动一起移动"
+
+      做法：这是一层**固定在容器正中**的覆盖层，地图在它下面滚。
+      拖动地图时它不动，看起来就是"图钉钉在屏幕中心、地图在底下滑"。
+      退出模式后整层不渲染，位置由 `myPoint` 对应的 marker 表示 ——
+      那个 marker 是地图坐标，会随地图一起动。
+
+      ⚠️ 覆盖层必须 `pointer-events: none`（wxss 里写），
+      否则它会把地图的拖动与点击都吃掉 —— 那样"拖动地图"根本做不到。
+    -->
+    <view wx:if="{{pickMode}}" class="center-pin">
+      <view class="center-pin-dot"></view>
+      <view class="center-pin-stem"></view>
+    </view>
+
+    <!--
+      ══════════ 右下角小控件 ══════════════════════════════
+
+      用户要求把"获取我的位置"与"手动选点"从卡片里的按钮
+      改成**地图右下角的两个小控件**。
+    -->
+    <view class="map-ctl">
+      <view class="ctl-btn" bindtap="startPick" hover-class="ctl-hover">
+        <text class="ctl-icon">✛</text>
+      </view>
+      <view class="ctl-btn" bindtap="useGps" hover-class="ctl-hover">
+        <text class="ctl-icon">◎</text>
+      </view>
+    </view>
+
+    <!-- 选点模式下的一条提示：告诉用户"拖地图"而不是"点地图" -->
+    <view wx:if="{{pickMode}}" class="pick-hint">
+      <text>拖动地图，把中间图钉对准你的位置</text>
+      <text class="pick-hint-ok" bindtap="confirmPick">好了</text>
+    </view>
   </view>
 
   <view class="body">
@@ -84,10 +126,12 @@
         精度差的时候，基于它算的"我要走多久"会明显失真，建议走到室外重新取一次。
       </view>
 
-      <button class="btn" bindtap="useGps">获取我的位置</button>
-      <button class="btn ghost" bindtap="startPick">
-        {{pickMode ? '请点击地图上的位置…' : '手动选点（备用）'}}
-      </button>
+      <!--
+        ⚠️ 「获取我的位置」与「手动选点」都挪到**地图右下角的小控件**了
+        （2026-10-14 用户要求）。这里只留一行说明，不再放大按钮 ——
+        两处都能干同一件事会让人不知道该点哪个。
+      -->
+      <view class="sub">用地图右下角的控件：◎ 取我的位置；✛ 拖动地图选点。</view>
       <view wx:if="{{note}}" class="note">{{note}}</view>
     </view>
 

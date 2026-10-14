@@ -662,12 +662,112 @@ Page({
       })
   },
 
-  /** 进入取点模式：提示用户点击地图 */
+  /**
+   * ── 进入"拖动选点"模式（2026-10-14 用户要求改造）──────────────
+   *
+   * 用户原话："手动选点同样改为小控件，但是点击后**只需拖动地图**即可
+   * 确定图钉的位置，图钉在拖动时**保持在屏幕中心不动**，
+   * 再次点击控件退出模式时才会随地图拖动一起移动"
+   *
+   * ── 与旧实现的区别 ──────────────────────────────────────
+   *
+   * 旧的是"点地图上的某一点"（`onMapTap`）。那个在手机上很难点准：
+   * 手指按下去就遮住了目标位置，而景区里 20 米的偏差就足以让人
+   * 站到马路对面。拖动对中心图钉则天然精确 —— 手指在屏幕任何地方，
+   * 图钉始终在正中间。
+   *
+   * ── 实现要点 ────────────────────────────────────────────
+   *
+   * 中心图钉是**固定在容器正中的覆盖层**（见 wxml 的 `.center-pin`），
+   * 地图在它下面滚。退出模式后覆盖层不再渲染，位置改由 `myPoint`
+   * 对应的 marker 表示 —— 那是地图坐标，会随地图一起动。
+   */
   startPick() {
+    const that = this
     this.setData({
       pickMode: true,
-      note: '请在地图上点击你当前所在的位置',
+      note: '拖动地图，把中间的图钉对准你的位置',
     })
+    /**
+     * 进入模式时**先取一次地图中心**：用户可能什么都没拖就直接点「好了」。
+     * 不取的话 `myPoint` 还是旧的（甚至为空），而他以为已经选好了。
+     */
+    this.readCenter()
+  },
+
+  /**
+   * 退出拖动模式并**采用当前中心点**。
+   *
+   * ⚠️ 退出前必须再读一次中心：拖动过程中 `bindregionchange` 是连续触发的，
+   *    我们只更新提示用的坐标；真正落库要等用户说"就这儿"。
+   *    以最后一次读到的为准，避免"拖完立刻点好了"时用到上一帧的值。
+   */
+  confirmPick() {
+    const that = this
+    this.readCenter(function (loc) {
+      if (!loc) {
+        that.setData({ pickMode: false, note: '没能读到地图中心，请重试或点「◎」用定位' })
+        return
+      }
+      that.setData({
+        myPoint: loc,
+        mySource: 'manual',
+        pickMode: false,
+        note: '已按拖动选点标记位置（位置来源：手动）',
+      })
+      that.refreshMarkers()
+      that.computeNearby()
+    })
+  },
+
+  /** 取消拖动选点，不改变已有的位置 */
+  cancelPick() {
+    this.setData({ pickMode: false, note: '已取消手动选点' })
+  },
+
+  /**
+   * 读当前地图中心。
+   *
+   * ⚠️ 用 `MapContext.getCenterLocation()` 而不是自己算 ——
+   *    `center` 是我们**传给**地图的初始值，用户拖动之后它并不会自动更新。
+   *    拿它当"当前中心"会一直读到进来时的那个点。
+   */
+  readCenter(cb) {
+    try {
+      const ctx = wx.createMapContext('tripmap', this)
+      if (!ctx || typeof ctx.getCenterLocation !== 'function') {
+        if (cb) cb(null)
+        return
+      }
+      ctx.getCenterLocation({
+        success(res) {
+          if (typeof res.latitude === 'number' && typeof res.longitude === 'number') {
+            if (cb) cb({ latitude: res.latitude, longitude: res.longitude })
+          } else if (cb) cb(null)
+        },
+        fail() {
+          if (cb) cb(null)
+        },
+      })
+    } catch (e) {
+      if (cb) cb(null)
+    }
+  },
+
+  /**
+   * 地图视野变了（拖动 / 缩放）。
+   *
+   * ⚠️ **每帧都触发**，所以这里**只更新提示、不做重活** ——
+   *    不调 `computeNearby()`（要算到各候选点的距离）、不刷 marker。
+   *    那些留到用户点「好了」时做一次。
+   */
+  onMapRegionChange() {
+    if (!this.data.pickMode) return
+    /**
+     * 拖动时**不做任何 setData**：`regionchange` 每秒能触发几十次，
+     * 每次都 setData 会让界面发涩，而拖动中最不需要的就是界面更新
+     * （图钉本来就不动）。真正的坐标在「好了」那一下读。
+     */
   },
 
   /**
@@ -697,7 +797,17 @@ Page({
         })
         that.refreshMarkers()
         that.computeNearby()
-        /** 用户刚给了位置，镜头就该落到他身上 —— 否则还得自己拖地图去找 */
+        /**
+         * 镜头挪到当前位置（2026-10-14 用户要求：
+         * "点击会获取位置并将镜头挪到当前位置"）。
+         *
+         * 除了 `moveToLocation`（那是"回到我的位置"），还要把
+         * **受控属性 `center` 也更新** —— 否则用户之后拖动地图、
+         * 页面因别的原因重渲染时，镜头会弹回进来时的旧中心。
+         */
+        that.setData({
+          center: { latitude: res.latitude, longitude: res.longitude },
+        })
         that.recenterOnMe()
       },
       fail(err) {
@@ -706,25 +816,24 @@ Page({
         that.setData({
           mySource: null,
           note: denied
-            ? '定位权限被拒绝，可点击地图手动选点，或在小程序设置里重新授权'
-            : '定位失败：' + msg + '（可点击地图手动选点）',
+            ? '定位权限被拒绝，可用地图右下角的 ✛ 拖动选点，或在小程序设置里重新授权'
+            : '定位失败：' + msg + '（可用地图右下角的 ✛ 拖动选点）',
         })
         console.error('[useGps] 获取位置失败', err)
       },
     })
   },
 
+  /**
+   * 点击地图 —— **只在非选点模式下**用来选中地点。
+   *
+   * ⚠️ 选点模式改成了"拖动对中心图钉"（见 `startPick`），
+   *    所以这里不再处理选点。但**保留**它做另一件事：
+   *    选中地图上现有的地点（与点 marker 同效），方便用户点一片区域。
+   */
   onMapTap(e) {
-    if (!this.data.pickMode) return
-    const myPoint = { latitude: e.detail.latitude, longitude: e.detail.longitude }
-    this.setData({
-      myPoint,
-      mySource: 'manual', // 手动选点；拿到定位权限后此处会变成 'gps'
-      pickMode: false,
-      note: '已按手动选点标记位置（位置来源：手动）',
-    })
-    this.refreshMarkers()
-    this.computeNearby()
+    if (this.data.pickMode) return
+    /** 非选点模式下的地图点击暂不做事 —— 避免误触改变"我的位置" */
   },
 
   /**

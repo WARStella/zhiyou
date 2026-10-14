@@ -102,6 +102,25 @@ function loadPage(relPath, opts) {
       createMapContext: () => ({
         includePoints: (a) => wxCalls.push({ fn: 'includePoints', args: a }),
         moveToLocation: (a) => wxCalls.push({ fn: 'moveToLocation', args: a }),
+        /**
+         * 读地图中心 —— 拖动选点要用（2026-10-14 加）。
+         *
+         * ⚠️ 必须**回调风格**，与真机一致：写成返回值的话页面代码
+         * 会走进另一条分支（见文件头 `getLocation` 那段说明）。
+         *
+         * 中心点用 `opts.mapCenter` 给；没给就 fail —— 页面要能
+         * 如实走"读不到中心"的分支，而不是拿到一个编出来的坐标。
+         */
+        getCenterLocation: (o) => {
+          const opt = o || {};
+          wxCalls.push({ fn: 'getCenterLocation', args: {} });
+          const c = opts.mapCenter;
+          if (!c) {
+            if (typeof opt.fail === 'function') opt.fail({ errMsg: 'harness: no map center' });
+            return;
+          }
+          if (typeof opt.success === 'function') opt.success({ latitude: c.latitude, longitude: c.longitude });
+        },
       }),
       showToast: (a) => wxCalls.push({ fn: 'showToast', args: a }),
       openLocation: (a) => wxCalls.push({ fn: 'openLocation', args: a }),

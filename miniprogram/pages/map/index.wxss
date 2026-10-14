@@ -209,3 +209,82 @@
 }
 .focus-name { font-size: 26rpx; color: #0b3c6e; font-weight: 600; }
 .focus-close { font-size: 24rpx; color: #65758a; }
+/* ── 地图右下角控件（2026-10-14 用户要求）──────────────────
+   把"获取我的位置"与"手动选点"从卡片里的按钮改成地图上的小控件。 */
+.mapwrap { position: relative; }
+
+.map-ctl {
+  position: absolute;
+  right: 24rpx;
+  bottom: 48rpx;
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+.ctl-btn {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 50%;
+  background: #fff;
+  border: 1rpx solid #d9e5ef;
+  box-shadow: 0 2rpx 8rpx rgba(11, 60, 110, 0.18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 16rpx;
+}
+.ctl-hover { background: #eef4fb; }
+.ctl-icon { font-size: 36rpx; color: #0b3c6e; line-height: 1; }
+
+/* ── 中间图钉（拖动选点）──────────────────────────────────
+   ⚠️ `pointer-events: none` 不能少：这一层盖在地图正中，
+   若能接收事件就会把地图的拖动与点击全吃掉，"拖动地图"根本做不到。 */
+.center-pin {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* 让图钉的**尖端**落在正中，而不是图钉中心 —— 差半个图钉高 */
+  transform: translate(-50%, -100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: none;
+  z-index: 9;
+}
+.center-pin-dot {
+  width: 40rpx;
+  height: 40rpx;
+  border-radius: 50%;
+  background: #b24a3f;
+  border: 4rpx solid #fff;
+  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.3);
+}
+.center-pin-stem {
+  width: 4rpx;
+  height: 34rpx;
+  background: #b24a3f;
+}
+
+/* 选点模式的提示条：说明"拖地图"而不是"点地图" */
+.pick-hint {
+  position: absolute;
+  left: 24rpx;
+  right: 24rpx;
+  top: 24rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(11, 60, 110, 0.92);
+  color: #fff;
+  font-size: 24rpx;
+  border-radius: 12rpx;
+  padding: 16rpx 22rpx;
+  z-index: 10;
+}
+.pick-hint-ok {
+  border: 1rpx solid rgba(255, 255, 255, 0.7);
+  border-radius: 8rpx;
+  padding: 4rpx 20rpx;
+  margin-left: 16rpx;
+  flex-shrink: 0;
+}
