@@ -16,8 +16,15 @@ const meet = require('./meet');
 const map = require('./map');
 const intent = require('./intent');
 const ai = require('./ai');
+const team = require('./team');
 
 module.exports = {
+  'ops.cleanupPlaceholderPlaces': require('./cleanup-places'),
+  'team.current': team.current,
+  'team.publishTrip': team.publishTrip,
+  'team.progress': team.progress,
+  'team.close': team.close,
+  'team.cancelMeeting': team.cancelMeeting,
   // 用户与运维
   'user.login': user.login,
   'ops.health': user.health,
@@ -60,7 +67,16 @@ module.exports = {
   'meet.confirm': meet.confirm,
   'meet.arrive': meet.arrive,
   'meet.depart': meet.depart,
+  'meet.prepareDepart': require('./departure').prepare,
   'meet.get': meet.get,
+
+  /**
+   * 踏勘录入 —— `places` 集合**唯一的人工写入入口**。
+   *
+   * 10/13 定了"检索结果不入库、places 只由踏勘写入"，但没开写入的口子，
+   * 结果 10/16 踏勘的数据只能手工敲控制台。仅 dev（与 ops.initDb 同惯例）。
+   */
+  'place.survey': require('./survey'),
 
   // 地图服务（10/14 验证）
   'map.probe': map.probe,
