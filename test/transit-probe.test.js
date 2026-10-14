@@ -37,7 +37,6 @@ function fakeHttp(body) {
 function transitBody() {
   return {
     status: '1',
-    info: 'OK',
     count: '1',
     route: {
       transits: [
@@ -148,7 +147,7 @@ test('接口通但没识别到地铁时，verdict 明确指向识别规则 —�
 });
 
 test('没有公交方案时不被当成"接口失败"', async () => {
-  const http = fakeHttp({ status: '1', info: 'OK', count: '0', route: { transits: [] } });
+  const http = fakeHttp({ status: '1', count: '0', route: { transits: [] } });
   const w = await worldWith(http);
   const res = expectOk(await w.A('transit.probe', {}));
 
@@ -174,7 +173,11 @@ test('探针默认用的是一条"必须坐车"的线路（跨松花江），否
   const w = await worldWith(http);
   const res = expectOk(await w.A('transit.probe', {}));
 
-  assert.equal(res.city, '哈尔滨');
+  /**
+   * v5 的起点城市参数是 `city1`，取 **citycode**（哈尔滨 = 0451），
+   * 不是城市名 —— 这也是实测踩到 20001 之后定下来的。
+   */
+  assert.equal(res.city, '0451', '探针默认用哈尔滨的 citycode');
   // 起终点纬度差不大但经度差约 0.08（跨江），直线距离远超步行合理范围
   const dLng = Math.abs(res.probeFrom.longitude - res.probeTo.longitude);
   assert.ok(dLng > 0.05, `默认探针起终点应当相距较远（实际经度差 ${dLng}），否则会得到一条"全靠走"的方案`);

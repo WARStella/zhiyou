@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 /**
  * 公交（含地铁）路线的探针 —— `transit.probe`。
@@ -39,7 +39,7 @@ const { createAmapTransitProvider, STRATEGY, STRATEGY_LABEL } = require('../lib/
  */
 const DEFAULT_FROM = { latitude: 45.7756, longitude: 126.6175 };
 const DEFAULT_TO = { latitude: 45.8029, longitude: 126.5353 };
-const DEFAULT_CITY = '哈尔滨';
+const DEFAULT_CITY = '0451';
 
 async function probe(ctx) {
   const p = ctx.payload || {};
@@ -77,7 +77,7 @@ async function probe(ctx) {
   }
 
   // ── 第 2 层：端点与权限（真实请求，消耗一次配额）──
-  const r = await provider.route({ from, to, city, strategy: STRATEGY.FASTEST });
+  const r = await provider.route({ from, to, city, strategy: STRATEGY.RECOMMENDED });
 
   steps.push({
     step: 'upstream',
@@ -150,8 +150,8 @@ async function probe(ctx) {
     probeFrom: from,
     probeTo: to,
     city,
-    strategy: STRATEGY.FASTEST,
-    strategyLabel: STRATEGY_LABEL[STRATEGY.FASTEST],
+    strategy: STRATEGY.RECOMMENDED,
+    strategyLabel: STRATEGY_LABEL[STRATEGY.RECOMMENDED],
     steps,
     routes: r.routes || [],
     best: r.best
