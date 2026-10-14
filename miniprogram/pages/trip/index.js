@@ -1200,13 +1200,32 @@ Page({
     // ① 还没出发：我的位置 → 第 1 站
     if (lastReached < 0) {
       const first = located[0]
+      /**
+       * ⚠️ 这一段**也是**多方式接入的一部分，而我上一批只改了第三段。
+       *
+       * 原来这里 `mode: '步行'` 是**写死**的 —— 于是"我的位置 → 第一站"
+       * 无论实际坐地铁还是公交，界面上都显示"步行"。
+       *
+       * 而用户最常看到的就是这一段（还没标记"到达"任何站时，当前路线
+       * 显示的就是它）—— 所以只修第三段等于没修。
+       *
+       * 数据来自 `startLeg`（`trip.plan` 的起点段，由 `leg-times` 选出方式）。
+       */
+      const startMode = startLeg && startLeg.mode ? startLeg.mode : 'walking'
       return {
         from: (startLeg && startLeg.label) || '我的位置',
         to: first.placeName,
-        mode: '步行',
+        mode: modeInfo(startMode).name,
+        modeIcon: modeInfo(startMode).icon,
+        reason: (startLeg && startLeg.reason) || '',
+        transitText: describeTransit(startLeg && startLeg.transit),
+        provider: (startLeg && startLeg.provider) || null,
+        candidateReason: (startLeg && startLeg.candidateReason) || null,
         minutes: startLeg ? startLeg.minutes : null,
         meters: startLeg ? startLeg.meters : null,
         source: startLeg ? startLeg.source : null,
+        sourceLabel: SOURCE_LABEL[startLeg ? startLeg.source : null] || '',
+        estimated: Boolean(startLeg && startLeg.source === 'estimated'),
         // 导航要用：目的地的坐标
         toLocation: first.location,
         toPlaceId: first.placeId,

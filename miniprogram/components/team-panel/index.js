@@ -5,7 +5,7 @@ const labels = { cancelled: '已取消', proposed: '等待成员确认', confirm
 const clock = value => value ? new Date(value).toLocaleString() : '尚未发生'
 Component({
   properties: { personalTripId: { type: String, value: '' }, point: { type: Object, value: null }, source: { type: String, value: '' } },
-  data: { crewId: '', crew: null, owner: false, me: '', members: [], trip: null, task: null, invite: '', name: '', pointName: '', meetTime: '17:00', busy: false, error: '', message: '', sharing: false, refreshed: '', departureCheck: null, proposal: null },
+  data: { crewId: '', crew: null, owner: false, me: '', members: [], trip: null, task: null, invite: '', name: '', pointName: '', meetTime: '17:00', busy: false, error: '', message: '', sharing: false, refreshed: '', departureCheck: null, proposal: null, collapsed: false },
   lifetimes: { attached() { this.restore() } },
   pageLifetimes: { show() { this.restore() } },
   methods: {
@@ -25,17 +25,50 @@ Component({
       if (this.data.busy) return
       const crewId = wx.getStorageSync(KEY) || ''
       if (!crewId) { this.clear(); return }
-      if (crewId !== this.data.crewId) this.clear()
-      this.setData({ crewId })
+      /**
+       * ⚠️ 顺序很要紧（2026-10-14 踩过）：`clear()` 会把 `collapsed` 设回
+       * `false`，而**首次**设置 crewId 时 `crewId !== this.data.crewId`
+       * 必然成立 —— 于是它会把下面设的折叠状态冲掉。
+       *
+       * 所以：先 `clear()` 清干净，**再**设 crewId 与折叠状态。
+       */
+      const enteringCrew = crewId !== this.data.crewId
+      if (enteringCrew) this.clear()
+      /**
+       * 有小队时默认**折叠** —— 这个面板很长（共同路线 + 位置与集合 +
+       * 候选方案），展开着会把地图和当前路线挤到屏幕外。
+       * 而它做的事（发起集合、看队员到没到）是**间歇性**的，
+       * 不像地图那样需要一直盯着。
+       *
+       * 只在小队**刚出现**时设一次默认值，之后尊重用户的手动开合 ——
+       * 每次 show 都重置的话，用户展开后切个页面回来又合上了。
+       */
+      this.setData(enteringCrew ? { crewId, collapsed: true } : { crewId })
       return this.refresh()
     },
     clear() {
-      this.setData({ crewId: '', crew: null, trip: null, task: null, members: [], owner: false, sharing: false, proposal: null, refreshed: '' })
+      /**
+       * ⚠️ `collapsed: false` 是必须的：没有小队时面板里是"创建/加入"表单，
+       * 折叠着它用户就没法加入小队了。
+       * 这一条在"退出小队"之后尤其重要 —— 那时面板会从折叠态
+       * （有小队时的默认）切回表单态。
+       */
+      this.setData({ crewId: '', crew: null, trip: null, task: null, members: [], owner: false, sharing: false, proposal: null, refreshed: '', collapsed: false })
       this.triggerEvent('teamstate', { locations: [], meeting: null })
     },
     input(e) {
       const key = e.currentTarget.dataset.field
       if (['name','invite','pointName','meetTime'].includes(key)) this.setData({ [key]: e.detail.value })
+    },
+    /**
+     * 展开 / 收起。
+     *
+     * ⚠️ 收起**不影响任何进行中的操作** —— 它只是不显示。
+     * 不要在这里顺手清 `error` / `message`：用户收起面板往往正是为了
+     * 看清地图，回来时那条"集合已发起"的提示还得在。
+     */
+    toggleCollapse() {
+      this.setData({ collapsed: !this.data.collapsed })
     },
     async read() {
       this.setData({ departureCheck: null })

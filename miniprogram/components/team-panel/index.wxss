@@ -1,1 +1,12 @@
 .panel{background:#fff;border:1rpx solid #d9e5ef;border-radius:20rpx;padding:24rpx;margin:20rpx 0;color:#20334a;font-size:27rpx;line-height:1.7}.title{font-size:34rpx;font-weight:700}.subtitle{font-size:29rpx;font-weight:600;margin-top:24rpx}.hint{font-size:24rpx;color:#65758a;word-break:break-all}.error{color:#aa3028;background:#fff0ed;padding:14rpx;border-radius:10rpx}.row{padding:14rpx 0;border-bottom:1rpx solid #edf1f6}input{background:#f3f6fa;padding:18rpx;border-radius:10rpx;margin-top:16rpx}button{font-size:26rpx;background:#0b3c6e;color:white;margin:12rpx 8rpx 12rpx 0}button.secondary{background:#edf2f8;color:#294c72}
+
+/* ── 折叠表头（2026-10-14）─────────────────────────────────
+   面板很长（共同路线 + 位置与集合 + 候选方案），展开着会把地图和
+   当前路线挤到屏幕外，而它做的事是间歇性的。 */
+.head{display:flex;align-items:center;justify-content:space-between;padding:6rpx 0}
+.head-hover{background:#f3f6fa;border-radius:10rpx}
+.head-sub{font-size:23rpx;color:#65758a;margin-top:4rpx}
+.chevron{font-size:28rpx;color:#65758a;margin-left:16rpx}
+/* 收起时表头就是全部内容，给它一点与下方卡片的间距 */
+.head .title{flex:1}
+.body{margin-top:20rpx}

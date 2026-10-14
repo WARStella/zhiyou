@@ -1,6 +1,18 @@
 <view class="panel">
-  <view class="title">{{crew ? crew.name : '与同伴一起游览'}}</view>
+  <!--
+    表头 = 折叠开关。**整行可点**，不只是箭头 —— 手指在手机上点一个小三角
+    很难点中。`hover-class` 给一个按压反馈，否则点了没动静会以为没生效。
+  -->
+  <view class="head" bindtap="toggleCollapse" hover-class="head-hover">
+    <view class="title">{{crew ? crew.name : '与同伴一起游览'}}</view>
+    <!-- 收起时也要能一眼看到邀请码与人数 —— 那是最常要用的两个信息 -->
+    <view wx:if="{{collapsed && crew}}" class="head-sub">邀请码 {{crew.inviteCode}} · {{members.length}} 位成员</view>
+    <view class="chevron {{collapsed ? 'chevron-down' : 'chevron-up'}}">{{collapsed ? '▾' : '▴'}}</view>
+  </view>
+
   <view wx:if="{{error}}" class="error">{{error}}</view><view wx:if="{{message}}" class="hint">{{message}}</view>
+
+  <view wx:if="{{!collapsed}}" class="body">
   <block wx:if="{{!crewId}}">
     <input placeholder="小队名称（选填）" value="{{name}}" data-field="name" bindinput="input" maxlength="20"/>
     <button disabled="{{busy}}" bindtap="create">创建小队</button>
@@ -72,4 +84,5 @@
     </block>
     <button class="secondary" bindtap="leave" disabled="{{busy}}">{{owner ? '解散小队' : '退出小队'}}</button>
   </block>
+  </view>
 </view>

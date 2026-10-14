@@ -290,4 +290,100 @@ function node(id, name, status, seq, extra) {
   );
 }
 
-module.exports = { loadPage, node };
+/**
+ * 装载一个**自定义组件**（`Component({...})`）。
+ *
+ * 与 `loadPage` 的区别就在构造函数与调用形状：
+ *   · 页面是 `Page({ data, method })`，方法直接在对象上；
+ *   · 组件是 `Component({ properties, data, methods, lifetimes })`，
+ *     **方法都在 `methods` 里**，而 `properties` 要按默认值填进 `data`
+ *     （真机上 `properties` 与 `data` 合并后都能用 `this.data.x` 读）。
+ *
+ * 组件测试此前完全没有 —— 小队面板的折叠逻辑就是在一个组件里，
+ * 而"折叠状态"这种东西**只有跑起来才知道对不对**（默认展开还是收起、
+ * 收起后还能不能看到邀请码）。
+ *
+ * @param {string} relPath 相对仓库根的组件路径
+ * @param {object} [opts]  `{ properties, wx, storage, app }`
+ */
+function loadComponent(relPath, opts) {
+  opts = opts || {};
+  const abs = path.join(__dirname, '..', relPath);
+  const wxCalls = [];
+  const storage = Object.assign({}, opts.storage || {});
+  const prevGlobals = { Component: global.Component, wx: global.wx, getApp: global.getApp };
+
+  let captured = null;
+  global.Component = (o) => {
+    captured = o;
+  };
+  global.getApp = () => opts.app || { globalData: { cloudReady: true } };
+
+  /** 组件与页面共用一套 wx 替身形状 —— 但先只装组件真正会用到的那几个 */
+  global.wx = Object.assign(
+    {
+      getStorageSync: (k) => (k in storage ? storage[k] : ''),
+      setStorageSync: (k, v) => {
+        storage[k] = v;
+        wxCalls.push({ fn: 'setStorageSync', args: { key: k, value: v } });
+      },
+      removeStorageSync: (k) => {
+        delete storage[k];
+      },
+      setClipboardData: (a) => wxCalls.push({ fn: 'setClipboardData', args: a }),
+      showToast: (a) => wxCalls.push({ fn: 'showToast', args: a }),
+    },
+    opts.wx || {}
+  );
+
+  try {
+    delete require.cache[abs];
+    // eslint-disable-next-line global-require
+    require(abs);
+  } finally {
+    global.Component = prevGlobals.Component;
+  }
+
+  if (!captured) throw new Error(`${relPath} 没有调用 Component()`);
+
+  const inst = {};
+  /** 方法都挂在实例上（测试直接调 this.xxx） */
+  for (const k of Object.keys(captured.methods || {})) {
+    if (typeof captured.methods[k] === 'function') inst[k] = captured.methods[k].bind(inst);
+  }
+  /** properties 的默认值填进 data —— 真机上两者合并后都能用 this.data 读 */
+  const props = {};
+  for (const k of Object.keys(captured.properties || {})) {
+    const def = captured.properties[k];
+    props[k] = opts.properties && k in opts.properties ? opts.properties[k] : def && 'value' in def ? def.value : undefined;
+  }
+  inst.properties = props;
+  inst.data = Object.assign({}, JSON.parse(JSON.stringify(captured.data || {})), props);
+  inst.__setDataLog = [];
+  inst.__wx = wxCalls;
+  inst.__storage = storage;
+  inst.setData = function (patch) {
+    inst.__setDataLog.push(patch);
+    Object.assign(inst.data, patch);
+  };
+  inst.triggerEvent = (name, detail) => wxCalls.push({ fn: 'triggerEvent', args: { name, detail } });
+  /**
+   * ⚠️ 清理函数**不能叫 `restore`**（2026-10-14 踩过）。
+   *
+   * 小队面板组件自己有一个 `restore()`（读 storage 恢复小队），
+   * 而 `attached()` 里调的正是 `this.restore()`。我这里若也定义 `restore`，
+   * 就会把组件的方法顶掉 —— 于是 `attached()` 调的是"还原全局变量"，
+   * 表现为**什么都没发生且不报错**（`getStorageSync` 一次都没被调用）。
+   */
+  inst.__restoreGlobals = () => {
+    global.wx = prevGlobals.wx;
+    global.getApp = prevGlobals.getApp;
+  };
+
+  if (captured.lifetimes && typeof captured.lifetimes.attached === 'function') {
+    inst.__attached = captured.lifetimes.attached.bind(inst);
+  }
+  return inst;
+}
+
+module.exports = { loadPage, loadComponent, node };

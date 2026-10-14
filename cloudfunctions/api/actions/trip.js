@@ -792,10 +792,22 @@ async function plan(ctx) {
       mode: startOverride.mode,
       source: startOverride.source,
       provider: startOverride.provider || null,
+      /** 为什么选这个方式（"公交比步行省 78 分钟"） */
       reason: startOverride.reason || null,
+      /** 这个数可不可信（估算？）—— 与上面那条是两个维度 */
+      candidateReason: startOverride.candidateReason || null,
+      /**
+       * 公交的换乘细节（几号线、1 号口进 3 号口出）。
+       *
+       * ⚠️ **起点段同样需要** —— 而且用户最常看到的就是这一段
+       * （还没标记"到达"任何站时，当前路线显示的就是它）。
+       */
+      transit: startOverride.transit || null,
       from: startPoint,
       toPlaceId: firstPlace ? firstPlace._id : itemIds[0],
       toPlaceName: firstPlace ? firstPlace.name : null,
+      /** 起点段也带上标签，界面用它显示"我的位置" */
+      label: startPoint.label || '我的位置',
     };
   } else if (startPoint) {
     /** 回落：travelResolve 没给出起点段时，单独调一次步行路线接口 */
