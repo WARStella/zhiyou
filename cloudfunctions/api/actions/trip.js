@@ -810,9 +810,56 @@ async function plan(ctx) {
       label: startPoint.label || '我的位置',
     };
   } else if (startPoint) {
-    /** 回落：travelResolve 没给出起点段时，单独调一次步行路线接口 */
+    /**
+     * 回落：`travelResolve` 没给出起点段时，单独调一次步行路线接口。
+     *
+     * ⚠️⚠️ **这段曾经把"不该步行的远距离"捡回来**（2026-10-14 用户实测发现）。
+     *
+     * 症状：从"我的位置"到冰雪大世界 **12618 米，显示的却是步行**。
+     *
+     * 根因是这段回落**独立于新链路**：
+     *   · `leg-times` 里已经按 `MAX_WALK_METERS`（3000 米）**排除了步行**
+     *     ——12.6 公里步行约 2 小时 40 分，任何情况下都不该建议；
+     *   · 但这里不知道那件事，仍然去调步行路线接口、仍然硬编码
+     *     `mode: 'walking'`，于是**把刚排除掉的荒谬建议又捡了回来**。
+     *
+     * 两条路径对同一段给出相反结论 —— 修一条不改另一条，等于没修。
+     * 而且这里的 `ok: true` 时连距离都不看：`walkingRoute` 会老老实实
+     * 返回一条 12.6 公里的步行路线，因为它**只是一条步行路线**，
+     * "要不要建议人走"是上层的事。
+     *
+     * 现在这里也按同一个判据挡住，并如实说明原因。
+     */
     const firstPlace = placesById[itemIds[0]];
-    if (firstPlace && firstPlace.location) {
+    const straightToFirst = firstPlace && firstPlace.location
+      ? geo.haversineMeters(startPoint, firstPlace.location)
+      : null;
+    const walkFeasible = straightToFirst === null || straightToFirst <= geo.MAX_WALK_METERS;
+
+    if (firstPlace && firstPlace.location && !walkFeasible) {
+      startLeg = {
+        minutes: null,
+        meters: Math.round(straightToFirst),
+        mode: 'walking',
+        /** ⚠️ 不是 estimated —— 这个数**不是**估算的耗时，而是"没给建议" */
+        source: null,
+        from: startPoint,
+        label: startPoint.label || '我的位置',
+        toPlaceId: firstPlace._id,
+        toPlaceName: firstPlace.name,
+        fallbackReason: 'TOO_FAR_TO_WALK',
+        reason:
+          `直线约 ${Math.round(straightToFirst)} 米，超过步行上限 ${geo.MAX_WALK_METERS} 米 —— ` +
+          '这一段没取到公交或驾车方案，**不提供步行建议**',
+      };
+      walkFill.failed++;
+      walkFill.failures.push({
+        from: startPoint.label,
+        to: firstPlace.name,
+        reason: 'TOO_FAR_TO_WALK',
+        message: `直线约 ${Math.round(straightToFirst)} 米，太远不适合步行`,
+      });
+    } else if (firstPlace && firstPlace.location) {
       const provider = makeProvider();
       let r;
       try {
@@ -829,6 +876,7 @@ async function plan(ctx) {
           mode: 'walking',
           source: geo.WALK_SOURCE.UPSTREAM,
           from: startPoint,
+          label: startPoint.label || '我的位置',
           toPlaceId: firstPlace._id,
           toPlaceName: firstPlace.name,
         };
@@ -839,6 +887,7 @@ async function plan(ctx) {
           {
             mode: 'walking',
             from: startPoint,
+            label: startPoint.label || '我的位置',
             toPlaceId: firstPlace._id,
             toPlaceName: firstPlace.name,
             fallbackReason: r.reason || 'UPSTREAM_FAILED',

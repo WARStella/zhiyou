@@ -222,11 +222,22 @@
         <text class="leg-to-name">{{currentLeg.to}}</text>
       </view>
       <view class="leg-figures">
-        <text class="fig-mode">{{currentLeg.mode}}</text>
+        <text wx:if="{{currentLeg.mode}}" class="fig-mode">{{currentLeg.modeIcon}} {{currentLeg.mode}}</text>
+        <!--
+          ⚠️ `wx:if="{{currentLeg.minutes}}"` 对 `null` 是安全的（不渲染），
+          但**必须有一条"没取到方案"的说明** —— 否则这一段的时长会静默消失，
+          看起来像界面坏了。远距离又取不到公交/驾车时就是这种情况。
+        -->
         <text wx:if="{{currentLeg.minutes}}" class="fig-strong">{{currentLeg.minutes}} 分钟</text>
         <text wx:if="{{currentLeg.meters}}" class="fig">{{currentLeg.meters}} 米</text>
+        <text wx:if="{{currentLeg.sourceLabel}}" class="leg-src">{{currentLeg.sourceLabel}}</text>
         <text wx:if="{{currentLeg.estimated}}" class="leg-warn">估算</text>
+        <text wx:if="{{!currentLeg.minutes}}" class="leg-warn">没取到出行方案</text>
       </view>
+      <!-- 为什么没有方案 —— 说清原因，别让人以为界面坏了 -->
+      <view wx:if="{{currentLeg.reason}}" class="leg-reason-line">{{currentLeg.reason}}</view>
+      <!-- 公交换乘细节：几号线、1 号口进 3 号口出 -->
+      <view wx:if="{{currentLeg.transitText}}" class="leg-transit-line">{{currentLeg.transitText}}</view>
       <view class="leg-actions">
         <button wx:if="{{!navLeg}}" class="btn small" bindtap="startNavigation" disabled="{{navLoading}}">
           {{navLoading ? '正在取路线…' : '开始导航'}}

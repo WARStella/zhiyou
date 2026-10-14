@@ -43,6 +43,7 @@ const {
   walkMinutes,
   haversineMeters,
   WALK_SOURCE,
+  MAX_WALK_METERS,
 } = require('./geo');const { MATRIX_MODES } = require('./map/matrix-modes');
 
 /** 距离矩阵能给的三种方式（与 provider 的单一事实来源保持一致） */
@@ -236,17 +237,58 @@ async function legTravelTimes(p) {
   // ── 4) 兜底：一种可用候选都没有时，给一个**明确标注为估算**的步行 ──
   const usableCount = candidates.filter((c) => c.ok !== false && typeof c.minutes === 'number').length;
   if (!usableCount) {
-    const w = walkMinutes(fromPlace || { location: p.fromPoint }, toPlace, opts.params || {});
-    if (w) {
+    const straight = haversineMeters(
+      p.fromPoint || (fromPlace && fromPlace.location),
+      toPlace.location
+    );
+
+    /**
+     * ⚠️ **超过 MAX_WALK_METERS 就不给"步行"这个候选**（2026-10-14 修）。
+     *
+     * 用户报的症状：从"我的位置"到冰雪大世界 **12618 米，显示的却是步行**。
+     *
+     * 12.6 公里步行约 2 小时 40 分 —— **任何情况下都不该建议**。
+     * 但第一版的兜底是无条件的：只要没有可用候选就塞一个"步行估算"，
+     * 于是**矩阵取不到数据时就会给出这种荒谬建议**，而且它还带着
+     * "估算"标签，看起来像是认真算过。
+     *
+     * 诚实比"有个数"重要：宁可显示"这段取不到方案"，也不给一个
+     * 人根本不会照做的建议。
+     *
+     * `MAX_WALK_METERS`（3000 米）是项目里已有的判据 ——
+     * `geo.js` 用它排除"明显不合理的步行集合候选点"。同一个道理。
+     */
+    if (straight !== null && straight > MAX_WALK_METERS) {
+      const km = Math.round(straight / 100) / 10;
       candidates.push({
         mode: TRAVEL_MODE.WALKING,
-        minutes: w.minutes,
-        meters: w.meters,
+        ok: false,
         provider: 'estimate',
-        /** ⚠️ 必须是 estimated —— 界面要能让用户看出"这不是实测" */
-        source: WALK_SOURCE.ESTIMATED,
-        reason: '取不到真实耗时，按直线距离估算（短距离下偏差可能很大）',
+        /**
+         * ⚠️ 公里数是**算出来的**，不写死 —— 我第一版在这里写了
+         * "12 公里步行不可行"，而实际距离会变（实测那条是 17 公里）。
+         * 写死的数字在别的路段上就是错的。
+         */
+        reason:
+          `直线约 ${Math.round(straight)} 米（${km} 公里），超过步行上限 ${MAX_WALK_METERS} 米 —— ` +
+          `不给步行建议（${km} 公里步行约 ${Math.round(straight / 75 / 60 * 10) / 10} 小时）`,
+        /** 让别人看得出这是**按距离排除**，不是取数失败 */
+        excludedBy: 'TOO_FAR_TO_WALK',
+        straightMeters: Math.round(straight),
       });
+    } else {
+      const w = walkMinutes(fromPlace || { location: p.fromPoint }, toPlace, opts.params || {});
+      if (w) {
+        candidates.push({
+          mode: TRAVEL_MODE.WALKING,
+          minutes: w.minutes,
+          meters: w.meters,
+          provider: 'estimate',
+          /** ⚠️ 必须是 estimated —— 界面要能让用户看出"这不是实测" */
+          source: WALK_SOURCE.ESTIMATED,
+          reason: '取不到真实耗时，按直线距离估算（短距离下偏差可能很大）',
+        });
+      }
     }
   }
 

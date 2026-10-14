@@ -866,3 +866,7 @@
   font-size: 20rpx;
   color: #9aa5b1;
 }
+/* 当前路线卡片上的多行说明（2026-10-14）
+   公交换乘细节与"为什么没有方案"都放在这里，比挤在 figures 那一行更清楚。 */
+.leg-reason-line{font-size:22rpx;color:#9aa5b1;margin-top:6rpx}
+.leg-transit-line{font-size:23rpx;color:#0b3c6e;margin-top:6rpx}

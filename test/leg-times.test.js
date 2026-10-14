@@ -247,10 +247,12 @@ test('只写上游取回的真实值 —— 估算绝不进缓存', async () => 
   assert.equal(written, 1);
 });
 
-test('没有矩阵数据时回落到**明确标注**的估算，而不是假装有真实值', async () => {
+test('没有矩阵数据时，**近距离**回落到明确标注的估算，而不是假装有真实值', async () => {
+  /** 直线约 100 米（中央大街旁），在步行上限内 */
+  const near = { _id: 'p_near2', name: '很近', location: { latitude: 45.7765, longitude: 126.6175 } };
   const r = await legTravelTimes({
     fromPoint: FROM,
-    toPlace: TO_PLACE,
+    toPlace: near,
     providers: { map: stubMatrix({}), transit: null },
     opts: { params: { walkSpeedMPerMin: 75 } },
   });
@@ -265,6 +267,56 @@ test('没有矩阵数据时回落到**明确标注**的估算，而不是假装�
    * 只留前者的话，用户看不到"这是估算"。
    */
   assert.match(r.choice.chosen.candidateReason, /估算/, '要说清这个数是怎么来的');
+  assert.ok(r.choice.chosen.minutes > 0);
+});
+
+test('远距离取不到数据时**不给步行建议** —— 12 公里步行不可行', async () => {
+  /**
+   * ⚠️ 这条是用户实测报出来的（2026-10-14）：
+   * 「怎么到第一个目的地（冰雪大世界）12618 米还是步行，明显不合理」
+   *
+   * 12.6 公里步行约 2 小时 40 分，**任何情况下都不该建议**。
+   * 而第一版的兜底是无条件的：没有可用候选就塞一个"步行估算"，
+   * 于是矩阵取不到数据时就会给出这种荒谬建议 —— 还带着"估算"标签，
+   * 看起来像认真算过。
+   *
+   * 诚实比"有个数"重要：宁可显示"这段没取到方案"。
+   */
+  const far = { _id: 'p_far2', name: '很远', location: { latitude: 45.9, longitude: 126.75 } };
+  const r = await legTravelTimes({
+    fromPoint: FROM,
+    toPlace: far,
+    providers: { map: stubMatrix({}), transit: null },
+    opts: { params: { walkSpeedMPerMin: 75 } },
+  });
+
+  assert.ok(r.straightMeters > 3000, `前提：这一段确实很远（实测 ${r.straightMeters} 米）`);
+  assert.equal(r.choice.chosen, null, '不该给出任何方式');
+
+  /**
+   * ⚠️ 必须按 `provider` 找 —— 同一个 mode 可以有**多条候选**：
+   * 矩阵那条（取不到路面数据）与估算那条（按距离排除）。
+   * 只按 mode 找会拿到矩阵那条，测出来的就不是"按距离排除"这件事。
+   */
+  const walk = r.candidates.find((c) => c.mode === 'walking' && c.provider === 'estimate');
+  assert.ok(walk, '要有估算那条候选，且**是失败态**');
+  assert.equal(walk.ok, false, '步行必须是不可用，否则界面会显示"步行 N 分钟"');
+  assert.equal(walk.excludedBy, 'TOO_FAR_TO_WALK', '要能看出是**按距离排除**，不是取数失败');
+  assert.match(walk.reason, /超过步行上限/, '原因要说清');
+});
+
+test('远距离步行估算**带出了真实直线距离**，便于判断有多远', async () => {
+  const far = { _id: 'p_far3', name: '很远', location: { latitude: 45.9, longitude: 126.75 } };
+  const r = await legTravelTimes({
+    fromPoint: FROM,
+    toPlace: far,
+    providers: { map: stubMatrix({}), transit: null },
+    opts: {},
+  });
+  const walk = r.candidates.find((c) => c.mode === 'walking' && c.provider === 'estimate');
+  assert.ok(walk, '要有估算那条候选');
+  assert.equal(typeof walk.straightMeters, 'number');
+  assert.ok(walk.straightMeters > 3000);
 });
 
 test('公交没配 Key 时连请求都不发 —— 否则测试会去打外网', async () => {

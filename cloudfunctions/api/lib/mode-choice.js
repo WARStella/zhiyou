@@ -83,15 +83,44 @@ function chooseMode(candidates, opts) {
   const { usable, excluded } = normalize(candidates);
 
   if (!usable.length) {
+    /**
+     * ⚠️ 理由必须**说得具体**（2026-10-14 改）。
+     *
+     * 原来写的是「没有可用的出行方式（步行、骑行、驾车都取不到用时）」——
+     * 两个毛病：
+     *   ① 把**按距离排除**说成了"取不到用时"。用户看到"取不到"会以为
+     *      重试一下就有，而实际是"17 公里步行本来就不该建议"；
+     *   ② 同一个方式可能有多条失败候选（矩阵一条、估算一条），
+     *      于是渲染出「步行、骑行、驾车、**步行**」这种重复。
+     *
+     * 现在：按方式去重，并把各自的**具体原因**带上。
+     */
+    const seen = new Map();
+    for (const e of excluded) {
+      if (!seen.has(e.mode)) {
+        seen.set(e.mode, e.reason);
+        continue;
+      }
+      /**
+       * 同一个方式有多条失败候选时，**保留"按规则排除"而不是"取数失败"**。
+       *
+       * 例：步行在矩阵那条是"附近没有可吸附的道路"（上游的事），
+       * 在估算那条是"超过步行上限 3000 米"（我们的判断）。
+       * 对用户有意义的是后者 —— 前者会让人以为重试一下就能走。
+       */
+      const prev = String(seen.get(e.mode) || '');
+      const next = String(e.reason || '');
+      if (!/超过|上限|太远/.test(prev) && /超过|上限|太远/.test(next)) seen.set(e.mode, next);
+    }
+    const detail = Array.from(seen.entries())
+      .map(([mode, why]) => `${MODE_LABEL[mode] || mode}（${why}）`)
+      .join('、');
     return {
       chosen: null,
       considered: [],
       excluded,
       preference,
-      reason:
-        excluded.length
-          ? `没有可用的出行方式（${excluded.map((e) => MODE_LABEL[e.mode] || e.mode).join('、')}都取不到用时）`
-          : '没有可比较的出行方式',
+      reason: seen.size ? `没有可用的出行方式：${detail}` : '没有可比较的出行方式',
     };
   }
 
