@@ -107,6 +107,44 @@ function loadPage(relPath, opts) {
       openLocation: (a) => wxCalls.push({ fn: 'openLocation', args: a }),
       pageScrollTo: (a) => wxCalls.push({ fn: 'pageScrollTo', args: a }),
       /**
+       * 视口尺寸替身（2026-10-14 加）。
+       *
+       * 需要的理由：生成路线后要把地图卡面**滚到视野居中**，
+       * 而"居中"必须知道视口多高 —— 没有它就是一句空承诺。
+       * 用 `opts.systemInfo` 可以覆盖（比如模拟很矮的屏幕）。
+       */
+      getSystemInfoSync: () => Object.assign({ windowHeight: 1200, windowWidth: 375 }, opts.systemInfo || {}),
+      /**
+       * 元素测量替身（2026-10-14 加）。
+       *
+       * 支持 `.select(sel).boundingClientRect(cb).exec()` 这一条链 ——
+       * 只实现被真正用到的那部分，不假装是一个完整的查询器。
+       *
+       * 矩形数据用 `opts.rects[selector]` 给；没给的 selector 返回 null，
+       * 页面要能**如实走回落分支**而不是崩掉。
+       */
+      createSelectorQuery: () => {
+        const q = {
+          _sel: null,
+          select(sel) {
+            q._sel = sel;
+            return q;
+          },
+          boundingClientRect(cb) {
+            const rects = opts.rects || {};
+            const rect = Object.prototype.hasOwnProperty.call(rects, q._sel) ? rects[q._sel] : null;
+            q._cb = cb;
+            q._rect = rect;
+            return q;
+          },
+          exec() {
+            wxCalls.push({ fn: 'selectorQuery', args: { selector: q._sel } });
+            if (typeof q._cb === 'function') q._cb(q._rect);
+          },
+        };
+        return q;
+      },
+      /**
        * storage 替身 —— **共享一份**（2026-10-14 新增）。
        *
        * 存在的理由：跨页传递靠 storage（`zhiyou-active-trip` / `zhiyou-active-crew`），

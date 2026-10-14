@@ -247,11 +247,29 @@ Page({
   modeLabel: MODE_OPTIONS[0].label,
 
   /**
+   * 全屏地图（2026-10-14 用户要求）。
+   *
+   * `mapExpanded` 控制是否占据全屏；`mapFocus` 是"聚焦到哪一站"。
+   *
+   * ⚠️ 两个字段都要在初始 data 里声明 —— 只在 setData 时赋值的话，
+   * 模板首帧读 `undefined.placeName` 会抛异常并**把整页打白**
+   * （「我的」页刚因为同一类问题白屏过一次）。
+   */
+  mapExpanded: false,
+  mapFocus: null,
+
+  /**
    * 逐段出行方式选择器（2026-10-14）。
    *
-   * `legPickerSeen`：是否已经自动展开过一次。用户要求"点击生成路径后
-   * **出现界面**"，所以第一次生成要自动展开；之后尊重用户的开合状态，
-   * 否则每次重排都弹开，反而碍事。
+   * `legPickerOpen`：面板是否展开。
+   *
+   * ⚠️ **默认关着**。用户先要求"点击生成路径后出现界面"（于是自动展开），
+   * 随后又要求"**其它卡面均折叠**，页面移到地图卡面居中" ——
+   * 地图才是生成后的视觉焦点，一张展开的长卡片会把它顶下去。
+   * 现在收起但保留入口：卡片仍在，点一下就能展开。
+   *
+   * `legPickerSeen`：曾经是否自动展开过。现在恒为 true，留着是因为
+   * 将来若要"第一次生成时提示一次这个功能"，需要知道是不是第一次。
    */
   legPicker: [],
   legPickerOpen: false,
@@ -1020,6 +1038,13 @@ Page({
         nodeId: n.nodeId,
         seq: i + 1,
         placeName: n.placeName,
+        /**
+         * 坐标 —— 点这一站要能全屏看它在哪（`focusNodeOnMap`）。
+         *
+         * ⚠️ 之前没带这个字段。`focusNodeOnMap` 我原本写的是去 `rawNodes` 里找，
+         * 但那样等于绕开时间线自己再查一次；带上它更直接，也少一个出错点。
+         */
+        location: n.location || null,
         arrive: hhmm(n.plannedArriveAt),
         leave: hhmm(n.plannedLeaveAt),
         stayMin: n.plannedStayMin,
@@ -1215,14 +1240,16 @@ Page({
        */
       legOptionsCount: (d.legOptions || []).length,
       /**
-       * 生成路线后**自动展开一次**。
+       * ⚠️ `legPickerOpen: false`（2026-10-14 改）。
        *
-       * 用户明确要求"点击生成路径后出现界面" —— 所以它不该是
-       * "藏起来等你去点展开"的。`legPickerSeen` 保证只自动展开第一次，
-       * 后续生成（改方式、调整行程）保持用户上次的开合状态，
-       * 否则每次重排都把面板弹开，反而碍事。
+       * 上一批我让它"生成后自动展开"，为的是满足"点击生成路径后出现界面"。
+       * 用户随后要求"**其它卡面均折叠**，页面移到地图卡面居中" ——
+       * 地图才是生成后的视觉焦点，一张展开的长卡片会把它顶下去。
+       *
+       * 所以：**收起**，但保留入口（卡片本身仍在，点一下就能展开）。
+       * `legPickerSeen` 仍然记着，供将来判断要不要提示用户。
        */
-      legPickerOpen: !this.data.legPickerSeen && (d.legOptions || []).length > 0,
+      legPickerOpen: false,
       legPickerSeen: true,
     }, () => {
       /**
@@ -1230,6 +1257,14 @@ Page({
        * 才能对它调用 includePoints（见 fitRouteMap 的说明）。
        */
       this.fitRouteMap()
+      /**
+       * 然后把页面滚到地图卡面居中（2026-10-14 用户要求）。
+       *
+       * ⚠️ **必须在 setData 回调里**：`pageScrollTo` 的 selector 形式要等
+       *    地图卡片渲染出来才找得到它。放在 setData 之前会滚不动，
+       *    而且失败是静默的（`fail` 回调里我刻意不弹错）。
+       */
+      this.scrollToRouteMap()
       this.rememberActiveTrip(d.tripId, d.version)
     })
   },
@@ -1286,6 +1321,112 @@ Page({
       // 地图还没渲染出来就跳过 —— include-points 属性会兜住
       console.warn('[trip] includePoints 失败，回落到 include-points 属性', e)
     }
+  },
+
+  /**
+   * ── 生成路线后把地图卡面滚到**视野居中**（2026-10-14 用户要求）──────
+   *
+   * 用户原话："行程生成路线后页面移到地图卡面居中，其它卡面均折叠"
+   *
+   * 为什么这样对：生成路线之后，用户最想看的是**这条路在地图上长什么样**，
+   * 而不是一路往下滚过概览卡、逐段选择器、来源说明才看到地图。
+   *
+   * ── 为什么不是一句 `pageScrollTo({selector, offsetTop})` ──────
+   *
+   * `offsetTop` 的语义在各版本里不好确认（"往上偏多少"还是"往下留多少"），
+   * 而 `selector` 形式本身也不会帮你居中 —— 它只保证元素进入视野。
+   *
+   * 所以这里**自己量、自己算**：
+   *     目标滚动位置 = 卡片顶部位置 − (视口高 − 卡片高) / 2
+   * 这样卡片正好落在屏幕中间，与 offsetTop 的解释无关。
+   *
+   * ⚠️ 必须用 `boundingClientRect` 而不是 `offsetTop`：
+   *    我们要的是"相对视口的位置"，而 `scrollTop` 量的是"相对文档"。
+   */
+  scrollToRouteMap() {
+    const that = this
+    try {
+      wx.createSelectorQuery()
+        .select('.map-card')
+        .boundingClientRect(function (rect) {
+          /**
+           * 量不到就回落到 selector 形式 —— 有总比没有好，
+           * 而且失败是静默的（用户自己滑一下也能看到地图）。
+           */
+          if (!rect || typeof rect.top !== 'number') {
+            wx.pageScrollTo({ selector: '.map-card', duration: 300, fail: () => {} })
+            return
+          }
+          const viewportH = (wx.getSystemInfoSync() || {}).windowHeight || 0
+          const rectH = rect.height || 0
+          /** 当前滚动量 —— `rect.top` 是相对视口的，换算成文档坐标要加上它 */
+          const docTop = rect.top + (that.__scrollTop || 0)
+          const centered = docTop - Math.max(0, (viewportH - rectH) / 2)
+          wx.pageScrollTo({
+            scrollTop: Math.max(0, Math.round(centered)),
+            duration: 300,
+            fail: () => {
+              /** 滚不动不影响路线本身 —— 不弹错、不写 error */
+            },
+          })
+        })
+        .exec()
+    } catch (e) {
+      /** 查询本身失败（极旧的基础库）也要能继续，同上 */
+      wx.pageScrollTo({ selector: '.map-card', duration: 300, fail: () => {} })
+    }
+  },
+
+  /**
+   * ── 展开成全屏地图并聚焦某站（2026-10-14 用户要求）────────
+   *
+   * 用户原话："地图界面再点击到达后展开占据全屏并放大为景点的地图"
+   *
+   * 交互设计：点「到了」时**顺带**展开全屏地图并聚焦那一站。
+   * 理由是"到了"这个动作本身就在问"我到了，接下来往哪走"，
+   * 而全屏地图 + 放大到该景点正是这个问题的答案。
+   * 用户不想要时点右上角收起即可，**不影响"到了"本身已记录的事实**。
+   *
+   * @param {object} node 时间线节点（要有 location 与 placeName）
+   */
+  openFullMap(node) {
+    const loc = node && node.location
+    if (!loc || typeof loc.latitude !== 'number') {
+      /** 没有坐标就不展开 —— 展开一个空地图比不展开更让人困惑 */
+      return
+    }
+    this.setData({
+      mapExpanded: true,
+      mapFocus: {
+        placeName: node.placeName || '这一站',
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        /**
+         * 放大到"能看清这个景点周边"的程度。
+         * 16 是步行导航常用的层级：街道名与路口都看得清，
+         * 又不至于只剩几栋楼。
+         */
+        scale: 16,
+      },
+    })
+  },
+
+  /** 收起全屏地图，回到行程 */
+  closeFullMap() {
+    this.setData({ mapExpanded: false, mapFocus: null })
+  },
+
+  /**
+   * 点时间线上的某一站 → 全屏看它在哪。
+   *
+   * ⚠️ 这个动作**只改变视图，不改变任何进度**。
+   *    "到了"才是记录事实；看一眼地图不该被记成到达。
+   */
+  focusNodeOnMap(e) {
+    const nodeId = e.currentTarget.dataset.nodeid
+    /** 时间线里已经带了 location（见 `buildTimelineView`），不必回查 rawNodes */
+    const node = (this.data.timeline || []).find((n) => n.nodeId === nodeId)
+    if (node) this.openFullMap(node)
   },
 
   /**
@@ -1748,7 +1889,25 @@ Page({
             trip: Object.assign({}, that.data.trip, { version: d.version }),
             rawNodes: freshNodes,
           },
-          () => that.rebuildFromNodes()
+          () => {
+            that.rebuildFromNodes()
+            /**
+             * ── 点「到了」后展开全屏地图并聚焦这一站 ──────────────
+             * （2026-10-14 用户要求："地图界面再点击到达后展开占据全屏
+             *   并放大为景点的地图"）
+             *
+             * ⚠️ 只在**真的记成功了**之后才展开（这里就是成功分支）。
+             *    在 `setData` 之前展开的话，请求失败时地图已经弹出来了，
+             *    而用户以为自己已经到达 —— 那是个会误导人的状态。
+             *
+             * ⚠️ 只在 `arrived` 时展开，`done`/`skipped` 不展开：
+             *    「逛完了」「不去了」都不需要"我在哪、怎么去"这个答案。
+             */
+            if (status === 'arrived') {
+              const node = (freshNodes || []).find((n) => n.nodeId === nodeId)
+              that.openFullMap(node)
+            }
+          }
         )
       })
       .catch(function (err) {

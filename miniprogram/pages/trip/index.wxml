@@ -226,6 +226,61 @@
     </view>
 
     <!--
+      路线地图：走到哪了一眼看得出。
+
+      ⚠️ **位置在概览卡之后、逐段选择器之前**（2026-10-14 调整）：
+      生成路线后最想看的是"这条路在地图上长什么样"，
+      放在页面下半部分要滚过好几张卡才看得到。见 `scrollToRouteMap`。
+    -->
+    <view wx:if="{{routeMap}}" class="card map-card">
+      <view class="row">
+        <text class="k">路线地图</text>
+        <text class="v muted">已走过 {{routeMap.reachedCount}} / {{routeMap.totalCount}} 站</text>
+      </view>
+      <map
+        id="routeMap"
+        class="route-map"
+        latitude="{{routeMap.center.latitude}}"
+        longitude="{{routeMap.center.longitude}}"
+        markers="{{routeMap.markers}}"
+        polyline="{{routeMap.polyline}}"
+        include-points="{{routeMap.includePoints}}"
+        show-location="{{false}}"
+      ></map>
+      <view class="sub">{{routeMap.legend}}</view>
+      <view class="sub">点时间轴上的任意一站可以全屏看它在哪。</view>
+    </view>
+
+    <!--
+      ══════════ 全屏地图（2026-10-14 用户要求）══════════════
+
+      "地图界面再点击到达后展开占据全屏并放大为景点的地图"
+
+      用**固定定位的整屏覆盖层**而不是 `navigateTo` 一个新页面：
+        · 新页面要重新取路线、重新渲染，会闪一下；
+        · 覆盖层点"收起"立刻回到原来的滚动位置，行程上下文不丢。
+
+      ⚠️ 用 `wx:if` 而不是 `hidden`：微信的 `map` 是**原生组件**，
+      `hidden` 只是视觉隐藏，原生层可能仍然盖在页面上（这是原生组件
+      的已知行为）。`wx:if` 会真正销毁，收起后不会残留。
+    -->
+    <view wx:if="{{mapExpanded && mapFocus}}" class="map-full">
+      <map
+        id="fullMap"
+        class="map-full-canvas"
+        latitude="{{mapFocus.latitude}}"
+        longitude="{{mapFocus.longitude}}"
+        scale="{{mapFocus.scale}}"
+        markers="{{routeMap.markers}}"
+        show-location="{{true}}"
+      ></map>
+      <view class="map-full-bar">
+        <text class="map-full-name">{{mapFocus.placeName}}</text>
+        <text class="map-full-close" bindtap="closeFullMap">收起</text>
+      </view>
+    </view>
+
+    <!--
       ══════════ 逐段出行方式（2026-10-14 用户要求）══════════════
 
       "点击生成路径后出现界面，让用户分别选择每段路径的出行方式"，
@@ -378,25 +433,6 @@
       <view class="sub" wx:else>导航交给微信内置地图；应用内逐步导航是后续计划</view>
     </view>
 
-    <!-- 路线地图：走到哪了一眼看得出 -->
-    <view wx:if="{{routeMap}}" class="card map-card">
-      <view class="row">
-        <text class="k">路线地图</text>
-        <text class="v muted">已走过 {{routeMap.reachedCount}} / {{routeMap.totalCount}} 站</text>
-      </view>
-      <map
-        id="routeMap"
-        class="route-map"
-        latitude="{{routeMap.center.latitude}}"
-        longitude="{{routeMap.center.longitude}}"
-        markers="{{routeMap.markers}}"
-        polyline="{{routeMap.polyline}}"
-        include-points="{{routeMap.includePoints}}"
-        show-location="{{false}}"
-      ></map>
-      <view class="sub">{{routeMap.legend}}</view>
-    </view>
-
     <!-- 步行时间的来源构成：真实路线与估算必须能区分 -->
     <view wx:if="{{walkTimes}}" class="card">
       <view class="row">
@@ -465,7 +501,13 @@
           </view>
 
           <view class="node-body">
-            <view class="node-head">
+            <!--
+              点站名 → 全屏看它在哪（2026-10-14 用户要求全屏地图）。
+              ⚠️ 只挂在**站名这一行**，不挂整张卡片 ——
+                下面还有"到了/多停一会儿/不去了"这些会改数据的按钮，
+                整卡可点会让"只想看一眼地图"变成误触改进度。
+            -->
+            <view class="node-head" data-nodeid="{{item.nodeId}}" bindtap="focusNodeOnMap" hover-class="node-head-hover">
               <text class="node-seq">{{item.seq}}</text>
               <text class="node-name">{{item.placeName}}</text>
               <text wx:if="{{!item.verified}}" class="badge unverified">未核验</text>

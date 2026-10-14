@@ -277,17 +277,39 @@ test('没有 legOptions 时选择器为空，不报错', () => {
   assert.equal(page.data.legOptionsCount, 0, '要能区分"没返回字段"与"返回了但每段没候选"');
 });
 
-test('生成路线后**自动展开一次** —— 用户要的是"点击后出现界面"', () => {
+test('生成路线后选择器**默认收起** —— 地图才是生成后的视觉焦点', () => {
+  /**
+   * ⚠️ 这条断言**改过方向**（2026-10-14），两次都是用户要求：
+   *
+   *   先："点击生成路径后**出现界面**" → 于是自动展开
+   *   后："**其它卡面均折叠**，页面移到地图卡面居中" → 于是改回收起
+   *
+   * 后者更对：生成路线之后用户最想看的是"这条路在地图上长什么样"，
+   * 一张展开的长卡片会把地图顶到屏幕外。
+   *
+   * ⚠️ 收起**不等于删掉**：卡片本身仍在，点一下就能展开。所以
+   * `legPicker` 的数据必须照常生成（下面那条断言守着这一点）。
+   */
   const page = pageWithLegOptions(LEG_OPTIONS);
-  assert.equal(page.data.legPickerOpen, true, '第一次生成就该展开，不该藏起来等用户去点');
-  assert.equal(page.data.legPickerSeen, true);
+  assert.equal(page.data.legPickerOpen, false, '默认收起，把版面让给地图');
+  assert.equal(page.data.legPicker.length, 2, '数据要照常生成 —— 收起只是不显示');
 });
 
-test('后续生成不再自动展开 —— 每次重排都弹开会碍事', () => {
+test('收起的入口仍然可用：toggle 能展开', () => {
   const page = pageWithLegOptions(LEG_OPTIONS);
-  /** 模拟用户手动收起 */
-  page.setData({ legPickerOpen: false });
-  /** 再生成一次（比如他改了某段的方式点了「应用」） */
+  assert.equal(page.data.legPickerOpen, false);
+
+  page.toggleLegPicker();
+  assert.equal(page.data.legPickerOpen, true, '点一下要能展开');
+  page.toggleLegPicker();
+  assert.equal(page.data.legPickerOpen, false);
+});
+
+test('后续生成也不自动展开 —— 每次重排都把面板弹开会碍事', () => {
+  const page = pageWithLegOptions(LEG_OPTIONS);
+  page.toggleLegPicker();
+  assert.equal(page.data.legPickerOpen, true);
+  /** 用户手动展开后，再生成一次（比如改了某段的方式点了「应用」） */
   page.applyTrip(
     {
       tripId: 't1',
@@ -301,7 +323,7 @@ test('后续生成不再自动展开 —— 每次重排都弹开会碍事', () 
     },
     ''
   );
-  assert.equal(page.data.legPickerOpen, false, '第二次生成应保持用户收起的状态');
+  assert.equal(page.data.legPickerOpen, false, '生成后回到收起状态');
 });
 
 test('生成路线后附带可选的出行方式数量 —— 卡片据此决定说什么', () => {
