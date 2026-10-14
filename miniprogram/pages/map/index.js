@@ -69,8 +69,15 @@ Page({
      * 而列表每次刷新都会重建。
      */
     photos: {},
-    /** `{ [placeId]: tempFileURL }` —— marker 的 iconPath 只吃本地/网络路径 */
+    /** `{ [markerId]: tempFileURL }` —— marker 的 iconPath 只吃本地/网络路径 */
     photoUrls: {},
+    /**
+     * `{ [markerId]: placeId }` —— 点图钉时用来反查是哪个地点。
+     *
+     * 不靠 `places` 的下标：图钉里还混着"我"、队员、团队集合点，
+     * 下标一旦错位就是"点 A 选中 B"，而且**不报错**。
+     */
+    markerPlaceIndex: {},
     photoBusy: false,
     photoNote: '',
     loading: true,
@@ -179,6 +186,54 @@ Page({
     this.computeNearby()
   },
 
+  /**
+   * 点击图钉 —— 选中那个地点。
+   *
+   * ── 为什么必须有它（2026-10-14）──────────────────────────
+   *
+   * 首版 `map` 上只绑了 `bindtap="onMapTap"`，**没有 `bindmarkertap`**，
+   * 而 `onMapTap` 第一句是 `if (!this.data.pickMode) return`。
+   * 结果：点图钉完全没反应 —— 既没提示、也没报错，就是"死的"。
+   * 用户的第一反应是"坏了"，而其实只是没接这个事件。
+   *
+   * ── 为什么用显式映射而不是下标 ────────────────────────────
+   *
+   * marker 的 id 来自 `refreshMarkers()`，那里除了地点图钉还会 push
+   * "我"(999)、队员(2000+)、团队集合点(3000)。用 `places` 的下标当 id
+   * 本来是对的，但**一旦图钉集合与 places 的对应关系有任何变动就会静默错位**
+   * ——点 A 选中 B，而且不报错。
+   *
+   * 所以 `refreshMarkers()` 同时产出 `markerPlaceIndex`（id → placeId），
+   * 这里只做查表。错位在构造时就能看出来，而不是等用户点到错的地点。
+   */
+  onMarkerTap(e) {
+    const markerId = e && e.detail ? e.detail.markerId : undefined
+    if (markerId === undefined || markerId === null) return
+
+    const placeId = (this.data.markerPlaceIndex || {})[markerId]
+    // 不是地点图钉（我／队员／团队集合点）→ 安静返回，不抛错
+    if (!placeId) return
+
+    this.selectPlace(placeId)
+  },
+
+  /**
+   * 选中一个地点作为集合点 —— **点图钉与点列表共用这一条路径**。
+   *
+   * 分开写两份的话，"点图钉"和"点列表项"迟早会在某个细节上不一致
+   * （比如其中一处忘了清 `photoNote`），而那种不一致很难被发现。
+   */
+  selectPlace(placeId) {
+    const place = this.data.places.find(function (p) {
+      return p.placeId === placeId
+    })
+    if (!place) return false
+
+    this.setData({ meetingPoint: place, photoNote: '' })
+    this.refreshMarkers()
+    return true
+  },
+
   /** 计算到各集合点候选的步行估算，按最耗时的成员（此处即本人）排序 */
   computeNearby() {
     const my = this.data.myPoint
@@ -205,11 +260,7 @@ Page({
   },
 
   selectMeeting(e) {
-    const placeId = e.currentTarget.dataset.placeid
-    const place = this.data.places.find((p) => p.placeId === placeId)
-    if (!place) return
-    this.setData({ meetingPoint: place, photoNote: '' })
-    this.refreshMarkers()
+    this.selectPlace(e.currentTarget.dataset.placeid)
   },
 
   /**
@@ -325,10 +376,13 @@ Page({
 
   refreshMarkers() {
     const markers = []
+    const markerPlaceIndex = {}
     const meetingId = this.data.meetingPoint && this.data.meetingPoint.placeId
 
     this.data.places.forEach((p, i) => {
       const isMeeting = p.placeId === meetingId
+      /** 点图钉时靠它反查地点；后 push 的"我"/队员/集合点不会进这张表 */
+      markerPlaceIndex[i] = p.placeId
       /**
        * 图钉用照片还是内置图标。
        *
@@ -409,6 +463,6 @@ Page({
     if (this.teamMeeting) markers.push({ id: 3000, latitude: this.teamMeeting.point.latitude,
       longitude: this.teamMeeting.point.longitude, iconPath: '/assets/pin-meeting.png', width: 34, height: 42,
       callout: { content: this.teamMeeting.name, display: 'ALWAYS' } })
-    this.setData({ markers, polyline })
+    this.setData({ markers, polyline, markerPlaceIndex })
   },
 })

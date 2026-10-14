@@ -13,6 +13,8 @@
       enable-zoom="{{true}}"
       enable-scroll="{{true}}"
       bindtap="onMapTap"
+      bindmarkertap="onMarkerTap"
+      bindcallouttap="onMarkerTap"
     ></map>
   </view>
 
@@ -72,6 +74,7 @@
         <text class="v ok">{{meetingPoint.name}}</text>
       </view>
       <view class="sub">地图上的橙针即该点，虚线为步行方向（正式版将显示后端计算的实际步行路径）</view>
+      <view class="sub">点地图上任意一个图钉，也可以改选集合点。</view>
 
       <button class="btn ghost" bindtap="fetchPhotos" disabled="{{photoBusy}}">
         {{photoBusy ? '正在取照片…' : '取这个地方的照片'}}

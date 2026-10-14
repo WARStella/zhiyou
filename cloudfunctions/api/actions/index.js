@@ -87,6 +87,14 @@ module.exports = {
    */
   'place.fetchPhotos': require('./photos'),
 
+  /**
+   * 照片服务探针 —— 分层报告"取照片为什么不通"。
+   *
+   * 五种原因在小程序上表现一样（都是"没有照片"）：action 没部署、
+   * Key 没配、Key 类型不对、服务没开通、POI 确实没图。混着看无法行动。
+   */
+  'photo.probe': require('./photo-probe'),
+
   // 地图服务（10/14 验证）
   'map.probe': map.probe,
 
