@@ -13,6 +13,21 @@
  *   ① **一般情况**：把各方式的耗时摆出来，取最短（`fastest`）
  *   ② **雨雪等特殊情况**：先排除不安全的方式，再取最短（`safety`）
  *
+ * ── 用户自己选（2026-10-14 用户提出）──────────────────────
+ *
+ *   "我希望出行方式可以给出用户选项，让用户自己选择"
+ *
+ * 所以再加一维 `preferredMode`。**语义是"偏好"，不是"强制"**，
+ * 这个区分是这一层最要紧的设计决定：
+ *
+ *   · 用户选了步行、而目标 12 公里走不过去时，
+ *     **不能什么都不给** —— 那等于让他自己去想办法；
+ *   · 也不能**闷着换一种** —— 那等于偷偷替他改主意；
+ *   · 正确做法：给可行的方案，并**说清"你想走但走不了，因为……"**。
+ *
+ * 这与"不猜天气"是同一条纪律：不擅自替用户做决定，
+ * 但也不假装他要的那个方式可行。
+ *
  * ── 为什么做成纯函数 ────────────────────────────────────
  *
  * 各方式的真实耗时要从腾讯的驾车／骑行／公交接口取，
@@ -37,6 +52,32 @@ const MODE_LABEL = {
   driving: '驾车',
   transit: '公交',
 };
+
+/**
+ * 用户可以选的偏好值。
+ *
+ * `auto` = 让系统按最短时间挑（默认，也是"没表态"）。
+ * 其余四种 = "我想用这个"。
+ */
+const PREFERRED_MODE = {
+  AUTO: 'auto',
+  WALKING: 'walking',
+  BICYCLING: 'bicycling',
+  DRIVING: 'driving',
+  TRANSIT: 'transit',
+};
+
+/** 界面用的选项列表（含 `auto`）—— 前端直接拿它渲染，避免两处漂移 */
+const MODE_OPTIONS = [
+  { value: 'auto', label: '自动（按最快）' },
+  { value: 'walking', label: '步行' },
+  { value: 'bicycling', label: '骑行' },
+  { value: 'driving', label: '驾车' },
+  { value: 'transit', label: '公交地铁' },
+];
+
+const isPreferredMode = (v) =>
+  v === undefined || v === null || v === '' || Object.values(PREFERRED_MODE).includes(v);
 
 /** 雨雪天**不适合**的方式（各有各的理由，不是拍脑袋列的） */
 const BAD_WEATHER_BLOCK = {
@@ -167,24 +208,93 @@ function chooseMode(candidates, opts) {
   }
 
   const sorted = pool.slice().sort((a, b) => a.minutes - b.minutes);
-  const chosen = sorted[0];
-  const label = MODE_LABEL[chosen.mode] || chosen.mode;
+  const label = MODE_LABEL[sorted[0].mode] || sorted[0].mode;
+
+  /**
+   * ── 用户的偏好优先（2026-10-14）────────────────────────
+   *
+   * 选中的判断顺序（三条，顺序不能换）：
+   *
+   *   ① **用户选的那个可用 → 就用它。** 哪怕它不是最快的 ——
+   *      用户说"我想走过去"，那是他的选择，系统不该拿"开车更快"反驳他。
+   *   ② **用户选的那个不可用 → 给最快的，但理由里必须说清为什么没按他选的来。**
+   *      这是"偏好不是强制"的落点：不能让他寸步难行，
+   *      更不能闷着换一种方式而不告诉他。
+   *   ③ 没选（`auto`）→ 沿用原来"最快优先"的行为。
+   *
+   * ⚠️ **用户明确的偏好优先于雨雪规则**（2026-10-14 定）。
+   *
+   * 所以这里在**未过滤的 `usable`** 里找用户选的方式，而不是在
+   * 已被 safety 过滤过的 `pool` 里找。理由：
+   *
+   *   天气是**用户自己说的**。他既说了"雨雪"、又选了骑行，
+   *   说明他知道这个情况仍然要用骑行（可能只是小雨、可能他打算慢点骑）。
+   *   系统用"雨雪不适合骑行"去反驳他，**又是一次替他做决定** ——
+   *   与"凭日期猜下雪"是同一类错误。
+   *
+   * 但也不能装作没这回事：理由里会带上路况提醒（见下面的 `weatherCaveat`）。
+   */
+  const wanted = opts.preferredMode && opts.preferredMode !== PREFERRED_MODE.AUTO ? opts.preferredMode : null;
+  const userPick = wanted ? usable.find((c) => c.mode === wanted) : null;
+  const matched = wanted ? sorted.find((c) => c.mode === wanted) : null;
+  const chosen = userPick || matched || sorted[0];
+  const chosenLabel = MODE_LABEL[chosen.mode] || chosen.mode;
+  /**
+   * 用户选的这个方式**恰好被雨雪规则排除了**。
+   * 仍按用户的选择，但理由里要提一句 —— 不能装作没这回事。
+   */
+  const overrodeWeather = Boolean(
+    userPick && safetyExcluded.some((e) => e.mode === userPick.mode)
+  );
+  const weatherCaveat = overrodeWeather
+    ? `；注意${(safetyExcluded.find((e) => e.mode === userPick.mode) || {}).reason || '雨雪天这条路况更差'}`
+    : '';
 
   // ── 理由必须写清"选了谁、为什么"（§6.5：改得清楚）──
   let reason;
-  const runnerUp = sorted[1];
-  if (preference === 'safety') {
-    const parts = safetyExcluded.map((e) => `${MODE_LABEL[e.mode] || e.mode}（${e.reason}）`);
+  if (userPick) {
+    /**
+     * 用户选的那个可用。**理由要说明它与最快方案的差别**，
+     * 而不是假装它最快 —— 用户可能想知道自己为了这个选择多花了多久。
+     */
+    const fastest = sorted[0];
+    if (fastest.mode === chosen.mode) {
+      reason = `你选的${chosenLabel}：${chosen.minutes} 分钟（同时也是最快的方式）${weatherCaveat}`;
+    } else {
+      const extra = chosen.minutes - fastest.minutes;
+      reason =
+        `按你选的${chosenLabel}：${chosen.minutes} 分钟，` +
+        `比${MODE_LABEL[fastest.mode] || fastest.mode}（${fastest.minutes} 分钟）多 ${extra} 分钟` +
+        weatherCaveat;
+    }
+  } else if (wanted) {
+    /**
+     * ⚠️ **用户选了、但那个方式不可用。这段文案是这一层最重要的输出。**
+     *
+     * 必须同时说清三件事，缺一件用户就会困惑或不满：
+     *   ① 你想用的那个不可用；
+     *   ② **为什么**（具体原因，不是"取不到"）；
+     *   ③ 所以给你哪个。
+     */
+    const why = (excluded.find((e) => e.mode === wanted) || {}).reason || '这一段取不到它的用时';
     reason =
-      `雨雪天以安全为主：${label} ${chosen.minutes} 分钟` +
-      (parts.length ? `；已排除 ${parts.join('、')}` : '');
-  } else if (runnerUp) {
-    const saved = runnerUp.minutes - chosen.minutes;
-    reason =
-      `${label}最快：${chosen.minutes} 分钟，比${MODE_LABEL[runnerUp.mode] || runnerUp.mode}` +
-      `（${runnerUp.minutes} 分钟）省 ${saved} 分钟`;
+      `你想用${MODE_LABEL[wanted] || wanted}，但${why} —— ` +
+      `已改为${chosenLabel}（${chosen.minutes} 分钟）`;
   } else {
-    reason = `只取到了${label}：${chosen.minutes} 分钟`;
+    const runnerUp = sorted[1];
+    if (preference === 'safety') {
+      const parts = safetyExcluded.map((e) => `${MODE_LABEL[e.mode] || e.mode}（${e.reason}）`);
+      reason =
+        `雨雪天以安全为主：${chosenLabel} ${chosen.minutes} 分钟` +
+        (parts.length ? `；已排除 ${parts.join('、')}` : '');
+    } else if (runnerUp) {
+      const saved = runnerUp.minutes - chosen.minutes;
+      reason =
+        `${chosenLabel}最快：${chosen.minutes} 分钟，比${MODE_LABEL[runnerUp.mode] || runnerUp.mode}` +
+        `（${runnerUp.minutes} 分钟）省 ${saved} 分钟`;
+    } else {
+      reason = `只取到了${chosenLabel}：${chosen.minutes} 分钟`;
+    }
   }
 
   return {
@@ -192,6 +302,16 @@ function chooseMode(candidates, opts) {
     considered: sorted,
     excluded: excluded.concat(safetyExcluded),
     preference,
+    /** 用户选的那个（null = 没选/自动）—— 界面据此显示"你选的是…" */
+    preferredMode: wanted,
+    /**
+     * 是否按用户选的来了。false 时界面**必须**显示 reason（里面有原因）。
+     *
+     * ⚠️ 判据是 `userPick`（在**未过滤**的 usable 里找到的），
+     * 不是 `matched`（在 safety 过滤后的 pool 里找的）——
+     * 用户明确的偏好优先于雨雪规则，所以"找到了"就该算按他选的来。
+     */
+    matchedPreference: wanted ? Boolean(userPick) : null,
     reason,
   };
 }
@@ -213,6 +333,10 @@ function chooseForLegs(legs, opts) {
       reason: picked.reason,
       considered: picked.considered,
       excluded: picked.excluded,
+      /** 用户选的那个；未选为 null */
+      preferredMode: picked.preferredMode,
+      /** 是否按用户选的来了 —— 界面据此决定要不要突出显示原因 */
+      matchedPreference: picked.matchedPreference,
     };
   });
 
@@ -235,4 +359,8 @@ module.exports = {
   MODE_LABEL,
   BAD_WEATHER_BLOCK,
   BAD_WEATHER_WALK_LIMIT_M,
+  /** 用户可选的出行方式（2026-10-14） */
+  PREFERRED_MODE,
+  MODE_OPTIONS,
+  isPreferredMode,
 };

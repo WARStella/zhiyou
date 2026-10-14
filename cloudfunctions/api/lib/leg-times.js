@@ -213,6 +213,28 @@ async function legTravelTimes(p) {
     (typeof providers.transit.keyStatus !== 'function' ||
       (providers.transit.keyStatus() || {}).configured === true);
 
+  if (transitNeedsFetch && !transitReady) {
+    /**
+     * ⚠️ **没问公交，也要留下"为什么没问"的痕迹**（2026-10-14）。
+     *
+     * 否则当用户选了"公交"时，`mode-choice` 只能说
+     * 「这一段取不到它的用时」—— 笼统到没法行动。
+     * 具体原因是"云函数没配 AMAP_KEY"或"没传城市"，两者修法完全不同。
+     */
+    candidates.push({
+      mode: TRAVEL_MODE.TRANSIT,
+      ok: false,
+      provider: 'amap-transit',
+      reason: !providers.transit
+        ? '公交服务未接入（云函数没有注入公交 provider）'
+        : typeof providers.transit.keyStatus === 'function' &&
+            (providers.transit.keyStatus() || {}).configured !== true
+          ? '公交未查询：云函数未配置 AMAP_KEY（高德 Key，需「Web服务」类型）'
+          : '公交未查询：本次没有传入城市 citycode',
+      excludedBy: 'TRANSIT_NOT_QUERIED',
+    });
+  }
+
   if (transitNeedsFetch && transitReady && opts.transitCity) {
     const origin = p.fromPoint || (fromPlace && fromPlace.location);
     let tr;
@@ -320,6 +342,8 @@ async function legTravelTimes(p) {
   const choice = modeChoice.chooseMode(candidates, {
     preference: opts.preference,
     weather: opts.weather,
+    /** ⚠️ 必须透传 —— 漏了它"用户自选出行方式"就静默失效（退回最快优先） */
+    preferredMode: opts.preferredMode,
   });
 
   /**
@@ -469,7 +493,7 @@ async function resolveTripLegTimes(p) {
       fromPlace,
       toPlace,
       providers: p.providers,
-      opts: Object.assign({}, opts, { transitCity: opts.transitCity }),
+      opts: Object.assign({}, opts, { transitCity: opts.transitCity, preferredMode: opts.preferredMode }),
     });
 
     calls.matrix += r.calls.matrix;

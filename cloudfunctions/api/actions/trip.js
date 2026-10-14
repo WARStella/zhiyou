@@ -13,6 +13,7 @@ const { logEvent, logDecision } = require('../lib/trace');
 const { createMapProvider } = require('../lib/map');
 const { createAmapTransitProvider } = require('../lib/transit/amap');
 const legTimesMod = require('../lib/leg-times');
+const modeChoice = require('../lib/mode-choice');
 const geo = require('../lib/geo');
 const time = require('../lib/time');
 const C = require('../lib/repo/collections');
@@ -385,6 +386,17 @@ async function resolveLegTravelTimes(ctx) {
    */
   const weather = spec.weather || null;
 
+  /**
+   * 用户自选的出行方式（2026-10-14 用户要求"给出选项让用户自己选择"）。
+   *
+   * ⚠️ 语义是**偏好，不是强制**（见 `lib/mode-choice.js` 的说明）：
+   * 他选的可用就用它（哪怕不是最快），不可用就给最快的**并说清为什么**。
+   *
+   * 不接受的值一律当"自动" —— 前端传了个没见过的字符串时，
+   * 静默变成"自动"比报错好：规划本身不该因为一个显示用的字段失败。
+   */
+  const preferredMode = modeChoice.isPreferredMode(spec.preferredMode) ? spec.preferredMode : null;
+
   const r = await legTimesMod.resolveTripLegTimes({
     places: ordered,
     startPoint,
@@ -393,6 +405,7 @@ async function resolveLegTravelTimes(ctx) {
       params,
       weather,
       preference: weather ? 'safety' : 'fastest',
+      preferredMode,
       /** 高德公交需要 citycode —— 本项目单城（哈尔滨 = 0451） */
       transitCity: TRANSIT_CITY_CODE,
       allowTransit: spec.allowTransit !== false,
@@ -401,6 +414,23 @@ async function resolveLegTravelTimes(ctx) {
 
   out.legs = r.legs;
   out.calls = r.calls;
+  /**
+   * 回传"实际有没有按用户选的来"。
+   *
+   * ⚠️ 界面据此决定要不要**突出显示**原因 ——
+   * 用户选了步行却被改成驾车时，那句"你想用步行，但……"必须显眼，
+   * 否则他会以为系统没理他。
+   */
+  out.preferredMode = preferredMode;
+  out.matchedPreference = (r.legs || []).every((l) => l.choice && l.choice.matchedPreference !== false);
+  /** 逐段的方式与理由 —— 界面要显示"你想用…但…"，所以必须回传 */
+  out.legChoices = (r.legs || []).map((l) => ({
+    toPlaceId: l.toPlaceId,
+    mode: l.choice && l.choice.chosen ? l.choice.chosen.mode : null,
+    preferredMode: l.choice ? l.choice.preferredMode : null,
+    matchedPreference: l.choice ? l.choice.matchedPreference : null,
+    reason: l.choice ? l.choice.reason : null,
+  }));
 
   for (const leg of r.legs) {
     const chosen = leg.choice && leg.choice.chosen;
@@ -428,6 +458,15 @@ async function resolveLegTravelTimes(ctx) {
       candidateReason: chosen.candidateReason || null,
       /** 公交的换乘细节（几号线、哪个口） */
       transit: chosen.transit || null,
+      /**
+       * 用户选的出行方式，以及**有没有按他选的来**（2026-10-14）。
+       *
+       * ⚠️ `matchedPreference === false` 时界面要**突出显示** reason
+       * —— 里面写着"你想用步行，但……已改为驾车"。
+       * 用户选了却被改掉，如果和普通说明一个样式，他会以为系统没理他。
+       */
+      matchedPreference: leg.choice.matchedPreference,
+      preferredMode: leg.choice.preferredMode || null,
     };
   }
 

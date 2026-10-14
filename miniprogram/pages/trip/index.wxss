@@ -870,3 +870,11 @@
    公交换乘细节与"为什么没有方案"都放在这里，比挤在 figures 那一行更清楚。 */
 .leg-reason-line{font-size:22rpx;color:#9aa5b1;margin-top:6rpx}
 .leg-transit-line{font-size:23rpx;color:#0b3c6e;margin-top:6rpx}
+/* 没按用户选的出行方式 —— 必须显眼（2026-10-14）。
+   用户选了步行却被改成驾车，如果和普通说明一个样式，他会以为系统没理他。 */
+.leg-reason-miss {
+  color: #b26a00;
+  background: #fff7e6;
+  border-radius: 8rpx;
+  padding: 6rpx 10rpx;
+}

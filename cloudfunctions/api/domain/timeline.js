@@ -69,6 +69,9 @@ function buildTimeline(p) {
     let travelCandidateReason = null;
     /** 公交的换乘细节（几号线、哪个口）—— 集合协同时最有用 */
     let travelTransit = null;
+    /**. 用户选的出行方式，以及有没有按他选的来 */
+    let travelMatchedPreference = null;
+    let travelPreferredMode = null;
 
     /** 有真实覆盖就用它 —— **优先级高于缓存与估算** */
     const ov = overrides[item.placeId];
@@ -83,6 +86,8 @@ function buildTimeline(p) {
         travelProvider = ov.provider || null;
         travelCandidateReason = ov.candidateReason || null;
         travelTransit = ov.transit || null;
+        travelMatchedPreference = ov.matchedPreference === undefined ? null : ov.matchedPreference;
+        travelPreferredMode = ov.preferredMode || null;
         travelFromStart = true;
       } else if (p.startLeg && typeof p.startLeg.minutes === 'number') {
         /**
@@ -106,6 +111,8 @@ function buildTimeline(p) {
       travelProvider = ov.provider || null;
       travelCandidateReason = ov.candidateReason || null;
       travelTransit = ov.transit || null;
+      travelMatchedPreference = ov.matchedPreference === undefined ? null : ov.matchedPreference;
+      travelPreferredMode = ov.preferredMode || null;
     } else if (prevPlace) {
       const w = geo.walkMinutes(prevPlace, place, params);
       if (w) {
@@ -176,6 +183,14 @@ function buildTimeline(p) {
       travelCandidateReason,
       /** 公交的换乘细节（几号线、哪个口）—— 只在 transit 上有 */
       travelTransit,
+      /**
+       * 有没有按用户选的出行方式来。
+       * `false` 时界面要**突出显示** `travelReason`（里面写着为什么改了）。
+       * `null` = 用户没选（自动），不需要特别提示。
+       */
+      travelMatchedPreference,
+      /** 用户当初选的是哪个方式（未选为 null） */
+      travelPreferredMode,
       /** 该段是否从"出发位置"（我的位置）算起 */
       travelFromStart,
       plannedArriveAt: arriveAt,
@@ -251,6 +266,9 @@ function toNodes(legs, source) {
     travelProvider: l.travelProvider || null,
     /** 这个数可不可信（估算？上游没给时长？）*/
     travelCandidateReason: l.travelCandidateReason || null,
+    /**. matchedPreference: false 时界面要突出显示理由 */
+    travelMatchedPreference: l.travelMatchedPreference === undefined ? null : l.travelMatchedPreference,
+    travelPreferredMode: l.travelPreferredMode || null,
     /** 公交的换乘细节（几号线、1 号口进 3 号口出）—— 集合协同时最有用 */
     travelTransit: l.travelTransit || null,
     travelFromStart: l.travelFromStart === true,

@@ -97,6 +97,19 @@
         <switch checked="{{enrichWalk}}" bindchange="onEnrichChange" />
       </view>
       <view class="sub">开启后每次搜索会多消耗若干次地图配额，换来"哪些地方现在去最方便"的准确顺序</view>
+
+      <!--
+        出行方式 —— 用户自己选（2026-10-14 用户要求）。
+        **是偏好不是强制**：选的方式走不通时会给出可行方案，
+        并说清为什么没按你选的来（那句话会显示在出行段上）。
+      -->
+      <view class="row">
+        <text class="k">出行方式</text>
+        <picker mode="selector" range="{{modeOptions}}" range-key="label" value="{{modeIndex}}" bindchange="onModeChange">
+          <view class="v link">{{modeOptions[modeIndex].label}}</view>
+        </picker>
+      </view>
+      <view class="sub">{{modeHint}}</view>
     </view>
 
     <!-- 规划被判定不可行：如实展示冲突，并指向可调整的条件 -->
@@ -428,8 +441,16 @@
             <text wx:if="{{item.legToNext.visited}}" class="leg-done">已走过</text>
             <!-- 公交换乘细节：几号线、1 号口进 3 号口出 -->
             <text wx:if="{{item.legToNext.transitText}}" class="leg-transit">{{item.legToNext.transitText}}</text>
-            <!-- 为什么选它 —— 只给结论不给理由，用户没法判断该不该接受 -->
-            <text wx:if="{{item.legToNext.reason}}" class="leg-reason">{{item.legToNext.reason}}</text>
+            <!--
+              为什么选它 —— 只给结论不给理由，用户没法判断该不该接受。
+              ⚠️ **没按用户选的来时这句要显眼**（`.leg-reason-miss`）：
+              他选了步行却被改成驾车，如果和普通说明一个样式，
+              会以为系统没理他。
+            -->
+            <text
+              wx:if="{{item.legToNext.reason}}"
+              class="leg-reason {{item.legToNext.matchedPreference === false ? 'leg-reason-miss' : ''}}"
+            >{{item.legToNext.reason}}</text>
           </view>
         </view>
       </block>

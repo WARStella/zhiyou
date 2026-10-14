@@ -22,6 +22,30 @@
 const api = require('../../utils/api')
 const { requestMinutes } = require('../../utils/stay-duration')
 
+/**
+ * 用户可以选的出行方式 —— **与后端 `lib/mode-choice.js` 的 MODE_OPTIONS 同一份口径**。
+ *
+ * ⚠️ 前端不能自己另编一套名字：两处漂移之后，
+ * 界面显示"公交地铁"而后端只认 `transit`，排查起来很费劲。
+ * （这里仍是前端的一份拷贝，因为小程序页面不方便直接 require 云函数代码；
+ *   `test/trip-page.test.js` 有一条断言守着两边一致。）
+ */
+const MODE_OPTIONS = [
+  { value: 'auto', label: '自动（按最快）' },
+  { value: 'walking', label: '步行' },
+  { value: 'bicycling', label: '骑行' },
+  { value: 'driving', label: '驾车' },
+  { value: 'transit', label: '公交地铁' },
+]
+
+const MODE_HINT = {
+  auto: '按各方式的真实耗时自动挑最快的',
+  walking: '尽量步行走过去 —— 太远的段会改用别的可行方式，并说明原因',
+  bicycling: '优先骑行 —— 雨雪天可能不适合',
+  driving: '优先驾车 —— 打车或自驾',
+  transit: '优先公交地铁 —— 需要高德 Key 已配置',
+}
+
 const STATUS_LABEL = {
   pending: '待游览',
   arrived: '已到达',
@@ -196,6 +220,19 @@ Page({
     /** 结束时间是从解析结果填进来的（不是用户手选的）—— 要标明 */
     endAtFromParse: false,
     enrichWalk: false,
+  /**
+   * 出行方式偏好（2026-10-14）。
+   *
+   * 缺省 `auto` = 让系统按真实耗时挑最快的 —— 与接入之前的行为一致，
+   * 所以老用户不会因为这次改动感到变化。
+   *
+   * `modeIndex` 是 picker 用的下标；`preferredMode` 是发给后端的值。
+   * 两个都要存：picker 只认下标，而后端只认值。
+   */
+  modeOptions: MODE_OPTIONS,
+  modeIndex: 0,
+  preferredMode: 'auto',
+  modeHint: MODE_HINT.auto,
 
     // ── 候选（搜索结果或已知地点）──
     mode: 'browse', // browse | search
@@ -237,7 +274,31 @@ Page({
   onLoad() {
     const now = new Date()
     this.setData({ startAtText: timeText(now), startAt: now.toISOString() })
+    this.restoreModePreference()
     this.loadKnown()
+  },
+
+  /**
+   * 恢复上次选的出行方式（2026-10-14）。
+   *
+   * ⚠️ 认不出的值一律退回 `auto`，**不要报错**：
+   * 这个值存在本地，可能来自旧版本（比如以后删掉某个选项）。
+   * 为一个显示用的偏好让整个页面打不开是不值得的。
+   */
+  restoreModePreference() {
+    let saved = ''
+    try {
+      saved = wx.getStorageSync('zhiyou-preferred-mode') || ''
+    } catch (err) {
+      saved = ''
+    }
+    const idx = MODE_OPTIONS.findIndex((o) => o.value === saved)
+    if (idx < 0) return
+    this.setData({
+      modeIndex: idx,
+      preferredMode: MODE_OPTIONS[idx].value,
+      modeHint: MODE_HINT[MODE_OPTIONS[idx].value] || '',
+    })
   },
 
   // ══════════ 候选来源 ══════════
@@ -308,6 +369,25 @@ Page({
 
   onEnrichChange(e) {
     this.setData({ enrichWalk: e.detail.value })
+  },
+
+  /**
+   * 出行方式改了（2026-10-14）。
+   *
+   * ⚠️ **只记住选择，不立刻重新规划** ——
+   * 重新规划会消耗地图配额，而用户可能只是在翻选项看看。
+   * 下一次「生成路线」时它才生效（界面上的 hint 会说明这一点）。
+   */
+  onModeChange(e) {
+    const idx = Number(e.detail.value) || 0
+    const opt = MODE_OPTIONS[idx] || MODE_OPTIONS[0]
+    this.setData({ modeIndex: idx, preferredMode: opt.value, modeHint: MODE_HINT[opt.value] || '' })
+    /** 存下来 —— 用户下次进来不用重选 */
+    try {
+      wx.setStorageSync('zhiyou-preferred-mode', opt.value)
+    } catch (err) {
+      /** 存不下不影响功能（可能是存储满了），只是下次要重选 */
+    }
   },
 
   /**
@@ -714,6 +794,11 @@ Page({
           startAt: startAt,
           constraints: that.buildConstraints(),
           startPoint: startPoint || undefined,
+          /**
+           * 出行方式偏好（2026-10-14）。后端会把它当**偏好**处理：
+           * 可用就用它（哪怕不是最快），不可用就给最快的并说明原因。
+           */
+          preferredMode: that.data.preferredMode || undefined,
           // 「逛一小时」→ 每站 60 分钟；null 时后端用地点自带默认值
           stayMin: that.data.stayMin || undefined,
           // 每个地点时长不同时按地点给（优先级高于 stayMin）
@@ -806,6 +891,19 @@ Page({
                * 只给结论不给理由，用户没法判断该不该接受。
                */
               reason: next.travelReason || '',
+              /**
+               * 有没有按用户选的来（2026-10-14）。
+               *
+               * ⚠️ `false` 时界面要**突出显示** reason —— 里面写着
+               * "你想用步行，但……已改为驾车"。用户选了却被改掉，
+               * 如果和普通说明一个样式，他会以为系统没理他。
+               * `null` 表示用户没选（自动），不需要特别提示。
+               */
+              matchedPreference: next.travelMatchedPreference,
+              /** 用户当初选的是哪个方式（未选为 null） */
+              preferredModeName: next.travelPreferredMode
+                ? modeInfo(next.travelPreferredMode).name
+                : '',
               /** 公交的换乘细节：几号线、哪个口 */
               transit: next.travelTransit || null,
               transitText: describeTransit(next.travelTransit),
