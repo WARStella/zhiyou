@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 /**
  * 公交（含地铁）路线的探针 —— `transit.probe`。
@@ -96,14 +96,36 @@ async function probe(ctx) {
   if (!r.ok) {
     steps.push({ step: 'fields', ok: null, detail: '未测：上游没通，字段无从核对' });
     steps.push({ step: 'subway', ok: null, detail: '未测' });
+
+    /**
+     * 把"这次是哪一类失败"直接说清（2026-10-14 实测两次之后补的）。
+     *
+     * 两次实测把范围收窄到：
+     *   · 假 Key → `INVALID_USER_KEY` / 10001  → 高德**先校验 Key**
+     *   · 真 Key → `MISSING_REQUIRED_PARAMS` / 20001 → Key 有效，卡在参数校验
+     *   而照片走 `/v5/place/text` 用**同一个 Key** 是通的。
+     *
+     * ⚠️ 一个被证伪的思路也记在这里：曾想"用假 Key 探参数对不对"
+     * （因为假 Key 只报 Key 错、不报参数错），但实测**去掉必填参数也照样报
+     * INVALID_USER_KEY** —— 说明高德先校 Key、再校参数，这条路走不通。
+     * 留着这条是为了别有人（包括我）再试一遍。
+     */
+    const byInfo = r.infocode ? `${r.infocode} ${r.info || ''}`.trim() : String(r.info || r.status || '');
     return resp.ok({
       ok: false,
       verdict: 'UPSTREAM_FAILED',
       steps,
-      hint:
-        r.hint ||
-        '先确认控制台 Key 的「可使用服务」里勾了公交路径规划，且 Key 是「Web服务」类型',
+      failure: { status: r.status, infocode: r.infocode || null, info: r.info || null, byInfo },
+      hint: r.hint || '上游未通。请看 failure 里的 infocode 与 info 定位',
       rawHead: r.rawHead || null,
+      /** 这次请求实际发了什么 —— 参数类问题的第一手证据 */
+      requestUrl: r.requestUrl || null,
+      /** 下面两句是两次实测的结论，直接给出来省一轮往返 */
+      knownFacts: [
+        'Key 已被高德识别（否则会回 10001 INVALID_USER_KEY），所以问题不在"Key 有没有配"。',
+        '同一个 Key 走 /v5/place/text（照片）是通的 —— 两条接口需要分别开通。',
+        '若 info 是 MISSING_REQUIRED_PARAMS：v5 公交的必填是 origin / destination / **city1**（citycode），跨城加 city2。',
+      ],
     });
   }
 
