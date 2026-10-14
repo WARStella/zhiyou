@@ -74,9 +74,29 @@ function statusHint(status) {
   return hints[String(status)] || null;
 }
 
+/**
+ * Key 归一化 —— **去掉前后空白**。
+ *
+ * ⚠️ 这不是洁癖。腾讯那边已经踩过一次（见 `actions/map.js` 的说明：
+ * "检测到 MAP_KEY 前后有多余空白（常见于从控制台表格复制）"）。
+ * 从控制台表格里复制 Key 时，很容易连同一个空格或换行一起带走，
+ * 而后果是上游返回 `10001 Key 不正确` —— **一个把人引向"Key 本身错了"的
+ * 错误诊断**，实际上只是多了个空格。
+ *
+ * 去空白的同时把"是否去过空白"记下来，好在报错时说清是哪种情况。
+ */
+function normalizeKey(raw) {
+  if (raw == null) return { key: '', trimmed: false, hadValue: false };
+  const s = String(raw);
+  const t = s.trim();
+  return { key: t, trimmed: t !== s, hadValue: s.length > 0 };
+}
+
 function createAmapPhotoProvider(opts) {
   opts = opts || {};
-  const key = opts.key !== undefined ? opts.key : process.env.AMAP_KEY;
+  const rawKey = opts.key !== undefined ? opts.key : process.env.AMAP_KEY;
+  const normalized = normalizeKey(rawKey);
+  const key = normalized.key;
   const textBaseUrl = opts.textBaseUrl || DEFAULT_TEXT_BASE;
   const timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT_MS;
   const http = opts.http || defaultTransport;
@@ -84,9 +104,9 @@ function createAmapPhotoProvider(opts) {
   return {
     name: 'amap',
 
-    /** 确认"配没配"，**不泄露 Key 本身** */
+    /** 确认"配没配"，**不泄露 Key 本身**；`trimmed` 用于解释"Key 明明配了却报 10001" */
     keyStatus() {
-      return { configured: Boolean(key), masked: maskSecret(key) };
+      return { configured: Boolean(key), masked: maskSecret(key), trimmed: normalized.trimmed };
     },
 
     /**
@@ -205,7 +225,19 @@ function createAmapPhotoProvider(opts) {
         reason: ok ? null : 'UPSTREAM_STATUS_' + String(status),
         status,
         message: body.info || null,
-        hint: ok ? null : statusHint(status),
+        /**
+         * Key 校验类错误要**带上"曾经去掉过空白"这条信息**。
+         * 否则"Key 不正确"会让人去重新申请一个 Key，而实际只是多了个空格。
+         *
+         * 注意顺序：这里必须**先判断**这个特殊情况再回落到通用提示。
+         * 写成 `statusHint(status) || 特殊情况` 是错的 —— 通用提示对 10001
+         * 本来就有值，于是特殊情况永远轮不到（2026-10-14 第一版就是这么写的）。
+         */
+        hint: ok
+          ? null
+          : String(status) === '10001' && normalized.trimmed
+            ? 'AMAP_KEY 前后有多余空白（常见于从控制台表格复制），已自动去除；若仍报此错，请核对 Key 是否为「Web服务」类型'
+            : statusHint(status),
         httpStatus: res.httpStatus,
         timingMs: Date.now() - started,
         poiCount: pois.length,
@@ -252,4 +284,11 @@ function pickBestByName(pois, expectedName) {
   return { poi: pois[0], basis: 'first-result' };
 }
 
-module.exports = { createAmapPhotoProvider, statusHint, pickBestByName, DEFAULT_REGION, CANDIDATE_WINDOW };
+module.exports = {
+  createAmapPhotoProvider,
+  statusHint,
+  pickBestByName,
+  normalizeKey,
+  DEFAULT_REGION,
+  CANDIDATE_WINDOW,
+};
