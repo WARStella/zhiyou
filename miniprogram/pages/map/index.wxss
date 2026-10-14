@@ -288,3 +288,25 @@
   margin-left: 16rpx;
   flex-shrink: 0;
 }
+/* ── 队伍卡片（2026-10-14 tab 改名「队伍」）────────────────
+   组队之后的事都在这里：位置共享、集合、出发。 */
+.acts { display: flex; flex-wrap: wrap; margin-top: 12rpx; }
+.act {
+  padding: 12rpx 22rpx;
+  margin: 0 14rpx 12rpx 0;
+  border: 1rpx solid #d9e5ef;
+  border-radius: 12rpx;
+  font-size: 25rpx;
+  color: #20334a;
+  background: #fbfdff;
+}
+.act-primary { background: #0b3c6e; color: #fff; border-color: #0b3c6e; }
+.meet-setup, .meet-task { margin-top: 16rpx; border-top: 1rpx solid #edf1f6; padding-top: 16rpx; }
+.field {
+  flex: 1;
+  text-align: right;
+  font-size: 26rpx;
+  color: #0b3c6e;
+}
+.note { font-size: 23rpx; color: #65758a; margin-top: 10rpx; line-height: 1.7; }
+.err { font-size: 23rpx; color: #aa3028; background: #fff0ed; padding: 14rpx; border-radius: 10rpx; margin-top: 10rpx; }

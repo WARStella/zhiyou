@@ -96,6 +96,102 @@
     <view wx:if="{{loading}}" class="hint">正在加载地点数据…</view>
     <view wx:if="{{loadError}}" class="err">地点加载失败：{{loadError}}</view>
 
+    <!--
+      ══════════ 队伍（2026-10-14 用户要求）══════════════════
+
+      tab 名已从「地图」改成「队伍」—— 因为组队之后的事（队员位置、
+      集合、出发）都在这一页。小队面板那边只管组队与解散。
+
+      没有队伍时不显示这一整块 —— 空卡片会让用户以为页面出了问题。
+    -->
+    <view wx:if="{{!crewId}}" class="card">
+      <view class="row">
+        <text class="k">队伍</text>
+        <text class="v muted">还没有队伍</text>
+      </view>
+      <view class="sub">去「我的」页创建小队或输入邀请码加入，之后在这里看队员位置、发起集合。</view>
+    </view>
+
+    <view wx:if="{{crewId}}" class="card">
+      <view class="row">
+        <text class="k">{{crew ? crew.name : '队伍'}}</text>
+        <text class="v muted">{{members.length}} 位成员</text>
+      </view>
+
+      <!-- 位置共享：主动上报一次，不持续定位 -->
+      <view class="acts">
+        <view class="act" bindtap="toggleSharing">{{sharing ? '关闭位置共享' : '开启位置共享'}}</view>
+        <view class="act" bindtap="reportMyLocation">共享一次当前位置</view>
+      </view>
+      <view class="sub">
+        主动上报一次位置，不持续定位。共享前请先点 ◎ 取位置或拖 ✛ 选点。
+      </view>
+
+      <!-- 集合：先推荐，再拖动微调 -->
+      <view wx:if="{{!meetTask}}" class="meet-setup">
+        <view class="acts">
+          <view class="act act-primary" bindtap="recommendMeetingPoint">① 推荐一个集合点</view>
+        </view>
+        <view class="sub">
+          算法让**走得最远的那个成员**尽量近，但它不知道"南门还是北门"这类实地信息 ——
+          推荐出来后拖 ✛ 微调，确认无误再发起。
+        </view>
+        <view class="row">
+          <text class="k">集合点名称</text>
+          <input class="field" placeholder="如南门指示牌旁" value="{{pointName}}" bindinput="onPointNameInput" maxlength="20"/>
+        </view>
+        <view class="row">
+          <text class="k">集合时间</text>
+          <picker mode="time" value="{{meetTime}}" bindchange="onMeetTimeChange">
+            <view class="v link">{{meetTime}}</view>
+          </picker>
+        </view>
+        <view class="acts">
+          <view class="act act-primary" bindtap="createMeeting">② 发起集合</view>
+        </view>
+      </view>
+
+      <!-- 进行中的集合 -->
+      <view wx:if="{{meetTask}}" class="meet-task">
+        <view class="row">
+          <text class="k">{{meetTask.placeName || '集合点'}}</text>
+          <text class="v muted">{{meetTask.statusLabel || meetTask.status}}</text>
+        </view>
+        <view class="sub">约定 {{meetTask.timeLabel}} · 到齐 {{meetTask.arrivedLabel}} · 出发 {{meetTask.departedLabel}}</view>
+        <view wx:for="{{meetTask.participants}}" wx:key="userId" class="row">
+          <text class="k">{{item.label}}</text>
+          <text class="v muted">{{item.statusLabel}}</text>
+        </view>
+
+        <view class="acts">
+          <view wx:if="{{meetTask.status === 'proposed' || meetTask.status === 'confirmed'}}" class="act" data-kind="confirm" bindtap="meetAction">确认集合</view>
+          <view wx:if="{{meetTask.status === 'proposed' || meetTask.status === 'confirmed'}}" class="act" data-kind="decline" bindtap="meetAction">暂不参加</view>
+          <view wx:if="{{meetTask.status === 'confirmed' || meetTask.status === 'active'}}" class="act" data-kind="arrive" bindtap="meetAction">我已到达</view>
+          <view wx:if="{{isOwner}}" class="act" data-kind="cancel" bindtap="meetAction">取消本次集合</view>
+        </view>
+
+        <!-- 出发前必须检查后续行程；checkId 是服务端给的凭据 -->
+        <view wx:if="{{meetTask.status === 'arrived_all' && isOwner}}">
+          <view class="acts">
+            <view class="act act-primary" bindtap="prepareDepart">准备出发 · 检查后续行程</view>
+          </view>
+          <view wx:if="{{departureCheck}}" class="sub">
+            {{departureCheck.message}}
+            <view wx:if="{{departureCheck.tripImpact}}">预计结束：{{departureCheck.tripImpact.remainingEndAt}}</view>
+            <view wx:for="{{departureCheck.tripImpact.conflicts}}" wx:key="code">{{item.message}}</view>
+            <view>{{departureCheck.tripImpact.travelNote}}</view>
+            <view>检查有效期两分钟，刷新或调整路线后请重新检查。</view>
+          </view>
+          <view wx:if="{{departureCheck.canDepart}}" class="acts">
+            <view class="act act-primary" bindtap="confirmDepart">确认现在出发</view>
+          </view>
+        </view>
+      </view>
+
+      <view wx:if="{{teamNote}}" class="note">{{teamNote}}</view>
+      <view wx:if="{{teamError}}" class="err">{{teamError}}</view>
+    </view>
+
     <view wx:if="{{route}}" class="card">
       <view class="row">
         <text class="k">当前路线</text>

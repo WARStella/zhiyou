@@ -108,6 +108,39 @@ Page({
      */
     focusPlace: null,
     nearby: [],
+
+    /**
+     * ══════════ 队伍（2026-10-14 用户重新划分职责）══════════════
+     *
+     * 用户原话："我的的小队面板只管组队和解散小队，你说的推荐一个集合点
+     *           也在地图界面，并且把地图界面的名字改为队伍"
+     *
+     * 所以职责分成两块：
+     *   「我的」的小队面板 —— **只管组队与解散**（建队、邀请码、加入、退出）
+     *   「队伍」（本页）   —— **组队之后的一切**：队员位置、集合、出发
+     *
+     * 这条界线比原来清楚：面板在「我的」里，而集合是"看着地图商量去哪碰头"
+     * 的事 —— 放在没有地图的页面上本来就别扭。
+     */
+    crewId: '',
+    crew: null,
+    /** 是不是发起人 —— 决定能不能发起/取消集合 */
+    isOwner: false,
+    members: [],
+    /** 进行中的集合任务（`meet.get` 的结果） */
+    meetTask: null,
+    /** 我有没有开启位置共享 */
+    sharing: false,
+    /** 集合时间输入（HH:MM） */
+    meetTime: '17:00',
+    /** 集合点名称 */
+    pointName: '',
+    /** 出发检查结果（`meet.prepareDepart`） */
+    departureCheck: null,
+    /** 本页自己的操作提示与错误 —— 不复用 team-panel 的 */
+    teamNote: '',
+    teamError: '',
+    teamBusy: false,
     /**
      * 照片：`{ [placeId]: { photos, note, level, verification } }`。
      *
@@ -210,6 +243,14 @@ Page({
      *    两者语义不同，混在一起以后改一处会碰到另一处。
      */
     this.applyMeetSuggestion()
+    /**
+     * 读一次队伍状态（2026-10-14 职责重划后）。
+     *
+     * ⚠️ **不再依赖 team-panel 的事件** —— 本页自己取成员、集合任务与共享开关。
+     *    原来队员位置与集合点是面板抛上来的，于是"面板必须在场"成了一条
+     *    隐式依赖：谁把面板从本页挪走，地图上的队员就消失了（还真发生过）。
+     */
+    this.loadCrew()
     if (!focused) {
       /**
        * 顺序是有意的：**先把我自己放上去，再读路线**。
@@ -596,6 +637,344 @@ Page({
     this.teamMeeting = e.detail.meeting || null
     this.syncMeetingSelection()
     this.refreshMarkers()
+  },
+
+  /**
+   * ══════════ 队伍：组队之后的一切（2026-10-14）══════════════
+   *
+   * 用户把职责重新划过：
+   *   「我的」的小队面板 —— 管组队与解散（建队、邀请码、加入、退出）
+   *   「队伍」（本页）   —— 管组队之后的事（位置、集合、出发）
+   *
+   * 这一整段都是本页自己的，**不再依赖 team-panel 的存在** ——
+   * 原来地图上的队员位置与集合点是从面板的事件里来的，
+   * 于是"面板必须在场"成了一条隐式依赖。
+   */
+
+  /** 读一次队伍状态：成员、我的共享开关、进行中的集合 */
+  loadCrew() {
+    const crewId = this.readCrewId()
+    if (!crewId) {
+      this.setData({ crewId: '', crew: null, members: [], meetTask: null, sharing: false })
+      return
+    }
+    this.setData({ crewId: crewId })
+    const that = this
+    api
+      .callApi('crew.get', { crewId: crewId })
+      .then(function (res) {
+        if (!res || res.ok !== true) {
+          /**
+           * ⚠️ 读不到就说读不到，**不编空队伍** ——
+           * 空队伍会让用户以为自己被踢出去了。
+           */
+          that.setData({ teamError: (res && res.error && res.error.message) || '队伍信息读取失败' })
+          return
+        }
+        const d = res.data || {}
+        that.setData({
+          crew: d.crew || null,
+          isOwner: d.crew && d.crew.ownerUserId === d.me,
+          members: d.members || [],
+          sharing: Boolean(d.crew && d.crew.shareLocationDefault),
+          teamError: '',
+        })
+      })
+      .catch(function (err) {
+        that.setData({ teamError: (err && err.errMsg) || '队伍信息读取失败' })
+      })
+    /** 集合任务单独取 —— 它可能不存在，不该让整块队伍信息跟着失败 */
+    api
+      .callApi('meet.get', { crewId: crewId })
+      .then(function (res) {
+        if (res && res.ok === true) {
+          const t = res.data && res.data.task
+          that.setData({ meetTask: t || null })
+          /** 已有集合点时把它画到地图上，用户才知道"我们约在哪儿" */
+          if (t && t.point) {
+            that.setAutoMeetingPoint({
+              placeId: t.placeId || 'meet_' + t.meetTaskId,
+              name: t.placeName || '集合点',
+              latitude: t.point.latitude,
+              longitude: t.point.longitude,
+              fromTeamTask: true,
+            })
+          }
+        }
+      })
+      .catch(function () {
+        /** 集合任务取不到不影响队伍信息本身 */
+      })
+  },
+
+  /** 从本地读 crewId —— 与 team-panel 用同一个 key（组队处写的） */
+  readCrewId() {
+    try {
+      return wx.getStorageSync('zhiyou-active-crew') || ''
+    } catch (e) {
+      return ''
+    }
+  },
+
+  /** 开关位置共享 */
+  toggleSharing() {
+    const that = this
+    const next = !this.data.sharing
+    this.doTeam('loc.' + (next ? 'report' : 'stopSharing'), next ? {} : {}, next ? '已开启位置共享' : '已关闭位置共享')
+  },
+
+  /**
+   * 共享一次当前位置。
+   *
+   * ⚠️ **"共享一次"而不是持续定位**：持续定位耗电、且要长期授权。
+   *    项目一直的约定是"主动上报一次位置"（见 team-panel 的同一句提示）。
+   *    没有位置时如实提示先取位置 —— 不拿一个编出来的坐标上报。
+   */
+  reportMyLocation() {
+    if (!this.data.myPoint) {
+      this.setData({ teamError: '还没有你的位置：先点 ◎ 取一次，或拖 ✛ 选一个' })
+      return
+    }
+    const that = this
+    this.doTeam(
+      'loc.report',
+      { point: this.data.myPoint, source: this.data.mySource || 'manual' },
+      '位置已共享给队伍',
+      function () {
+        /** 上报成功后刷新队员位置，用户立刻能看到自己出现在图上 */
+        that.refreshTeamLocations()
+      }
+    )
+  },
+
+  /** 拉一次队员位置（地图据此画图钉） */
+  refreshTeamLocations() {
+    const crewId = this.data.crewId
+    if (!crewId) return
+    const that = this
+    api
+      .callApi('loc.list', { crewId: crewId })
+      .then(function (res) {
+        if (!res || res.ok !== true) return
+        const list = (res.data && res.data.members) || []
+        /**
+         * 与 `onTeamState` 用同一个字段 —— 地图只认 `teamLocations`，
+         * 两条路写同一个地方，免得"从面板来的画了、从本页来的没画"。
+         */
+        that.teamLocations = list.filter(function (m) {
+          return m.hasLocation && !m.stale && !m.sharingOff
+        })
+        that.setData({ members: list })
+        that.refreshMarkers()
+      })
+      .catch(function () {
+        /** 队员位置取不到不影响其它功能 */
+      })
+  },
+
+  onMeetTimeChange(e) {
+    this.setData({ meetTime: e.detail.value })
+  },
+
+  onPointNameInput(e) {
+    this.setData({ pointName: e.detail.value })
+  },
+
+  /**
+   * ── ① 推荐一个集合点（2026-10-14 用户要求搬到这里）──────────
+   *
+   * 流程：本按钮 → `meet.recommend`（minimax：先让最远的成员步行最短）
+   *       → 取第一名落成集合点 → 用户「✛」拖动微调
+   *
+   * ⚠️ 原来这个按钮在小队面板里，而面板在「我的」页面 ——
+   *    **一个没有地图的地方让你选集合点**，本来就别扭。
+   *    现在它就在地图上方，推荐出来立刻能看见、能拖。
+   */
+  recommendMeetingPoint() {
+    const that = this
+    if (!this.data.crewId) {
+      this.setData({ teamError: '还没有队伍：先去「我的」创建或加入一个小队' })
+      return
+    }
+    this.setData({ teamBusy: true, teamError: '', teamNote: '正在按各成员位置推荐…' })
+    api
+      .callApi('meet.recommend', { crewId: this.data.crewId })
+      .then(function (res) {
+        if (!res || res.ok !== true) {
+          that.setData({
+            teamBusy: false,
+            teamError: (res && res.error && res.error.message) || '推荐失败',
+          })
+          return
+        }
+        const d = res.data || {}
+        const top = (d.candidates || [])[0] || null
+        if (!top || !top.point) {
+          /**
+           * ⚠️ 推荐不出来时**说清为什么**，不给一个编出来的点。
+           * 最常见的原因：同伴还没共享位置（不知道各人在哪就算不出"对谁都近"）。
+           */
+          that.setData({
+            teamBusy: false,
+            teamNote: '',
+            teamError:
+              '推荐不出集合点：' +
+              (d.reason === 'LOCATION_SHARING_OFF'
+                ? '队员都还没共享位置。让大家先各点一次「共享一次当前位置」'
+                : d.reason === 'NO_VERIFIED_PLACE'
+                  ? '还没有实地核验过的地点可作候选'
+                  : '暂时没有满足条件的候选点') +
+              '。也可以直接拖 ✛ 自己选一个。',
+          })
+          return
+        }
+        that.setAutoMeetingPoint({
+          placeId: top.placeId,
+          name: top.placeName || '推荐集合点',
+          latitude: top.point.latitude,
+          longitude: top.point.longitude,
+          fromSuggestion: true,
+        })
+        /** 镜头挪过去 —— 用户接着就在这儿拖动微调 */
+        that.setData({
+          center: { latitude: top.point.latitude, longitude: top.point.longitude },
+          scale: 16,
+          pointName: that.data.pointName || top.placeName || '',
+        })
+        that.setData({
+          teamBusy: false,
+          teamNote:
+            '已推荐「' +
+            (top.placeName || '集合点') +
+            '」' +
+            (typeof top.maxWalkMin === 'number' ? '：走得最远的成员约 ' + top.maxWalkMin + ' 分钟' : '') +
+            '。拖动 ✛ 可以微调，确认后点「② 发起集合」。',
+        })
+      })
+      .catch(function (err) {
+        that.setData({ teamBusy: false, teamError: (err && err.errMsg) || '推荐失败' })
+      })
+  },
+
+  /**
+   * ② 发起集合。
+   *
+   * ⚠️ 三个必填项缺一不可，且**都要给出可行动的提示**：
+   *    集合点（拖 ✛ 选）、名称（便于辨认，如"南门指示牌旁"）、未来时间。
+   */
+  createMeeting() {
+    const that = this
+    if (!this.data.meetingPoint) {
+      this.setData({ teamError: '还没有集合点：点「推荐」或拖 ✛ 自己选一个' })
+      return
+    }
+    const name = String(this.data.pointName || '').trim()
+    if (!name) {
+      this.setData({ teamError: '请填一个便于辨认的集合点名称，如「南门指示牌旁」' })
+      return
+    }
+    const parts = String(this.data.meetTime || '').split(':').map(Number)
+    const at = new Date()
+    at.setHours(parts[0] || 0, parts[1] || 0, 0, 0)
+    if (at <= new Date()) {
+      this.setData({ teamError: '集合时间要选今天还没到的时间' })
+      return
+    }
+    this.doTeam(
+      'meet.create',
+      {
+        tripId: this.data.route ? this.data.route.tripId : null,
+        point: {
+          latitude: this.data.meetingPoint.latitude,
+          longitude: this.data.meetingPoint.longitude,
+        },
+        /**
+         * ⚠️ `placeId` 只在**确实来自库里地点**时传。
+         *    拖动选点出来的点没有 placeId，传一个假的会让后端
+         *    去库核验一个不存在的记录。
+         */
+        placeId: this.data.meetingPoint.placeId && String(this.data.meetingPoint.placeId).indexOf('map_') !== 0
+          ? this.data.meetingPoint.placeId
+          : undefined,
+        placeName: name,
+        method: this.data.meetingPoint.fromMapPick ? 'manual' : 'recommended',
+        plannedMeetAt: at.toISOString(),
+      },
+      '已发起集合，等同伴确认'
+    )
+  },
+
+  /** 集合任务上的动作：确认 / 暂不参加 / 我已到达 / 取消 */
+  meetAction(e) {
+    const kind = e.currentTarget.dataset.kind
+    const task = this.data.meetTask
+    if (!task) return
+    if (kind === 'cancel') {
+      this.doTeam('team.cancelMeeting', { meetTaskId: task.meetTaskId }, '已取消本次集合')
+      return
+    }
+    const payload = { meetTaskId: task.meetTaskId }
+    if (kind === 'confirm' || kind === 'decline') payload.decision = kind
+    const labels = { confirm: '已确认集合', decline: '已回复暂不参加', arrive: '已记录：你到了' }
+    this.doTeam('meet.' + kind, payload, labels[kind] || '已提交')
+  },
+
+  /** 准备出发：先检查后续行程会不会受影响 */
+  prepareDepart() {
+    const task = this.data.meetTask
+    if (!task) return
+    const that = this
+    this.doTeam('meet.prepareDepart', { meetTaskId: task.meetTaskId }, '', function (d) {
+      that.setData({
+        departureCheck: d || null,
+        teamNote: (d && d.message) || '检查完成',
+      })
+    })
+  },
+
+  /** 确认现在出发（需要先检查过 —— checkId 是服务端给的凭据） */
+  confirmDepart() {
+    const chk = this.data.departureCheck
+    if (!chk || !chk.canDepart) {
+      this.setData({ teamError: '请先点「准备出发 · 检查后续行程」' })
+      return
+    }
+    this.doTeam(
+      'meet.depart',
+      { meetTaskId: this.data.meetTask.meetTaskId, checkId: chk.checkId },
+      '已确认出发'
+    )
+  },
+
+  /**
+   * 队伍操作的统一入口。
+   *
+   * ⚠️ 抽出来是为了让"忙状态、错误提示、成功提示、刷新"**只有一份** ——
+   *    上面六个动作各写一遍必然出现某个忘了清 `teamBusy` 的情况。
+   */
+  doTeam(action, payload, okMessage, onData) {
+    const that = this
+    const full = Object.assign({ crewId: this.data.crewId }, payload || {})
+    this.setData({ teamBusy: true, teamError: '' })
+    api
+      .callApi(action, full)
+      .then(function (res) {
+        if (!res || res.ok !== true) {
+          that.setData({
+            teamBusy: false,
+            teamError: (res && res.error && res.error.message) || '操作失败',
+          })
+          return
+        }
+        that.setData({ teamBusy: false, teamNote: okMessage || '' })
+        if (typeof onData === 'function') onData(res.data)
+        /** 动作完成后重读状态 —— 服务端才是权威 */
+        that.loadCrew()
+        that.refreshTeamLocations()
+      })
+      .catch(function (err) {
+        that.setData({ teamBusy: false, teamError: (err && err.errMsg) || '操作失败' })
+      })
   },
 
   /**
