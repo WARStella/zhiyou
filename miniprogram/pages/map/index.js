@@ -218,9 +218,14 @@ Page({
      * 默认不选中任何集合点 —— **选中必须是用户动作的结果**。
      *
      * 唯一例外是"已经存在一场进行中的集合"：那种情况下把它显示出来
-     * 是用户要的信息，而不是我们替他做的选择（`onTeamState` 会把它填回来）。
+     * 是用户要的信息，而不是我们替他做的选择。
+     *
+     * ⚠️ 判断依据从 `teamMeeting`（面板事件）改成 `meetTask`（自己取的）——
+     * 见 `syncMeetingSelection` 的说明。用旧字段的话这里会恒为假，
+     * 于是每次进页面都把进行中的集合点**清掉**。
      */
-    if (!(this.teamMeeting && this.teamMeeting.name)) {
+    const activeMeeting = this.data.meetTask
+    if (!(activeMeeting && (activeMeeting.placeName || activeMeeting.name))) {
       this.setData({ meetingPoint: null, photoNote: '', currentPhotos: [] })
     }
 
@@ -251,6 +256,15 @@ Page({
      *    隐式依赖：谁把面板从本页挪走，地图上的队员就消失了（还真发生过）。
      */
     this.loadCrew()
+    /**
+     * 队员位置也要自己拉一次 —— 它原来来自面板的 `teamstate` 事件，
+     * 而面板已从本页删掉（2026-10-14）。
+     *
+     * ⚠️ 漏了这一步地图上就**看不到同伴**，而且**不报错**：
+     *    `teamLocations` 恒为空数组，`refreshMarkers` 少画几个图钉而已。
+     *    这类"少画了东西但不报错"的错最难发现。
+     */
+    this.refreshTeamLocations()
     if (!focused) {
       /**
        * 顺序是有意的：**先把我自己放上去，再读路线**。
@@ -632,13 +646,6 @@ Page({
     })
   },
 
-  onTeamState(e) {
-    this.teamLocations = e.detail.locations || []
-    this.teamMeeting = e.detail.meeting || null
-    this.syncMeetingSelection()
-    this.refreshMarkers()
-  },
-
   /**
    * ══════════ 队伍：组队之后的一切（2026-10-14）══════════════
    *
@@ -646,9 +653,12 @@ Page({
    *   「我的」的小队面板 —— 管组队与解散（建队、邀请码、加入、退出）
    *   「队伍」（本页）   —— 管组队之后的事（位置、集合、出发）
    *
-   * 这一整段都是本页自己的，**不再依赖 team-panel 的存在** ——
-   * 原来地图上的队员位置与集合点是从面板的事件里来的，
-   * 于是"面板必须在场"成了一条隐式依赖。
+   * ⚠️ 本页**不再挂 `team-panel` 组件**（2026-10-14 用户要求：
+   *    "在地图页面删掉与同伴一起游览信息卡"）。
+   *    于是原来从它的事件里来的 `teamLocations` / `teamMeeting` 都失去了来源：
+   *      · `teamLocations` → 改由 `refreshTeamLocations()` 调 `loc.list` 填
+   *      · `teamMeeting`   → 改读 `meetTask`（`loadCrew()` 调 `meet.get` 填）
+   *    两个都改完了，本页才真正**不依赖面板的存在**。
    */
 
   /** 读一次队伍状态：成员、我的共享开关、进行中的集合 */
@@ -758,8 +768,8 @@ Page({
         if (!res || res.ok !== true) return
         const list = (res.data && res.data.members) || []
         /**
-         * 与 `onTeamState` 用同一个字段 —— 地图只认 `teamLocations`，
-         * 两条路写同一个地方，免得"从面板来的画了、从本页来的没画"。
+         * 地图只认 `this.teamLocations` 这一个字段 —— 面板已从本页删掉，
+         * 现在只有这一条写入路径（见本段开头对 `teamMeeting` 的说明）。
          */
         that.teamLocations = list.filter(function (m) {
           return m.hasLocation && !m.stale && !m.sharingOff
@@ -983,12 +993,23 @@ Page({
    * 两条纪律：
    *   ① 只在"还没有选中"时替用户填上。用户点过的地方优先，
    *      否则他点开一个地点的照片、一刷新就被会议地点顶掉。
-   *   ② 只在**真的变了**的时候写 —— 否则 `onTeamState → setData → render`
+   *   ② 只在**真的变了**的时候写 —— 否则 `loadCrew → setData → render`
    *      会绕成一个环。
    */
   syncMeetingSelection() {
-    const meeting = this.teamMeeting
-    const meetingName = meeting && meeting.name
+    /**
+     * ⚠️ 数据来源从 `this.teamMeeting`（面板事件）改成 `meetTask`（自己取的）。
+     *
+     * 2026-10-14 删掉本页的 `team-panel` 之后，`teamMeeting` 再没有任何写入点 ——
+     * 若继续读它，进行中的集合**永远不会被自动选中**，而且不报错
+     * （`meeting` 恒为 null，函数静默 return）。
+     *
+     * `meetTask` 由 `loadCrew()` 调 `meet.get` 填上，字段名不同：
+     * 面板事件给的是 `{ name, point }`，而 `meet.get` 给的是
+     * `{ placeName, point }` —— 这里统一读 `placeName`。
+     */
+    const meeting = this.data.meetTask
+    const meetingName = meeting && (meeting.placeName || meeting.name)
     if (!meetingName || this.data.meetingPoint) return
     if (this.__autoPickedMeetingName === meetingName) return
     this.__autoPickedMeetingName = meetingName

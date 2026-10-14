@@ -72,26 +72,21 @@
     </view>
 
     <!--
-      ⚠️ `source` 也要 `|| ''`（2026-10-14）：它与 trip 页的 `personalTripId`
-      是同一类问题 —— 页面 data 初始化成 `null`，而组件把该属性声明为 String。
-      小程序里**属性传 `null` 不算"没传"**（那要用 `undefined` 或省略），
-      所以 null 会覆盖掉组件的默认值 `''`，编译器每次渲染都警告一次。
+      ⚠️⚠️ **本页不再挂 `team-panel`**（2026-10-14 用户要求：
+      "在地图页面删掉与同伴一起游览信息卡，然后队伍信息卡在这里只保留集合功能"）。
 
-      `point` 不用管：它声明为 Object，`null` 是合法的。
+      为什么这不只是"少一张卡"：那个面板抛的 `teamstate` 事件原本是
+      **队员位置与集合点的唯一来源**，所以删它必须同时补上两条数据路径，
+      否则地图上就看不到同伴在哪了（而且不报错）：
+        · 队员位置 → `refreshTeamLocations()` 调 `loc.list`
+        · 集合点   → `loadCrew()` 调 `meet.get` 填 `meetTask`
+      两条都已接上，本页现在**不依赖任何组件**。
+
+      ⚠️ **不要把 `team-panel` 加回本页**：
+        · 组队与解散在「我的」页（面板的家）
+        · 集合相关的操作在本页自己的队伍卡片里
+      加回来会出现两处都能发起集合。
     -->
-    <!--
-      ⚠️ 传给 `team-panel` 的 `point` 是 **`meetingPoint`（集合点）**，
-      不是 `myPoint`（我的位置）—— 这是 2026-10-14 用户澄清后改的。
-
-      用户原话："还是不对，我是想把这个选点**当作集合点**用"
-
-      面板里"发起集合"用的是 `properties.point`，所以传什么就是什么：
-      传 `myPoint` 等于把"我的位置"当集合点，而集合点是"大家在哪碰头"。
-
-      `source` 仍报的是"我的位置从哪来"（gps / 手动），
-      面板用它显示位置来源，与集合点是两件事。
-    -->
-    <team-panel point="{{meetingPoint}}" source="{{mySource || ''}}" bind:teamstate="onTeamState" />
 
     <view wx:if="{{loading}}" class="hint">正在加载地点数据…</view>
     <view wx:if="{{loadError}}" class="err">地点加载失败：{{loadError}}</view>

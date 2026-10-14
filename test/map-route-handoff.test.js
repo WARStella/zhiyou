@@ -412,13 +412,17 @@ test('已有进行中的集合时，默认把它显示出来（这是信息，�
   t.after(() => p.restore());
   await loaded(p);
 
-  // 模拟 team-panel 报上来一场进行中的集合，地点正好在库里
-  p.onTeamState({
-    detail: {
-      locations: [],
-      meeting: { point: { latitude: 45.7756, longitude: 126.6175 }, name: '中央大街' },
-    },
+  /**
+   * 模拟"已经有一场进行中的集合" —— 地点正好在库里。
+   *
+   * ⚠️ 数据来源**改过**（2026-10-14）：地图页删掉 `team-panel` 之后，
+   * 集合点不再来自组件事件，而是 `loadCrew()` 调 `meet.get` 填的
+   * `meetTask`。所以这里直接设 `meetTask`，与页面真实读的字段一致。
+   */
+  p.setData({
+    meetTask: { placeName: '中央大街', point: { latitude: 45.7756, longitude: 126.6175 } },
   });
+  p.syncMeetingSelection();
   assert.equal(p.data.meetingPoint.placeId, 'p_a', '库里有这个地点就该选中它');
 
   // 再切回地图，进行中的集合仍应显示
@@ -431,15 +435,23 @@ test('集合点不在 places 库里时也要能标出来（手动选点的坐标
   t.after(() => p.restore());
   await loaded(p);
 
-  p.onTeamState({
-    detail: {
-      locations: [],
-      meeting: { point: { latitude: 45.7999, longitude: 126.6399 }, name: '南门指示牌旁' },
-    },
+  /**
+   * ⚠️ 数据来源改过（2026-10-14）：删掉 `team-panel` 之后集合点来自
+   * `meetTask`（`loadCrew()` 调 `meet.get` 填），不再是组件事件。
+   *
+   * 这条测的是**拖动/手动选点出来的集合点**（坐标不对应任何地点记录）——
+   * 那种点必须也能画在地图上，否则用户辛苦拖出来的点"看不见"。
+   */
+  p.setAutoMeetingPoint({
+    placeId: 'map_1',
+    name: '南门指示牌旁',
+    latitude: 45.7999,
+    longitude: 126.6399,
+    fromMapPick: true,
   });
 
   assert.equal(p.data.meetingPoint.name, '南门指示牌旁');
-  assert.equal(p.data.meetingPoint.fromTeamTask, true, '要能区分"我选的"与"队里定的"');
+  assert.equal(p.data.meetingPoint.fromMapPick, true, '要能区分"我拖的"与"队里定的"');
   const pin = p.data.markers.find((m) => m.latitude === 45.7999);
   assert.ok(pin, '不在库里的集合点也必须出现在地图上');
 });

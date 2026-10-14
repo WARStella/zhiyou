@@ -91,21 +91,33 @@ test('取消集合使旧确认失效，成员不能取消',async()=>{
 });
 test('正式页面组件注册与事件绑定完整',()=>{
   /**
-   * ⚠️ 注册在哪两页是**有理由的**，不是随便放的（2026-10-14 改）：
+   * ⚠️ 注册在哪几页是**有理由的**，而且改过一次（2026-10-14）：
    *
-   *   · **profile（我的）** —— 完整的小队面板在这里（用户要求把组队邀请
-   *     从行程页挪过来）。创建/加入/邀请码/发起集合都在这一页。
-   *   · **map（地图）** —— 面板抛的 `teamstate` 事件提供**队员位置与集合点**，
-   *     地图据此画图钉。移走它地图就看不到同伴在哪了，所以必须留着。
-   *   · **trip（行程）** —— **刻意不注册**。用户明确要求把它从行程页移除；
-   *     而行程页对它的状态零依赖，移除是干净的。
+   *   · **profile（我的）** —— 面板唯一的家。**只管组队与解散**
+   *     （建队、邀请码、加入、退出）。
+   *   · **map（队伍）** —— **刻意不注册**。用户要求"在地图页面删掉与同伴
+   *     一起游览信息卡，队伍信息卡在这里只保留集合功能"。
+   *     本页自己有队伍卡片（位置共享、推荐/发起集合、出发），
+   *     数据由 `loadCrew()` / `refreshTeamLocations()` 自己取。
+   *   · **trip（行程）** —— 同样不注册（更早之前就挪走了）。
+   *
+   * ⚠️ 删面板时**必须同时补上两条数据路径**，否则地图上就看不到同伴了
+   *    而且不报错：队员位置（`loc.list`）与集合点（`meet.get`）。
+   *    这两条在 `map/index.js` 的 `loadCrew` / `refreshTeamLocations` 里，
+   *    由 `team-page.test.js` 守着。
    */
-  for(const p of ['profile','map'])assert.equal(require('../miniprogram/pages/'+p+'/index.json').usingComponents['team-panel'],'/components/team-panel/index');
   assert.equal(
-    (require('../miniprogram/pages/trip/index.json').usingComponents||{})['team-panel'],
-    undefined,
-    '行程页不该再注册小队面板 —— 它已挪到「我的」'
+    require('../miniprogram/pages/profile/index.json').usingComponents['team-panel'],
+    '/components/team-panel/index',
+    '面板只该在「我的」页'
   );
+  for (const p of ['map','trip']) {
+    assert.equal(
+      (require('../miniprogram/pages/'+p+'/index.json').usingComponents||{})['team-panel'],
+      undefined,
+      `${p} 页不该注册小队面板`
+    );
+  }
   const xml=fs.readFileSync(path.join(__dirname,'../miniprogram/components/team-panel/index.wxml'),'utf8');
   const c=component({},'A');
   for(const m of xml.matchAll(/bind(?:tap|input|change)="([^"]+)"/g))assert.equal(typeof c[m[1]],'function',m[1]);

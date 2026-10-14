@@ -1,6 +1,3 @@
 {
-  "navigationBarTitleText": "地图与集合",
-  "usingComponents": {
-    "team-panel": "/components/team-panel/index"
-  }
+  "navigationBarTitleText": "队伍"
 }
