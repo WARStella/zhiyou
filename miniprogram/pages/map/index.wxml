@@ -72,6 +72,34 @@
         <text class="v ok">{{meetingPoint.name}}</text>
       </view>
       <view class="sub">地图上的橙针即该点，虚线为步行方向（正式版将显示后端计算的实际步行路径）</view>
+
+      <button class="btn ghost" bindtap="fetchPhotos" disabled="{{photoBusy}}">
+        {{photoBusy ? '正在取照片…' : '取这个地方的照片'}}
+      </button>
+      <view wx:if="{{photoNote}}" class="note">{{photoNote}}</view>
+
+      <block wx:if="{{photos[meetingPoint.placeId] && photos[meetingPoint.placeId].photos.length}}">
+        <view class="row">
+          <text class="k">照片</text>
+          <text class="v muted">来自网络 · 未实地核验</text>
+        </view>
+        <view class="photos">
+          <view
+            class="shot"
+            wx:for="{{photos[meetingPoint.placeId].photos}}"
+            wx:key="url"
+            wx:for-item="ph"
+          >
+            <image wx:if="{{ph.fileID}}" class="shot-img" src="{{ph.fileID}}" mode="aspectFill" />
+            <view wx:else class="shot-img missing">未能保存</view>
+            <text wx:if="{{ph.title}}" class="shot-title">{{ph.title}}</text>
+          </view>
+        </view>
+        <view class="rule">
+          这些照片用于辨认地点，**不构成**对可达性、入口位置的核验。
+          该地点的核验等级以「{{meetingPoint.verified ? '已实地核验' : '未实地核验'}}」为准。
+        </view>
+      </block>
     </view>
 
     <view wx:if="{{!places.length && !loading}}" class="card">

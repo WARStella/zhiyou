@@ -24,8 +24,19 @@ function loadPage(relPath, opts) {
   const abs = path.resolve(__dirname, '..', relPath);
 
   const calls = [];
+  /**
+   * ⚠️ 默认 `newRequestId` **必须每次返回新值**（2026-10-14 修正）。
+   *
+   * 首版缺省成常量 `'req-test'`。因为替身现在会留到下一次 `loadPage()` 为止
+   * （见文件末尾那段注释），`diagnosis.test.js` 里那条直接 `require`
+   * 真实 `utils/api` 测"每次生成都应该是新值"的用例就拿到了常量替身，
+   * 于是失败信息是"每次生成都应该是新值" —— 而真因是**页面测试台泄漏到了它**。
+   *
+   * 替身的缺省行为要尽量贴近真实实现，否则它会以别处的失败形式暴露出来。
+   */
+  let reqSeq = 0;
   const apiStub = {
-    newRequestId: opts.newRequestId || (() => 'req-test'),
+    newRequestId: opts.newRequestId || (() => `req-harness-${++reqSeq}`),
     callApi: (action, payload, options) => {
       calls.push({ action, payload, options });
       const h = (opts.api && opts.api[action]) || null;
@@ -58,8 +69,7 @@ function loadPage(relPath, opts) {
     captured = o;
   };
   global.getApp = () => opts.app || { globalData: { cloudReady: true } };
-  global.wx = Object.assign(
-    {
+  const harnessWx = {
       /**
        * ⚠️ **必须是回调风格**（2026-10-13 修正）。
        *
@@ -77,11 +87,46 @@ function loadPage(relPath, opts) {
       showToast: (a) => wxCalls.push({ fn: 'showToast', args: a }),
       openLocation: (a) => wxCalls.push({ fn: 'openLocation', args: a }),
       pageScrollTo: (a) => wxCalls.push({ fn: 'pageScrollTo', args: a }),
-      cloud: {},
+      /**
+       * `wx.cloud` 的替身。
+       *
+       * ⚠️ 同样是**回调风格**，理由与上面 `getLocation` 那段完全一样：
+       * 页面对它用的是 `wx.cloud.getTempFileURL({ fileList, success, fail })`，
+       * 替身写成 Promise 会让页面走进另一条分支，测出来就不是真机行为。
+       */
+      cloud: {
+        getTempFileURL: (o) => {
+          const opt = o || {};
+          if (opts.tempFileUrlFailure) {
+            if (typeof opt.fail === 'function') opt.fail({ errMsg: 'harness: getTempFileURL failed' });
+            return;
+          }
+          const fileList = (opt.fileList || []).map((f) => {
+            const fileID = typeof f === 'string' ? f : f.fileID;
+            return { fileID, tempFileURL: `https://temp.example/${encodeURIComponent(fileID)}` };
+          });
+          if (typeof opt.success === 'function') opt.success({ fileList });
+        },
+      },
       nextTick: (fn) => fn(),
-    },
-    opts.wx || {}
-  );
+  };
+
+  /**
+   * ⚠️ `opts.wx` 必须与内置替身**浅合并**，不能整体替换（2026-10-14 修正）。
+   *
+   * 原来写成 `Object.assign({...内置}, opts.wx)` —— 顶层 Key 是合并的，
+   * 但 **`cloud` 这个嵌套对象会被整体换掉**。测试只想覆盖
+   * `cloud.getTempFileURL` 时，`opts.wx.cloud` 里的那一项就把内置 cloud 顶掉了，
+   * 于是任何依赖内置 cloud 行为的页面都会走偏。
+   *
+   * 嵌套一层就够（`cloud` 是目前唯一的嵌套替身），这里显式处理并写明原因，
+   * 比写一个通用深合并更不容易出错。
+   */
+  const override = opts.wx || {};
+  const mergedWx = Object.assign({}, harnessWx, override, {
+    cloud: Object.assign({}, harnessWx.cloud, override.cloud || {}),
+  });
+  global.wx = mergedWx;
 
   try {
     delete require.cache[abs];
@@ -89,19 +134,23 @@ function loadPage(relPath, opts) {
     require(abs);
   } finally {
     /**
-     * ⚠️ 只还原 `Page`，**`wx` 与 `getApp` 保持安装**（2026-10-13 修正）。
+     * ⚠️ 只还原 `Page`，**`wx`、`getApp` 与 api 替身都保持安装**（2026-10-14 修正）。
      *
      * 首版把 `wx` 也还原了 —— 于是 `require` 之后、测试调用页面方法时，
      * `global.wx` 已经是 `undefined`，页面里 `wx.getLocation` 直接抛
      * 「Cannot read properties of undefined」。
-     *
      * 真实运行时里 `wx` 是**常驻全局**，不在加载后消失。
-     * **替身的生命周期也要与真实同形**，否则测出来的是另一回事。
-     * 每次 `loadPage` 都会重新覆盖，所以不会互相污染。
+     *
+     * 同一个错误在 api 替身上又犯了一次（照片图钉那组测试暴露出来）：
+     * `loadPage()` 是**同步**的，而测试是**异步**的 ——
+     * 在这里还原 api 替身，等于在页面代码跑起来之前就把它拆了。
+     * 页面随后 `require` 到真实的 `utils/api`，于是 `wx.cloud.callFunction`
+     * 被真的调用，报出来的却是"加载失败"这种与真因无关的错误。
+     *
+     * 现在两者都留到下一次 `loadPage()` 覆盖为止（每个测试都会重新装载，
+     * 所以不会互相污染）。需要显式清理时用返回的 `restore()`。
      */
     global.Page = prevGlobals.Page;
-    if (prevCache) require.cache[apiPath] = prevCache;
-    else delete require.cache[apiPath];
   }
 
   if (!captured) throw new Error(`${relPath} 没有调用 Page()`);
@@ -118,14 +167,51 @@ function loadPage(relPath, opts) {
   page.__setDataLog = [];
 
   /**
+   * 显式清理：还原 api 缓存与 `wx` / `getApp` 全局。
+   *
+   * 因为替身现在会留到下一次 `loadPage()` 为止（见上面那段注释），
+   * 一个测试文件里加载的页面替身可能被另一个测试文件里的页面拿到 ——
+   * 尤其 `api 替身是共享的`：先加载 `trip` 再加载 `map`，
+   * 两边会共用同一个 `calls` 数组与同一份 `opts.api`。
+   *
+   * 每个测试收尾时调一次最稳妥：`t.after(() => page.restore())`。
+   */
+  page.restore = function () {
+    if (prevCache) require.cache[apiPath] = prevCache;
+    else delete require.cache[apiPath];
+    global.wx = prevGlobals.wx;
+    global.getApp = prevGlobals.getApp;
+  };
+
+  /**
    * setData 替身：合并进 data，**同步执行回调**。
    *
    * 真机上回调是在渲染之后跑的，但那是时序细节；
    * 我们要验证的是"回调里读到的是不是新值" —— 同步执行同样能测出这一点。
+   *
+   * ⚠️ **必须支持嵌套路径**（2026-10-14 修正）。
+   * 微信的 `setData` 允许 `{'photoUrls.p_1': {...}}` 这种写法，并会**自动创建
+   * 中间对象**。首版替身直接 `data[key] = value` —— 于是 `"photoUrls.p_1"`
+   * 成了一个字面 key，页面再读 `data.photoUrls` 就是 `undefined`。
+   *
+   * 这类错误特别值得修：测试会以"图钉没换成照片"这种**看起来像业务 bug** 的
+   * 方式失败，而真因是测试台不支持一个微信本来就支持的写法。
    */
+  function setPath(target, path, value) {
+    const parts = String(path).split('.');
+    let node = target;
+    for (let i = 0; i < parts.length - 1; i++) {
+      const k = parts[i];
+      if (node[k] === null || typeof node[k] !== 'object') node[k] = {};
+      node = node[k];
+    }
+    node[parts[parts.length - 1]] = value;
+    return target;
+  }
+
   page.setData = function (patch, cb) {
     page.__setDataLog.push(patch);
-    for (const k of Object.keys(patch || {})) page.data[k] = patch[k];
+    for (const k of Object.keys(patch || {})) setPath(page.data, k, patch[k]);
     if (typeof cb === 'function') cb();
   };
 

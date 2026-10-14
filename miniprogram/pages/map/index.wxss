@@ -144,3 +144,42 @@
   color: #b0b8c1;
   padding: 20rpx 10rpx 40rpx;
 }
+
+/* ── 照片（2026-10-14）──────────────────────────────────────
+   缩略图横向排布，超出一屏时横向滚动 —— 避免照片把卡片撑得很长，
+   而集合点卡片下面是地图，用户需要能快速划过这一段。 */
+.photos {
+  display: flex;
+  flex-direction: row;
+  margin-top: 14rpx;
+  white-space: nowrap;
+}
+.shot {
+  display: flex;
+  flex-direction: column;
+  margin-right: 16rpx;
+  width: 200rpx;
+  flex-shrink: 0;
+}
+.shot-img {
+  width: 200rpx;
+  height: 150rpx;
+  border-radius: 10rpx;
+  background: #eef1f4;
+}
+/* 有 fileID 但取不到临时地址时也会走到这里 —— 明确说"未能保存"而不是留白 */
+.shot-img.missing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 21rpx;
+  color: #9aa5b1;
+}
+.shot-title {
+  margin-top: 6rpx;
+  font-size: 20rpx;
+  color: #6b7683;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

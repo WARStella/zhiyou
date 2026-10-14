@@ -61,6 +61,18 @@ Page({
     pickMode: false,
     meetingPoint: null,
     nearby: [],
+    /**
+     * 照片：`{ [placeId]: { photos, note, level, verification } }`。
+     *
+     * 为什么按 placeId 存而不是直接塞进 places：照片是**按需取**的，
+     * 一次只给一个地点取。塞进 places 会让"哪些取过、哪些没取"变得难以分辨，
+     * 而列表每次刷新都会重建。
+     */
+    photos: {},
+    /** `{ [placeId]: tempFileURL }` —— marker 的 iconPath 只吃本地/网络路径 */
+    photoUrls: {},
+    photoBusy: false,
+    photoNote: '',
     loading: true,
     loadError: '',
     note: '',
@@ -196,8 +208,119 @@ Page({
     const placeId = e.currentTarget.dataset.placeid
     const place = this.data.places.find((p) => p.placeId === placeId)
     if (!place) return
-    this.setData({ meetingPoint: place })
+    this.setData({ meetingPoint: place, photoNote: '' })
     this.refreshMarkers()
+  },
+
+  /**
+   * 取该地点的照片（走 `place.fetchPhotos`）。
+   *
+   * **按需、单点**，不随列表批量取：高德是月配额（个人认证 5,000/月），
+   * 而"顺手给每个候选都拉一张图"会让一次进页面就烧掉几次配额。
+   *
+   * 拿到 `cloud://` fileID 之后还要换一次临时 URL ——
+   * marker 的 `iconPath` 与 `<image>` 需要的是本地路径或网络路径，
+   * 直接喂 `cloud://` 在真机上不会显示（且**不报错**，只是空着）。
+   */
+  fetchPhotos() {
+    const place = this.data.meetingPoint
+    if (!place || this.data.photoBusy) return
+    const that = this
+
+    this.setData({ photoBusy: true, photoNote: '正在取照片…' })
+
+    api
+      .callApi('place.fetchPhotos', { placeId: place.placeId })
+      .then(function (res) {
+        if (!res || res.ok !== true) {
+          that.setData({
+            photoBusy: false,
+            photoNote: (res && res.error && res.error.message) || '取照片失败',
+          })
+          return
+        }
+        const d = res.data || {}
+        const photos = d.photos || []
+        const verification = d.verification || null
+
+        const patch = {}
+        patch['photos.' + place.placeId] = { photos, verification, note: d.notice || '' }
+        patch.photoNote = that.describePhotos(photos, d, verification)
+        that.setData(patch)
+
+        // 有 fileID 才需要换临时 URL；没有的话 marker 继续用本地图标
+        const fileIDs = photos.map((p) => p.fileID).filter(Boolean)
+        if (!fileIDs.length) {
+          that.setData({ photoBusy: false })
+          return
+        }
+        that.resolveTempUrls(place.placeId, fileIDs)
+      })
+      .catch(function (err) {
+        that.setData({ photoBusy: false, photoNote: (err && err.errMsg) || '取照片失败' })
+      })
+  },
+
+  /**
+   * `cloud://` fileID → 临时 HTTPS 地址。
+   *
+   * 失败时**保留本地图标**而不是留一个空图钉：空图钉在真机上就是"什么都没有"，
+   * 比一个普通图标更难理解。同时把原因写进 note —— 静默降级会让人以为
+   * "这个地点本来就没有照片"。
+   */
+  resolveTempUrls(placeId, fileIDs) {
+    const that = this
+    wx.cloud.getTempFileURL({
+      fileList: fileIDs,
+      success(res) {
+        const urls = {}
+        ;((res && res.fileList) || []).forEach(function (f) {
+          if (f && f.tempFileURL) urls[f.fileID] = f.tempFileURL
+        })
+        const patch = {}
+        patch['photoUrls.' + placeId] = urls
+        patch.photoBusy = false
+        const okCount = Object.keys(urls).length
+        patch.photoNote =
+          okCount > 0
+            ? that.describePhotos(((that.data.photos || {})[placeId] || {}).photos, {}, null)
+            : '照片地址获取失败，图钉已退回普通图标'
+        that.setData(patch)
+        that.refreshMarkers()
+      },
+      fail() {
+        that.setData({ photoBusy: false, photoNote: '照片地址获取失败，图钉已退回普通图标' })
+        that.refreshMarkers()
+      },
+    })
+  },
+
+  /**
+   * 把照片结果翻成一句人话。
+   *
+   * 刻意把**未核验**说出来：联网抓来的照片只提供辨识度辅助，
+   * 不构成对可达性、入口位置等物理属性的核验（见 code 里 `place.survey` 的说明）。
+   * 吞掉这句话，界面就会把网图当成"这个点确认过了"。
+   */
+  describePhotos(photos, data, verification) {
+    if (!photos || !photos.length) {
+      const why = (data && data.emptyReason) || (verification && verification.reason) || null
+      const MAP = {
+        PROVIDER_NOT_CONFIGURED: '尚未配置照片服务（云函数缺 AMAP_KEY）',
+        UPSTREAM_FAILED: '照片服务暂时不可用',
+        NO_POI_MATCHED: '上游没有匹配到这个地点',
+        POI_HAS_NO_PHOTO: '上游这个地点没有照片',
+        NO_PHOTOS: '没有取到照片',
+      }
+      return MAP[why] || '没有取到照片'
+    }
+    const persisted = photos.filter((p) => p.fileID).length
+    if (!persisted) return '照片取到了，但保存到云存储失败，暂时无法显示'
+    return (
+      '已取到 ' +
+      persisted +
+      ' 张照片（来自网络，**未实地核验**）。它只用于辨认地点，不代表可达性或入口位置已确认。'
+    )
   },
 
   refreshMarkers() {
@@ -205,21 +328,38 @@ Page({
     const meetingId = this.data.meetingPoint && this.data.meetingPoint.placeId
 
     this.data.places.forEach((p, i) => {
+      const isMeeting = p.placeId === meetingId
+      /**
+       * 图钉用照片还是内置图标。
+       *
+       * 只有**已取到照片的集合点**才换成照片 —— 两个理由：
+       *   ① 高德是月配额，不可能给每个地点都取；
+       *   ② 满屏照片图钉会盖住路网，反而看不清"集合点在哪儿"。
+       * 照片是"确认这个点长什么样"用的，不是背景装饰。
+       */
+      const photoUrl = isMeeting ? (this.data.photoUrls || {})[p.placeId] : null
+      const firstUrl = photoUrl ? Object.keys(photoUrl).map((k) => photoUrl[k])[0] : null
+
       markers.push({
         id: i,
         latitude: p.latitude,
         longitude: p.longitude,
-        iconPath: p.placeId === meetingId ? '/assets/pin-meeting.png' : '/assets/pin-place.png',
-        width: p.placeId === meetingId ? 34 : 28,
-        height: p.placeId === meetingId ? 42 : 35,
+        /**
+         * ⚠️ 照片图钉必须**显式给 width/height**。
+         * 网络图不写尺寸时，真机上的测量时机不确定，会出现忽大忽小或干脆不显示。
+         * 即使用本地图标也一直显式写着（见下面那行），这里保持一致。
+         */
+        iconPath: firstUrl || (isMeeting ? '/assets/pin-meeting.png' : '/assets/pin-place.png'),
+        width: firstUrl ? 48 : isMeeting ? 34 : 28,
+        height: firstUrl ? 48 : isMeeting ? 42 : 35,
         callout: {
-          content: p.name + (p.verified ? '' : '（未核验）'),
+          content: p.name + (p.verified ? '' : '（未核验）') + (firstUrl ? ' · 网络照片，未实地核验' : ''),
           color: '#1F2933',
           fontSize: 12,
           borderRadius: 6,
           bgColor: '#FFFFFF',
           padding: 6,
-          display: p.placeId === meetingId ? 'ALWAYS' : 'BYCLICK',
+          display: isMeeting ? 'ALWAYS' : 'BYCLICK',
         },
       })
     })
