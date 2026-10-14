@@ -35,5 +35,6 @@ exports.main = async (event, context) => {
      */
     createMapProvider: null,
     createPhotoService: null,
+    createTransitProvider: null,
   });
 };

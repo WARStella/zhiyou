@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 /**
  * 测试世界 —— 用内存仓储 + 真实 invoke 路径构造一个可端到端调用的环境。
@@ -67,6 +67,8 @@ async function makeWorld(opts) {
          * 那个设计是为了防"漏配悄然回落到真实实现"。不用照片的测试传 null 即可。
          */
         createPhotoService: opts.createPhotoService || null,
+        /** 公交（含地铁）路线服务（lib/transit）—— 同 createMapProvider */
+        createTransitProvider: opts.createTransitProvider || null,
       }
     );
   };

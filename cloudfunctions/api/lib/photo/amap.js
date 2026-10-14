@@ -1,4 +1,4 @@
-'use strict';
+﻿'use strict';
 
 /**
  * 高德地图 POI 照片 provider —— **按地点名字检索**。
@@ -41,6 +41,7 @@
  */
 
 const { defaultTransport, redact, maskSecret } = require('../http');
+const { resolveKey } = require('../amap/key');
 const {
   parseLocation,
   extractPhotos,
@@ -75,27 +76,21 @@ function statusHint(status) {
 }
 
 /**
- * Key 归一化 —— **去掉前后空白**。
+ * ⚠️ Key 归一化的实现已挪到 `lib/amap/key.js`（2026-10-14）。
  *
- * ⚠️ 这不是洁癖。腾讯那边已经踩过一次（见 `actions/map.js` 的说明：
- * "检测到 MAP_KEY 前后有多余空白（常见于从控制台表格复制）"）。
- * 从控制台表格里复制 Key 时，很容易连同一个空格或换行一起带走，
- * 而后果是上游返回 `10001 Key 不正确` —— **一个把人引向"Key 本身错了"的
- * 错误诊断**，实际上只是多了个空格。
- *
- * 去空白的同时把"是否去过空白"记下来，好在报错时说清是哪种情况。
+ * 挪走的理由：公交 provider 要用**同一个 Key**、踩**同一个"粘贴带空格"的坑**。
+ * 留两份的话，漂移后果很具体：一处去了空白、另一处没去，
+ * 于是"照片能用、公交报 10001 Key 不正确"，排查方向直接跑偏。
  */
-function normalizeKey(raw) {
-  if (raw == null) return { key: '', trimmed: false, hadValue: false };
-  const s = String(raw);
-  const t = s.trim();
-  return { key: t, trimmed: t !== s, hadValue: s.length > 0 };
-}
 
 function createAmapPhotoProvider(opts) {
   opts = opts || {};
-  const rawKey = opts.key !== undefined ? opts.key : process.env.AMAP_KEY;
-  const normalized = normalizeKey(rawKey);
+  /**
+   * Key 归一化**从 `lib/amap/key.js` 引入，不在这里再写一份**（2026-10-14）。
+   * 公交 provider 也要用同一个 Key、踩同一个"粘贴带空格"的坑；
+   * 两处各写一份的话，漂移后果是"照片能用、公交报 10001"，排查方向直接跑偏。
+   */
+  const normalized = resolveKey(opts);
   const key = normalized.key;
   const textBaseUrl = opts.textBaseUrl || DEFAULT_TEXT_BASE;
   const timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT_MS;
@@ -288,7 +283,8 @@ module.exports = {
   createAmapPhotoProvider,
   statusHint,
   pickBestByName,
-  normalizeKey,
+  /** 转出共用的 Key 归一化 —— 保持既有调用方（含测试）可用 */
+  normalizeKey: require('../amap/key').normalizeKey,
   DEFAULT_REGION,
   CANDIDATE_WINDOW,
 };

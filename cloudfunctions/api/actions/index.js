@@ -95,6 +95,17 @@ module.exports = {
    */
   'photo.probe': require('./photo-probe'),
 
+  /**
+   * 公交（含地铁）路线探针 —— 先把三件事问清楚再往下做。
+   *
+   * ① 端点与权限（高德的接口逐个开通，Key 的「可使用服务」里要有公交路径规划）
+   * ② 字段路径（依文档写的，未实测）
+   * ③ 地铁识别（靠 `bus.type` 含「地铁」字样 —— 纯推测）
+   *
+   * 真实调用会消耗一次配额。见 lib/transit/amap.js。
+   */
+  'transit.probe': require('./transit-probe'),
+
   // 地图服务（10/14 验证）
   'map.probe': map.probe,
 

@@ -62,7 +62,7 @@ function describeError(e, stage) {
  * 提成常量之后，`test/injection-points.test.js` 会断言它，
  * 漏改会变成一条明确的失败，而不是一个需要靠猜的诊断。
  */
-const SERVICE_INJECTIONS = ['createMapProvider', 'createPhotoService'];
+const SERVICE_INJECTIONS = ['createMapProvider', 'createPhotoService', 'createTransitProvider'];
 
 /**
  * @param {object} event {action, requestId, expectedVersion, payload}
@@ -104,6 +104,12 @@ async function invoke(event, ctx) {
     createMapProvider: ctx.createMapProvider || null,
     /** 照片服务（lib/photo）—— 同 createMapProvider */
     createPhotoService: ctx.createPhotoService || null,
+    /**
+     * 公交（含地铁）路线服务（lib/transit）。
+     * 与腾讯分开：距离矩阵**明确没有公交**（见 lib/map/matrix-modes.js），
+     * 公交走高德的 transit/integrated。
+     */
+    createTransitProvider: ctx.createTransitProvider || null,
   };
 
   // 记录执行到了哪一步：定位"错误发生在幂等包装里还是业务里"往往是最关键的一步
