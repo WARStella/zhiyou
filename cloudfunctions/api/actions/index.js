@@ -78,6 +78,15 @@ module.exports = {
    */
   'place.survey': require('./survey'),
 
+  /**
+   * 地点照片（2026-10-14）—— 按名字向高德取 POI 照片，核验后落云存储。
+   *
+   * 单独一个 action 而不是塞进 place.list：高德是**月**配额（5,000/月），
+   * 列表接口顺手抓图会让一次页面刷新就烧掉几次配额。
+   * 真实 provider 见 lib/photo/amap.js；本地测试用 PHOTO_PROVIDER=fake。
+   */
+  'place.fetchPhotos': require('./photos'),
+
   // 地图服务（10/14 验证）
   'map.probe': map.probe,
 

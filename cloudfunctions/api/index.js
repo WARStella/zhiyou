@@ -26,5 +26,14 @@ exports.main = async (event, context) => {
     repo,
     openid: wxContext.OPENID,
     env,
+    /**
+     * 注入点必须**显式**声明，即使是"线上不注入替身"这个选择。
+     *
+     * 传 `null` 表示"用真实实现"，与"忘了写"是两件事 ——
+     * 而 `lib/invoke.js` 只能看出前者。不写就会在入口直接抛错，
+     * 而不是让动作层安静地回落到真实实现（那会掩盖真正的配置错误）。
+     */
+    createMapProvider: null,
+    createPhotoService: null,
   });
 };

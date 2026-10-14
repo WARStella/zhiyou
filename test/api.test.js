@@ -31,7 +31,7 @@ test('未知接口与未登录都返回结构化错误，不抛异常', async ()
   assert.ok(e1.message.includes('not.an.action'));
 
   const { invoke } = require('../cloudfunctions/api/lib/invoke');
-  const res = await invoke({ action: 'user.login', payload: {} }, { repo: w.repo, openid: null });
+  const res = await invoke({ action: 'user.login', payload: {} }, { repo: w.repo, openid: null, createMapProvider: null, createPhotoService: null });
   expectFail(res, 'AUTH_REQUIRED');
 });
 
@@ -556,7 +556,7 @@ test('非预期错误：开发环境暴露定位信息，生产环境一律隐�
   // ① 失败在幂等包装里（operations 集合）
   const devEarly = await invoke(
     { action: 'user.login', requestId: 'r1', payload: {} },
-    { repo: makeFailingRepo('operations'), openid: 'openid_A', env: 'dev' }
+    { repo: makeFailingRepo('operations'), openid: 'openid_A', env: 'dev', createMapProvider: null, createPhotoService: null }
   );
   assert.equal(devEarly.ok, false);
   assert.equal(devEarly.error.code, 'INTERNAL');
@@ -568,14 +568,14 @@ test('非预期错误：开发环境暴露定位信息，生产环境一律隐�
   // ② 失败在业务处理里（users 集合）
   const devLate = await invoke(
     { action: 'user.login', requestId: 'r2', payload: {} },
-    { repo: makeFailingRepo('users'), openid: 'openid_A', env: 'dev' }
+    { repo: makeFailingRepo('users'), openid: 'openid_A', env: 'dev', createMapProvider: null, createPhotoService: null }
   );
   assert.equal(devLate.error.details.stage, 'handler');
 
   // ③ 生产环境：同一错误，不泄露任何内部结构
   const prod = await invoke(
     { action: 'user.login', requestId: 'r3', payload: {} },
-    { repo: makeFailingRepo('users'), openid: 'openid_A', env: 'prod' }
+    { repo: makeFailingRepo('users'), openid: 'openid_A', env: 'prod', createMapProvider: null, createPhotoService: null }
   );
   assert.equal(prod.ok, false);
   assert.equal(prod.error.code, 'INTERNAL');
@@ -1144,7 +1144,7 @@ test('ops.selfTest：前置步骤失败时后续标记为跳过，而不是级�
 
   const res = await invoke(
     { action: 'ops.selfTest', requestId: 'selftest-fail', payload: {} },
-    { repo, openid: 'openid_A', env: 'dev' }
+    { repo, openid: 'openid_A', env: 'dev', createMapProvider: null, createPhotoService: null }
   );
 
   assert.equal(res.ok, true, '自检本身要成功返回，由 results 说明问题');
@@ -1257,7 +1257,7 @@ test('ops.verifyIndexes：索引缺失时必须报出来，而不是静默通过
 
   const res = await invoke(
     { action: 'ops.verifyIndexes', requestId: 'idx-fail', payload: {} },
-    { repo: permissive, openid: 'openid_A', env: 'dev' }
+    { repo: permissive, openid: 'openid_A', env: 'dev', createMapProvider: null, createPhotoService: null }
   );
 
   assert.equal(res.ok, true, '校验本身要成功返回，由 results 说明问题');

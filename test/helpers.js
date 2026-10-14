@@ -58,6 +58,15 @@ async function makeWorld(opts) {
         now: o.now ? new Date(o.now) : base,
         /** 动作层通过它拿到地图服务；测试可注入任意实现 */
         createMapProvider: opts.createMapProvider || defaultMapFactory,
+        /**
+         * 动作层通过它拿到照片服务（`lib/photo`）。
+         * 同 `createMapProvider` 的理由：照片要下载二进制、还要上传云存储，
+         * 让单元测试真去连外网 + 真去建云存储是错的做法。
+         *
+         * 显式传 `null` 而不是省略：省略会让 `invoke` 直接抛错（注入点必须声明），
+         * 那个设计是为了防"漏配悄然回落到真实实现"。不用照片的测试传 null 即可。
+         */
+        createPhotoService: opts.createPhotoService || null,
       }
     );
   };

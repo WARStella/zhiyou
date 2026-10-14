@@ -48,6 +48,23 @@ function describeError(e, stage) {
 }
 
 /**
+ * **外部服务的注入点清单 —— 单一事实来源。**
+ *
+ * 为什么把它提成常量（2026-10-14）：
+ * 加照片服务时踩了这条注释自己早就警告过的坑 —— 动作层写了
+ * `ctx.createPhotoService ? ... : 真实实现`，而白名单没加这一项，
+ * 于是测试注入的替身被静默丢掉，动作层回落到真实高德 provider，
+ * 报出来的却是 `AMAP_KEY_NOT_CONFIGURED`。
+ *
+ * 那个错误信息把人引向"Key 没配"，而真因是"注入没生效" ——
+ * 正是这条注释说的"看似无关的错误"。
+ *
+ * 提成常量之后，`test/injection-points.test.js` 会断言它，
+ * 漏改会变成一条明确的失败，而不是一个需要靠猜的诊断。
+ */
+const SERVICE_INJECTIONS = ['createMapProvider', 'createPhotoService'];
+
+/**
  * @param {object} event {action, requestId, expectedVersion, payload}
  * @param {object} ctx   {repo, openid, now, env}
  */
@@ -78,15 +95,15 @@ async function invoke(event, ctx) {
     payload: event.payload || {},
     action,
     /**
-     * 外部服务工厂由调用方注入 —— 云函数入口不传（动作层回落到真实实现），
-     * 测试注入替身。
+     * 外部服务工厂由调用方注入。**每个注入点都必须显式传值**（用不到就传 `null`），
+     * 缺一个就在下面抛错 —— 因为"没传"与"传了 null"在动作层看起来一样，
+     * 但前者是配置错误，后者是明确选择。
      *
-     * ⚠️ **这里是白名单，新增注入点必须同时改这里**。
-     * 漏改的后果很隐蔽：动作层拿到 `undefined` 后回落到真实实现，
-     * 于是测试发真实 HTTP 或报一个看似无关的错误 —— 而不是"注入没生效"。
-     * 所以注入点放在入口这一处，产品代码里不留任何测试钩子。
+     * 所以注入点只放在入口这一处，产品代码里不留任何测试钩子。
      */
     createMapProvider: ctx.createMapProvider || null,
+    /** 照片服务（lib/photo）—— 同 createMapProvider */
+    createPhotoService: ctx.createPhotoService || null,
   };
 
   // 记录执行到了哪一步：定位"错误发生在幂等包装里还是业务里"往往是最关键的一步
@@ -94,6 +111,30 @@ async function invoke(event, ctx) {
 
   let response;
   try {
+    /**
+     * 断言**入口**为每一个注入点提供了值（可以是 `null`，但必须显式给）。
+     *
+     * ⚠️ 别把这条检查写成"callCtx 里有没有这个键" —— callCtx 是上面那段代码自己写的，
+     * 那样断言恒为真，等于没写（2026-10-14 第一版就是这么错的）。
+     * 要检查的是 `ctx`（调用方传进来的那个）。
+     *
+     * 为什么必须显式：一处注入点没提供时，动作层会**静默回落到真实实现**，
+     * 表现为一个看似无关的错误（当初是 AMAP_KEY_NOT_CONFIGURED），
+     * 或者更糟 —— 测试悄悄去连了真实上游、烧掉月配额。
+     *
+     * 放在 try 内（而不是函数开头）：`invoke` 的设计是**异常一律转成响应结构**，
+     * 不抛给客户端。守卫也不该是例外，否则调用方要处理两种失败形态。
+     */
+    stage = 'injection';
+    const missingInjections = SERVICE_INJECTIONS.filter((key) => !(key in ctx));
+    if (missingInjections.length) {
+      throw new Error(
+        `注入点未提供：${missingInjections.join(', ')}。` +
+          `调用方必须为每个注入点显式传值（用不到就传 null）。` +
+          `未提供时动作层会静默回落到真实实现，那是必须避免的（见本文件顶部注释）`
+      );
+    }
+
     stage = 'idempotency';
     const runHandler = () => {
       stage = 'handler';
@@ -160,4 +201,4 @@ async function invoke(event, ctx) {
   return response;
 }
 
-module.exports = { invoke };
+module.exports = { invoke, SERVICE_INJECTIONS };
