@@ -1,4 +1,5 @@
 <view class="page">
+  <team-panel personal-trip-id="{{trip.tripId}}" />
 
   <!-- 含未核验地点时必须显著提示：说明它能做什么、不能做什么 -->
   <view wx:if="{{unverifiedNotice}}" class="warn">
@@ -118,15 +119,14 @@
 
       <view wx:if="{{loading && !candidates.length}}" class="hint">正在加载…</view>
       <view wx:if="{{!loading && !candidates.length}}" class="hint">
-        没有可选地点。可以搜索外部地点（会以**未核验**状态入库），
-        或到「自检」页初始化数据库灌入种子地点。
+        没有可选地点。可以搜索外部地点，或等待实地核验的地点录入。
       </view>
 
       <view
         wx:for="{{candidates}}"
-        wx:key="placeId"
+        wx:key="itemId"
         class="place {{item.selected ? 'on' : ''}}"
-        data-id="{{item.placeId}}"
+        data-id="{{item.itemId}}"
         bindtap="toggleCandidate"
       >
         <view class="place-left">
@@ -149,7 +149,7 @@
         <text class="k">游览顺序</text>
         <text class="v muted">勾选顺序即顺序</text>
       </view>
-      <view wx:for="{{selected}}" wx:key="placeId" class="sel">
+      <view wx:for="{{selected}}" wx:key="itemId" class="sel">
         <text class="sel-seq">{{index + 1}}</text>
         <view class="sel-body">
           <text class="sel-name">{{item.name}}</text>
@@ -159,7 +159,7 @@
           -->
           <text wx:if="{{item.reason}}" class="sel-reason">{{item.reason}}</text>
         </view>
-        <text class="sel-del" data-id="{{item.placeId}}" bindtap="removeSelected">移除</text>
+        <text class="sel-del" data-id="{{item.itemId}}" bindtap="removeSelected">移除</text>
       </view>
     </view>
 
@@ -354,8 +354,8 @@
 
             <!-- 调整：改计划，会重算后续 -->
             <view class="acts">
-              <view class="act" data-nodeid="{{item.nodeId}}" data-key="extend" bindtap="nodeAction">多停 10 分钟</view>
-              <view class="act" data-nodeid="{{item.nodeId}}" data-key="shorten" bindtap="nodeAction">少停 10 分钟</view>
+              <view class="act" data-nodeid="{{item.nodeId}}" data-key="extend" bindtap="nodeAction">多停一会儿</view>
+              <view class="act" data-nodeid="{{item.nodeId}}" data-key="shorten" bindtap="nodeAction">少停一会儿</view>
               <view class="act warn-act" data-nodeid="{{item.nodeId}}" data-key="skip" bindtap="nodeAction">不去了</view>
             </view>
           </view>

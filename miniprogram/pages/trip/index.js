@@ -20,6 +20,7 @@
  */
 
 const api = require('../../utils/api')
+const { requestMinutes } = require('../../utils/stay-duration')
 
 const STATUS_LABEL = {
   pending: '待游览',
@@ -196,9 +197,13 @@ Page({
           return
         }
         that.setCandidates(
-          (res.data.places || []).map(function (p) {
+          (res.data.places || []).filter(p => !/^PLACEHOLDER(?:_|$)/i.test(p.dataSource || '') && !/[（(]占位[）)]/.test(p.name || '')).map(function (p) {
             return {
+              itemId: p.placeId,
               placeId: p.placeId,
+              poiId: p.poiId || null,
+              location: p.location,
+              visitDurationMin: p.visitDurationMin || null,
               name: p.name,
               category: p.category,
               verified: p.verified,
@@ -542,12 +547,7 @@ Page({
     if (at >= 0) {
       selected.splice(at, 1)
     } else {
-      selected.push({
-        placeId: item.placeId,
-        name: item.name,
-        category: item.category,
-        verified: item.verified,
-      })
+      selected.push(selectedOf(item, ''))
     }
 
     const selectedIds = selected.map((x) => x.itemId)
@@ -1309,17 +1309,25 @@ Page({
   // ══════════ 调整 ══════════
 
   /** 快捷调整：生成候选（**不直接改行程** —— 生效必须走确认） */
-  nodeAction(e) {
+  async nodeAction(e) {
     const that = this
     const { nodeid: nodeId, key } = e.currentTarget.dataset
-    if (!this.data.trip) return
+    if (!this.data.trip || this.data.busy) return
+    let deltaMin
+    if (key !== 'skip') {
+      this.setData({ busy: 'duration', error: '' })
+      try { deltaMin = await requestMinutes(key === 'shorten') }
+      catch (err) { this.setData({ error: err.message }); return }
+      finally { this.setData({ busy: '' }) }
+      if (deltaMin == null) return
+    }
 
     const trigger =
       key === 'skip'
         ? { type: 'skip_node', payload: { nodeId } }
         : {
             type: key === 'extend' ? 'extend_stay' : 'shorten_stay',
-            payload: { nodeId, deltaMin: 10 },
+            payload: { nodeId, deltaMin },
           }
 
     this.setData({ busy: 'adjust', error: '' })

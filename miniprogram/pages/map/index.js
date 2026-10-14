@@ -70,6 +70,12 @@ Page({
     this.loadPlaces()
   },
 
+  onTeamState(e) {
+    this.teamLocations = e.detail.locations || []
+    this.teamMeeting = e.detail.meeting || null
+    this.refreshMarkers()
+  },
+
   loadPlaces() {
     const that = this
     api
@@ -255,6 +261,14 @@ Page({
           ]
         : []
 
+    ;(this.teamLocations || []).forEach((m, i) => markers.push({
+      id: 2000 + i, latitude: m.point.latitude, longitude: m.point.longitude,
+      iconPath: '/assets/dot-me.png', width: 24, height: 24,
+      callout: { content: '队员 ' + (i + 1) + (m.source === 'gps' ? ' · 定位' : ' · 手动'), display: 'BYCLICK' },
+    }))
+    if (this.teamMeeting) markers.push({ id: 3000, latitude: this.teamMeeting.point.latitude,
+      longitude: this.teamMeeting.point.longitude, iconPath: '/assets/pin-meeting.png', width: 34, height: 42,
+      callout: { content: this.teamMeeting.name, display: 'ALWAYS' } })
     this.setData({ markers, polyline })
   },
 })

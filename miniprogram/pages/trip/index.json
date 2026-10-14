@@ -1,4 +1,6 @@
 {
   "navigationBarTitleText": "行程",
-  "usingComponents": {}
+  "usingComponents": {
+    "team-panel": "/components/team-panel/index"
+  }
 }

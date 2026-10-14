@@ -17,6 +17,7 @@
   </view>
 
   <view class="body">
+    <team-panel point="{{myPoint}}" source="{{mySource}}" bind:teamstate="onTeamState" />
 
     <view wx:if="{{loading}}" class="hint">正在加载地点数据…</view>
     <view wx:if="{{loadError}}" class="err">地点加载失败：{{loadError}}</view>
@@ -62,7 +63,7 @@
           <text class="meters">{{item.meters}} 米</text>
         </view>
       </view>
-      <view class="rule">排序规则：先让最远的成员步行时间最短（minimax），再比较平均值与差距</view>
+      <view class="rule">个人参考：直线距离乘绕行系数估算，并非小队路网推荐。</view>
     </view>
 
     <view wx:if="{{meetingPoint}}" class="card sel">
@@ -75,12 +76,12 @@
 
     <view wx:if="{{!places.length && !loading}}" class="card">
       <view class="hint">
-        数据库里暂时没有地点数据。先回自检页点「初始化数据库」灌入种子地点。
+        数据库里暂时没有地点数据。可先手动选点，核验地点将在踏勘后录入。
       </view>
     </view>
 
     <view class="foot">
-      演示用途 · 地点数据来自云数据库 places 集合（种子数据尚未实地核验）
+      地点数据来自已录入地点；集合位置由成员共同确认。
     </view>
   </view>
 </view>

@@ -1,0 +1,75 @@
+<view class="panel">
+  <view class="title">{{crew ? crew.name : '与同伴一起游览'}}</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view><view wx:if="{{message}}" class="hint">{{message}}</view>
+  <block wx:if="{{!crewId}}">
+    <input placeholder="小队名称（选填）" value="{{name}}" data-field="name" bindinput="input" maxlength="20"/>
+    <button disabled="{{busy}}" bindtap="create">创建小队</button>
+    <input placeholder="输入同伴的邀请码" value="{{invite}}" data-field="invite" bindinput="input" maxlength="6"/>
+    <button disabled="{{busy}}" bindtap="join">加入小队</button>
+  </block>
+  <block wx:else>
+    <view class="hint">邀请码 {{crew.inviteCode}} · {{members.length}} 位成员</view>
+    <button size="mini" bindtap="copyInvite" disabled="{{!crew}}">复制邀请码给同伴</button>
+    <button size="mini" bindtap="refresh" disabled="{{busy}}">刷新团队状态</button>
+    <view class="hint">{{busy ? '正在同步…' : '最后刷新：' + refreshed}}</view>
+    <view wx:for="{{members}}" wx:key="userId" class="row">{{item.label}} {{item.role === 'owner' ? '· 发起人' : ''}}<view class="hint">{{item.locationText}}</view></view>
+    <view class="subtitle">共同路线</view>
+    <block wx:if="{{trip}}">
+      <view>{{trip.title}}</view>
+      <view wx:for="{{trip.nodes}}" wx:key="nodeId" class="row">
+        <view>{{index + 1}}. {{item.placeName || item.name || item.placeId}} · {{item.label}}</view><view class="hint">预计到达 {{item.timeLabel}}</view>
+        <button wx:if="{{owner && item.status === 'pending'}}" size="mini" data-id="{{item.nodeId}}" data-status="arrived" bindtap="progress" disabled="{{busy}}">团队已到达</button>
+        <button wx:if="{{owner && item.status === 'arrived'}}" size="mini" data-id="{{item.nodeId}}" data-status="done" bindtap="progress" disabled="{{busy}}">本站游览完成</button>
+        <block wx:if="{{owner && (item.status === 'pending' || item.status === 'arrived')}}">
+          <button size="mini" data-id="{{item.nodeId}}" data-kind="extend" bindtap="adjust" disabled="{{busy}}">多停一会儿</button>
+          <button size="mini" data-id="{{item.nodeId}}" data-kind="shorten" bindtap="adjust" disabled="{{busy}}">少停一会儿</button>
+          <button size="mini" data-id="{{item.nodeId}}" data-kind="skip" bindtap="adjust" disabled="{{busy}}">提议跳过</button>
+        </block>
+      </view>
+    </block>
+    <view wx:else class="hint">由发起人在行程页生成个人路线，再复制为共同路线。</view>
+    <button wx:if="{{owner && !trip && personalTripId}}" bindtap="publish" disabled="{{busy}}">把当前个人路线复制为共同路线</button>
+    <view class="subtitle">位置与集合</view>
+    <button size="mini" bindtap="toggleSharing" disabled="{{busy}}">{{sharing ? '关闭位置共享' : '开启位置共享'}}</button>
+    <button size="mini" bindtap="report" disabled="{{busy || !sharing || !point}}">共享本次选取的位置</button>
+    <view class="hint">主动上报一次位置，不持续定位。刷新时隐藏过期位置；未刷新前请留意上报时间。</view>
+    <button wx:if="{{!point}}" bindtap="openMap">去地图选取位置</button>
+    <view wx:if="{{task}}" class="row">
+      <view>{{task.placeName || '约定集合点'}} · {{task.label}}</view>
+      <view class="hint">约定 {{task.timeLabel}}</view><view class="hint">到齐 {{task.arrivedLabel}}</view><view class="hint">出发 {{task.departedLabel}}</view>
+      <view wx:for="{{task.participants}}" wx:key="userId">{{item.label}}：{{item.statusLabel}}</view>
+      <block wx:if="{{task.status === 'proposed' || task.status === 'confirmed'}}">
+        <button size="mini" data-kind="confirm" bindtap="meetAction" disabled="{{busy}}">确认集合</button>
+        <button size="mini" data-kind="decline" bindtap="meetAction" disabled="{{busy}}">暂不参加</button>
+      </block>
+      <button wx:if="{{task.status === 'confirmed' || task.status === 'active'}}" data-kind="arrive" bindtap="meetAction" disabled="{{busy}}">我已到达</button>
+      <block wx:if="{{task.status === 'arrived_all' && task.isInitiator}}">
+        <button bindtap="prepareDepart" disabled="{{busy}}">准备出发 · 检查后续行程</button>
+        <view wx:if="{{departureCheck}}" class="hint">
+          {{departureCheck.message}}
+          <view wx:if="{{departureCheck.tripImpact}}">预计结束：{{departureCheck.tripImpact.remainingEndAt}}（ISO 时间）</view>
+          <view wx:for="{{departureCheck.tripImpact.conflicts}}" wx:key="code">{{item.message}}</view>
+          <view>{{departureCheck.tripImpact.travelNote}}</view>
+          <view>检查有效期两分钟，刷新或调整路线后请重新检查。</view>
+        </view>
+        <button wx:if="{{departureCheck.canDepart}}" data-kind="depart" bindtap="meetAction" disabled="{{busy}}">确认现在出发</button>
+      </block>
+    </view>
+    <button wx:if="{{owner && task && task.status !== 'departed' && task.status !== 'cancelled'}}" class="secondary" bindtap="cancelMeeting" disabled="{{busy}}">取消本次集合 / 重新约定</button>
+    <view wx:if="{{proposal}}">
+      <view>{{proposal.reason}}</view>
+      <view wx:for="{{proposal.candidates}}" wx:key="candidateId" class="row">
+        <view>方案 {{index + 1}} · {{item.feasible ? '可执行' : '不满足条件'}}</view>
+        <view wx:for="{{item.nodes}}" wx:for-item="node" wx:key="nodeId" class="hint">{{node.placeName || node.name || node.placeId}} · 停留 {{node.stayMin}} 分钟</view>
+        <button wx:if="{{item.feasible && owner}}" data-id="{{item.candidateId}}" bindtap="accept" disabled="{{busy}}">确认采用此方案</button>
+      </view>
+    </view>
+    <block wx:if="{{owner && (!task || task.status === 'departed' || task.status === 'cancelled')}}">
+      <view class="hint">使用地图上“我的位置”作为手动集合点，请与成员核对可达性。</view>
+      <input placeholder="集合点名称，如南门指示牌旁" value="{{pointName}}" data-field="pointName" bindinput="input"/>
+      <picker mode="time" value="{{meetTime}}" data-field="meetTime" bindchange="input"><view class="row">今天集合时间：{{meetTime}}（点击修改）</view></picker>
+      <button bindtap="createMeeting" disabled="{{busy || !point}}">发起集合</button>
+    </block>
+    <button class="secondary" bindtap="leave" disabled="{{busy}}">{{owner ? '解散小队' : '退出小队'}}</button>
+  </block>
+</view>
