@@ -567,6 +567,22 @@ async function plan(ctx) {
        * 见 lib/ai/rulebased.js 里 `stayMinutesByText` 的说明。
        */
       stayByText: p.stayByText || null,
+      /**
+       * 用户自选的出行方式（2026-10-14 用户要求"给出选项让用户自己选择"）。
+       *
+       * ⚠️⚠️ **这个字段我漏过一次，而它的症状极具迷惑性**：
+       * 用户选了步行，界面却仍然显示"驾车最快 / 骑行最快"。
+       *
+       * `spec` 是**显式逐字段拼出来的** —— 新字段不写进来就**静默丢掉**，
+       * 后端读到 `undefined` 后按"自动"处理，**不报错、不留痕**。
+       * 看起来就像"云函数没部署"或"前端没编译"，于是我会先去怀疑环境，
+       * 而真正的原因在这里。
+       *
+       * 同一个坑在 `startLegView`（前端那处）已经犯过一次。
+       * **凡是"显式挑字段"的对象，加字段时必须同时改三处：**
+       * 这里、前端的 `startLegView`、以及 `buildCurrentLeg`。
+       */
+      preferredMode: p.preferredMode || null,
     };
   }
 
