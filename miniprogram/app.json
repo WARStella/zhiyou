@@ -2,6 +2,7 @@
   "pages": [
     "pages/trip/index",
     "pages/map/index",
+    "pages/profile/index",
     "pages/index/index",
     "pages/debug-team/index"
   ],
@@ -27,8 +28,8 @@
         "text": "地图"
       },
       {
-        "pagePath": "pages/index/index",
-        "text": "自检"
+        "pagePath": "pages/profile/index",
+        "text": "我的"
       }
     ]
   },

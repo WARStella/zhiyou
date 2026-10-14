@@ -132,8 +132,14 @@ test('WXSS 不得用属性选择器 —— 它不生效，而且不报错', () =
  */
 test('给组件的 String 属性传值时要有空串兜底，别让 null 覆盖默认值', () => {
   /**
-   * 只做**零误报**的检查：找出"传给组件的表达式"里直接读属性的写法，
-   * 且该属性名在组件里声明为 String。
+   * ⚠️ 这个检查必须**查证来源**，不能只看"表达式里有没有 `||`"。
+   *
+   * 我第一版就是这么写的 —— 于是它把 profile 页的
+   * `source="{{mySource}}"` 报了出来，而那里的 `mySource` 初始值是
+   * **空串**（类型兼容，完全没问题）。**守卫误报了合法代码。**
+   *
+   * 现在多一步：去页面 data 里查这个字段的初始值，
+   * 只有**可能为 null** 时才报。
    *
    * 目前只有 team-panel 一个组件，所以这里显式列出它的 String 属性 ——
    * 比写一个通用解析器可靠（那种解析器我在这份文件里试过三次，都误报）。
@@ -143,14 +149,27 @@ test('给组件的 String 属性传值时要有空串兜底，别让 null 覆盖
 
   for (const file of FILES) {
     const src = fs.readFileSync(file, 'utf8');
+    /** 同一目录下的 index.js 里能找到 `字段名: null` 就说明它可能为 null */
+    const jsPath = path.join(path.dirname(file), 'index.js');
+    const js = fs.existsSync(jsPath) ? fs.readFileSync(jsPath, 'utf8') : '';
+
     for (const prop of STRING_PROPS) {
       const re = new RegExp(`${prop}="\\{\\{([^}]*)\\}\\}"`, 'g');
       let m;
       while ((m = re.exec(src)) !== null) {
         const expr = m[1].trim();
-        /** 已经有兜底就不管：`|| ''`、`? ... : ...`、字面量 */
+        /** 已经有兜底的不管：`|| ''`、三元、字面量 */
         if (/\|\||\?|'/.test(expr)) continue;
-        offenders.push(`${path.relative(MINIPROGRAM, file)}  ${prop}="{{${expr}}}"`);
+        /**
+         * 取表达式的最后一个标识符（`trip.tripId` → `tripId`，
+         * `mySource` → `mySource`），再去查它的初始值。
+         */
+        const field = expr.split('.').pop().trim();
+        const looksNullable = new RegExp(`\\b${field}\\s*:\\s*null\\b`).test(js);
+        if (!looksNullable) continue;
+        offenders.push(
+          `${path.relative(MINIPROGRAM, file)}  ${prop}="{{${expr}}}"  （${field} 初始为 null）`
+        );
       }
     }
   }

@@ -90,7 +90,22 @@ test('取消集合使旧确认失效，成员不能取消',async()=>{
   assert.equal((await w.B('meet.confirm',{meetTaskId:task.meetTaskId,decision:'confirm'},{expectedVersion:1})).ok,false);
 });
 test('正式页面组件注册与事件绑定完整',()=>{
-  for(const p of ['trip','map'])assert.equal(require('../miniprogram/pages/'+p+'/index.json').usingComponents['team-panel'],'/components/team-panel/index');
+  /**
+   * ⚠️ 注册在哪两页是**有理由的**，不是随便放的（2026-10-14 改）：
+   *
+   *   · **profile（我的）** —— 完整的小队面板在这里（用户要求把组队邀请
+   *     从行程页挪过来）。创建/加入/邀请码/发起集合都在这一页。
+   *   · **map（地图）** —— 面板抛的 `teamstate` 事件提供**队员位置与集合点**，
+   *     地图据此画图钉。移走它地图就看不到同伴在哪了，所以必须留着。
+   *   · **trip（行程）** —— **刻意不注册**。用户明确要求把它从行程页移除；
+   *     而行程页对它的状态零依赖，移除是干净的。
+   */
+  for(const p of ['profile','map'])assert.equal(require('../miniprogram/pages/'+p+'/index.json').usingComponents['team-panel'],'/components/team-panel/index');
+  assert.equal(
+    (require('../miniprogram/pages/trip/index.json').usingComponents||{})['team-panel'],
+    undefined,
+    '行程页不该再注册小队面板 —— 它已挪到「我的」'
+  );
   const xml=fs.readFileSync(path.join(__dirname,'../miniprogram/components/team-panel/index.wxml'),'utf8');
   const c=component({},'A');
   for(const m of xml.matchAll(/bind(?:tap|input|change)="([^"]+)"/g))assert.equal(typeof c[m[1]],'function',m[1]);

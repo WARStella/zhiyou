@@ -29,6 +29,15 @@ module.exports = {
   // 用户与运维
   'user.login': user.login,
   'ops.health': user.health,
+
+  /**
+   * 个人资料（2026-10-14 用户要求「我的」界面要有用户id/头像/用户名/默认出行方式）。
+   *
+   * ⚠️ 这两个是**产品功能**，不是 ops 脚手架 —— 所以不带 ops. 前缀，
+   * 也不限 dev。用户在正式版里就要能改自己的昵称与头像。
+   */
+  'user.getProfile': user.getProfile,
+  'user.updateProfile': user.updateProfile,
   'ops.initDb': user.initDb,
   'ops.selfTest': user.selfTest,
   'ops.verifyIndexes': user.verifyIndexes,

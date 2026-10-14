@@ -1,0 +1,107 @@
+<view class="page">
+
+  <!-- ══════════ 个人资料 ══════════ -->
+  <view class="card prof">
+    <!--
+      头像：`open-type="chooseAvatar"` 是微信当前推荐的做法。
+      ⚠️ **不要改成 wx.getUserProfile** —— 那个接口已被微信收回，
+      只会返回灰色默认头像与"微信用户"。
+      没设置头像时显示昵称首字的色块（底色按用户 ID 稳定取），
+      不塞一张假头像图片 —— 与"宁可没有线也不拿示意图冒充真实路线"同一条纪律。
+    -->
+    <button class="avatar-btn" open-type="chooseAvatar" bindchooseavatar="onChooseAvatar" disabled="{{saving}}">
+      <image wx:if="{{avatarUrl}}" class="avatar-img" src="{{avatarUrl}}" mode="aspectFill" />
+      <view wx:else class="avatar-fallback" style="background: {{avatarColor}}">{{initial}}</view>
+    </button>
+
+    <view class="prof-main">
+      <!-- 昵称：默认只读，点「改」才变输入框，避免误改 -->
+      <block wx:if="{{!editingNickname}}">
+        <view class="prof-name-row">
+          <text class="prof-name">{{nicknameDisplay}}</text>
+          <text class="prof-edit" bindtap="startEditNickname">改</text>
+        </view>
+      </block>
+      <block wx:else>
+        <view class="prof-name-row">
+          <input
+            class="prof-input"
+            value="{{nicknameDraft}}"
+            placeholder="输入昵称"
+            maxlength="20"
+            bindinput="onNicknameInput"
+            focus
+          />
+        </view>
+        <view class="prof-name-row">
+          <text class="prof-save" bindtap="saveNickname">保存</text>
+          <text class="prof-cancel" bindtap="cancelEditNickname">取消</text>
+        </view>
+      </block>
+
+      <!--
+        用户 ID —— 组队排障、对照日志时要用，所以放在显眼处并可复制。
+        只显示后 8 位（够用于对照），完整值靠点按复制，避免截图时泄露。
+      -->
+      <view class="prof-id" bindtap="copyUserId">
+        <text class="prof-id-label">用户 ID</text>
+        <text class="prof-id-value">{{userId ? userId : '—'}}</text>
+        <text class="prof-id-copy">复制</text>
+      </view>
+    </view>
+  </view>
+
+  <view wx:if="{{error}}" class="err">{{error}}</view>
+
+  <!-- ══════════ 默认出行方式 ══════════ -->
+  <view class="card">
+    <view class="row">
+      <text class="k">默认出行方式</text>
+      <picker
+        mode="selector"
+        range="{{travelModeOptions}}"
+        range-key="label"
+        value="{{travelModeIndex}}"
+        bindchange="onTravelModeChange"
+      >
+        <view class="v link">{{travelModeOptions[travelModeIndex].label || '自动'}}</view>
+      </picker>
+    </view>
+    <view class="sub">
+      生成路线时先用它。**是偏好不是强制** —— 某一段它走不通时会给最快的方式，
+      并在那一段上说明原因。到了行程页还可以逐段单独改。
+    </view>
+  </view>
+
+  <!-- ══════════ 小队与集合 ══════════ -->
+  <!--
+    完整的小队面板挪到这里（2026-10-14 用户要求）。
+    此前它挂在行程页顶部，折叠着也占位置，而组队配置属于设置、不是行程内容。
+
+    ⚠️ `personal-trip-id` 从本地读（`loadActiveTripId`），不是从行程对象 ——
+    这一页手上没有行程对象。传空串时组件会提示"请先在行程页生成个人路线"，
+    那正是事实。
+    ⚠️ `source` 要有空串兜底：它声明为 String 属性，而小程序里
+    **属性传 null 不算"没传"**，会覆盖掉组件的默认值。
+  -->
+  <team-panel
+    personal-trip-id="{{personalTripId}}"
+    point="{{myPoint}}"
+    source="{{mySource || ''}}"
+    bind:teamstate="onTeamState"
+  />
+
+  <!-- ══════════ 开发工具 ══════════ -->
+  <view class="card">
+    <view class="row">
+      <text class="k">开发工具</text>
+    </view>
+    <view class="sub">
+      联调自检是**开发脚手架**，不是产品功能：真机出问题时先跑一次它，
+      能分清"后端没通"还是"页面逻辑有问题"。
+    </view>
+    <button class="btn ghost small" bindtap="openSelfCheck">打开联调自检</button>
+  </view>
+
+  <view class="foot">智游·灵动 · 游览路线协同</view>
+</view>

@@ -1,0 +1,205 @@
+/* 「我的」页（2026-10-14） */
+
+.page {
+  padding: 24rpx;
+  min-height: 100vh;
+  background: #f5f6f8;
+  box-sizing: border-box;
+}
+
+.card {
+  background: #fff;
+  border-radius: 20rpx;
+  padding: 24rpx;
+  margin-bottom: 20rpx;
+  color: #20334a;
+  font-size: 27rpx;
+  line-height: 1.7;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.k {
+  color: #65758a;
+  font-size: 25rpx;
+}
+
+.v {
+  font-size: 27rpx;
+}
+
+.link {
+  color: #0b3c6e;
+  font-weight: 600;
+}
+
+.sub {
+  font-size: 22rpx;
+  color: #9aa5b1;
+  margin-top: 8rpx;
+  line-height: 1.7;
+}
+
+.err {
+  color: #aa3028;
+  background: #fff0ed;
+  padding: 16rpx;
+  border-radius: 10rpx;
+  margin-bottom: 20rpx;
+  font-size: 24rpx;
+}
+
+/* ── 个人资料 ──────────────────────────────────────────── */
+
+.prof {
+  display: flex;
+  align-items: center;
+}
+
+/*
+ * 头像按钮。
+ * ⚠️ `<button open-type="chooseAvatar">` 自带默认样式（灰底、边框、内边距），
+ * 必须清掉，否则会套一个方框在头像外面。
+ */
+.avatar-btn {
+  width: 132rpx;
+  height: 132rpx;
+  padding: 0;
+  margin: 0 24rpx 0 0;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  line-height: 1;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.avatar-btn::after {
+  border: none;
+}
+.avatar-img {
+  width: 132rpx;
+  height: 132rpx;
+  border-radius: 50%;
+  display: block;
+}
+/* 没头像时用昵称首字 + 稳定底色，不塞假图片 */
+.avatar-fallback {
+  width: 132rpx;
+  height: 132rpx;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 52rpx;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.prof-main {
+  flex: 1;
+  min-width: 0;
+}
+.prof-name-row {
+  display: flex;
+  align-items: center;
+}
+.prof-name {
+  font-size: 34rpx;
+  font-weight: 700;
+}
+.prof-edit {
+  margin-left: 16rpx;
+  font-size: 23rpx;
+  color: #0b3c6e;
+  border: 1rpx solid #0b3c6e;
+  border-radius: 8rpx;
+  padding: 0 12rpx;
+}
+.prof-input {
+  flex: 1;
+  background: #f3f6fa;
+  padding: 12rpx 16rpx;
+  border-radius: 10rpx;
+  font-size: 28rpx;
+}
+.prof-save {
+  font-size: 23rpx;
+  color: #fff;
+  background: #0b3c6e;
+  border-radius: 8rpx;
+  padding: 4rpx 18rpx;
+  margin-right: 16rpx;
+}
+.prof-cancel {
+  font-size: 23rpx;
+  color: #65758a;
+}
+
+/* 用户 ID：可点按复制 */
+.prof-id {
+  display: flex;
+  align-items: center;
+  margin-top: 10rpx;
+}
+.prof-id-label {
+  font-size: 21rpx;
+  color: #9aa5b1;
+  margin-right: 10rpx;
+}
+.prof-id-value {
+  font-size: 21rpx;
+  color: #65758a;
+  font-family: monospace;
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+}
+.prof-id-copy {
+  font-size: 21rpx;
+  color: #0b3c6e;
+  margin-left: 12rpx;
+  flex-shrink: 0;
+}
+
+/* ── 按钮 ──────────────────────────────────────────────── */
+
+.btn {
+  background: #0b3c6e;
+  color: #fff;
+  font-size: 26rpx;
+  border-radius: 12rpx;
+  margin-top: 16rpx;
+}
+.btn.ghost {
+  background: #fff;
+  color: #0b3c6e;
+  border: 2rpx solid #0b3c6e;
+}
+/*
+ * 禁用态。属性选择器在 WXSS 里**不生效**（编译器会警告），
+ * 所以按类名 + 伪类写。
+ */
+.btn.button-disabled,
+.btn:disabled {
+  background: #9aa5b1;
+  color: #fff;
+}
+.btn.ghost.button-disabled,
+.btn.ghost:disabled {
+  color: #9aa5b1;
+  border-color: #cfd6dd;
+}
+.btn.small {
+  font-size: 24rpx;
+}
+
+.foot {
+  text-align: center;
+  font-size: 20rpx;
+  color: #b8c2cc;
+  margin: 30rpx 0 20rpx;
+}

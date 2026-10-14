@@ -1,0 +1,6 @@
+{
+  "usingComponents": {
+    "team-panel": "/components/team-panel/index"
+  },
+  "navigationBarTitleText": "我的"
+}

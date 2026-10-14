@@ -33,6 +33,126 @@ async function login(ctx) {
 }
 
 /**
+ * ── 个人资料（2026-10-14 用户要求）──────────────────────────
+ *
+ * 用户原话："我的界面还需包含用户id与头像，用户名，默认出行方式等"
+ *
+ * 所以 `users` 从"只有 openid 的登录记录"扩成一个真正的资料档案。
+ * 三个字段都是**可选**的 —— 没填就显示兜底文案，而不是报错：
+ * 新用户第一次进「我的」时这三个字段全是空的。
+ */
+
+/** 昵称长度上限。与界面上的 `maxlength` 保持一致，两处都要挡 */
+const NICKNAME_MAX = 20;
+
+/**
+ * 默认出行方式的可选值 —— **与 `lib/mode-choice.js` 的 MODE_OPTIONS 同源**。
+ *
+ * 刻意 require 过来而不是再抄一份：抄一份就会漂移，
+ * 而漂移的症状是"界面能选、后端不认"，很费劲才查得出来。
+ */
+const modeChoice = require('../lib/mode-choice');
+
+/** 把用户记录整理成界面要的形状（**不泄露 openid 以外的敏感字段**） */
+function profileOf(user) {
+  if (!user) return null;
+  return {
+    userId: user._id,
+    /** 昵称未设置时为 null —— 界面显示兜底文案（如"未命名"），不要编一个 */
+    nickname: user.nickname || null,
+    /** 云存储 fileID；界面用 wx.cloud.getTempFileURL 换成可显示的临时地址 */
+    avatarFileId: user.avatarFileId || null,
+    /**
+     * 默认出行方式。`auto` = 按最快自动挑。
+     *
+     * ⚠️ 未设置时回 `auto` 而不是 null —— 它是**有默认语义**的，
+     * 与昵称（true null = 没填）不同。
+     */
+    defaultTravelMode: user.defaultTravelMode || modeChoice.PREFERRED_MODE.AUTO,
+    createdAt: user.createdAt || null,
+    lastSeenAt: user.lastSeenAt || null,
+  };
+}
+
+/** 读自己的资料。找不到记录时**先建一条**（与 login 同一个兜底） */
+async function getProfile(ctx) {
+  const { repo, openid } = ctx;
+  const now = ctx.now ? new Date(ctx.now) : new Date();
+
+  let user = await repo.findOne(C.USERS, { openid });
+  if (!user) {
+    user = await repo.insert(C.USERS, { openid, createdAt: now, lastSeenAt: now });
+  }
+
+  return resp.ok({
+    profile: profileOf(user),
+    /** 界面要用它渲染出行方式选项，避免前后端两份表漂移 */
+    travelModeOptions: modeChoice.MODE_OPTIONS,
+  });
+}
+
+/**
+ * 改自己的资料。**按字段部分更新** —— 只传昵称不会把头像清掉。
+ *
+ * @param {object} ctx.payload
+ *   `nickname`           昵称，空串表示清空
+ *   `avatarFileId`       头像的云存储 fileID，空串表示清空
+ *   `defaultTravelMode`  默认出行方式，须在 MODE_OPTIONS 的值域内
+ */
+async function updateProfile(ctx) {
+  const { repo, openid } = ctx;
+  const p = ctx.payload || {};
+  const now = ctx.now ? new Date(ctx.now) : new Date();
+
+  const user = await repo.findOne(C.USERS, { openid });
+  if (!user) throw fail(CODES.NOT_FOUND, '用户记录不存在，请先调用 user.login 或 user.getProfile');
+
+  const patch = {};
+
+  if (p.nickname !== undefined) {
+    /**
+     * ⚠️ 昵称要**去掉首尾空白**再判空：用户输了一串空格时，
+     * 存下来会让界面显示成"有名字但看不见"，比直接当没填更糟。
+     */
+    const nickname = String(p.nickname == null ? '' : p.nickname).trim();
+    if (nickname.length > NICKNAME_MAX) {
+      throw fail(CODES.INVALID_PARAM, `昵称最多 ${NICKNAME_MAX} 个字`);
+    }
+    patch.nickname = nickname || null;
+  }
+
+  if (p.avatarFileId !== undefined) {
+    const fileId = String(p.avatarFileId == null ? '' : p.avatarFileId).trim();
+    patch.avatarFileId = fileId || null;
+  }
+
+  if (p.defaultTravelMode !== undefined) {
+    const mode = String(p.defaultTravelMode == null ? '' : p.defaultTravelMode);
+    if (!modeChoice.isPreferredMode(mode)) {
+      throw fail(
+        CODES.INVALID_PARAM,
+        `不认识的出行方式「${mode}」。可选：${modeChoice.MODE_OPTIONS.map((o) => o.value).join(' / ')}`
+      );
+    }
+    patch.defaultTravelMode = mode;
+  }
+
+  if (!Object.keys(patch).length) {
+    /** 什么都没传不是错误，但要说清"没有可更新的字段"，别让调用方以为改成功了 */
+    return resp.ok({ profile: profileOf(user), updated: [], note: '没有需要更新的字段' });
+  }
+
+  await repo.update(C.USERS, user._id, patch);
+
+  /**
+   * 回读一次再返回 —— **不能拿 `patch` 当作结果**：
+   * 它只有本次改的字段，界面拿它渲染会把没改的字段变成空白。
+   */
+  const fresh = await repo.findOne(C.USERS, { openid });
+  return resp.ok({ profile: profileOf(fresh), updated: Object.keys(patch), at: now.toISOString() });
+}
+
+/**
  * 联调自检：一次调用看清环境、依赖与数据状态。
  * 10/13 的"工程能启动"验收就靠它 —— 云开发环境下应能直接跑通。
  */
@@ -586,4 +706,17 @@ async function walkStats(ctx) {
   });
 }
 
-module.exports = { login, health, initDb, selfTest, verifyIndexes, walkStats };
+module.exports = {
+  login,
+  health,
+  initDb,
+  selfTest,
+  verifyIndexes,
+  walkStats,
+  /** 个人资料（2026-10-14） */
+  getProfile,
+  updateProfile,
+  /** 供其它 action 复用同一套字段整理逻辑 */
+  profileOf,
+  NICKNAME_MAX,
+};
