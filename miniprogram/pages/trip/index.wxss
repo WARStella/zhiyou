@@ -146,7 +146,13 @@
   font-size: 29rpx;
   border-radius: 12rpx;
 }
-.btn[disabled] {
+/*
+ * 禁用态。⚠️ 原写法 `.btn[disabled]` 是**属性选择器**，WXSS 不支持 ——
+ * 规则从未生效（禁用按钮一直是正常态外观）。编译器的警告说的就是这个。
+ * 微信给禁用的 button 加的是**类名** `button-disabled`，所以按类名写。
+ */
+.btn.button-disabled,
+.btn:disabled {
   background: #9aa5b1;
   color: #fff;
 }
@@ -155,7 +161,8 @@
   color: #0b3c6e;
   border: 2rpx solid #0b3c6e;
 }
-.btn.ghost[disabled] {
+.btn.ghost.button-disabled,
+.btn.ghost:disabled {
   color: #9aa5b1;
   border-color: #cfd6dd;
 }

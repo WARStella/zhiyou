@@ -111,7 +111,22 @@
   font-size: 30rpx;
   border-radius: 12rpx;
 }
-.btn[disabled] {
+/*
+ * 禁用态的按钮样式。
+ *
+ * ⚠️ 原写法是 `.btn[disabled]` —— **WXSS 不支持属性选择器**，
+ * 所以这条规则**从未生效过**（禁用的按钮一直是正常态的外观，
+ * 用户看不出"这个按钮现在不能点"）。编译器的警告说的就是这件事：
+ *   「Some selectors are not allowed in component wxss,
+ *     including tag name selectors, ID selectors, and attribute selectors」
+ *
+ * 微信给禁用的 `<button>` 加的是**类名**（`button-disabled`），不是属性。
+ * 这里两种都写上：`:disabled` 是标准伪类，即使类名在小程序某个版本里
+ * 变了也还能兜住 —— 这种"两条腿"的写法在本项目里用过多次
+ * （见 `lib/map/tencent.js` 的 `keyStatus()`），代价只是多一行。
+ */
+.btn.button-disabled,
+.btn:disabled {
   background: #9aa5b1;
   color: #fff;
 }
@@ -122,7 +137,8 @@
   color: #0b3c6e;
   border: 2rpx solid #0b3c6e;
 }
-.btn.ghost[disabled] {
+.btn.ghost.button-disabled,
+.btn.ghost:disabled {
   color: #9aa5b1;
   border-color: #cfd6dd;
   background: #fff;

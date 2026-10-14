@@ -19,7 +19,15 @@
   </view>
 
   <view class="body">
-    <team-panel point="{{myPoint}}" source="{{mySource}}" bind:teamstate="onTeamState" />
+    <!--
+      ⚠️ `source` 也要 `|| ''`（2026-10-14）：它与 trip 页的 `personalTripId`
+      是同一类问题 —— 页面 data 初始化成 `null`，而组件把该属性声明为 String。
+      小程序里**属性传 `null` 不算"没传"**（那要用 `undefined` 或省略），
+      所以 null 会覆盖掉组件的默认值 `''`，编译器每次渲染都警告一次。
+
+      `point` 不用管：它声明为 Object，`null` 是合法的。
+    -->
+    <team-panel point="{{myPoint}}" source="{{mySource || ''}}" bind:teamstate="onTeamState" />
 
     <view wx:if="{{loading}}" class="hint">正在加载地点数据…</view>
     <view wx:if="{{loadError}}" class="err">地点加载失败：{{loadError}}</view>

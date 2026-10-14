@@ -1,5 +1,17 @@
 <view class="page">
-  <team-panel personal-trip-id="{{trip.tripId}}" />
+  <!--
+    ⚠️ `|| ''` 不能省（2026-10-14）。
+    没生成行程时 `data.trip` 是 `null`，`{{trip.tripId}}` 就传过去一个 `null`，
+    而组件把 `personalTripId` 声明为 `{ type: String, value: '' }` ——
+    类型不符，编译器每次渲染都警告一次：
+
+      「property "personalTripId" ... received type-uncompatible value:
+        expected <String> but get null value. Use empty string instead.」
+
+    小程序里**属性传 `null` 不会被当成"没传"**（那要用 `undefined` 或省略），
+    所以 null 会实打实地覆盖掉组件的默认值。加个空串兜底。
+  -->
+  <team-panel personal-trip-id="{{trip.tripId || ''}}" />
 
   <!-- 含未核验地点时必须显著提示：说明它能做什么、不能做什么 -->
   <view wx:if="{{unverifiedNotice}}" class="warn">
