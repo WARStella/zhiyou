@@ -77,10 +77,20 @@
       </view>
     </view>
     <block wx:if="{{owner && (!task || task.status === 'departed' || task.status === 'cancelled')}}">
+      <!--
+        先自动生成集合点，再拖动微调（2026-10-14 用户要求）。
+        让人从零开始在地图上找"大家都不太远的点"很难 ——
+        他不知道同伴在哪、谁离得最远；而后端早就有推荐能力，只是没有入口。
+      -->
+      <button bindtap="recommendMeetingPoint" disabled="{{busy}}">① 推荐一个集合点</button>
+      <view class="hint">
+        算法让**走得最远的那个成员**尽量近，但它不知道"南门还是北门"这类实地信息 ——
+        到地图上拖动图钉微调，确认后再回来发起。
+      </view>
       <view class="hint">使用地图上“我的位置”作为手动集合点，请与成员核对可达性。</view>
       <input placeholder="集合点名称，如南门指示牌旁" value="{{pointName}}" data-field="pointName" bindinput="input"/>
       <picker mode="time" value="{{meetTime}}" data-field="meetTime" bindchange="input"><view class="row">今天集合时间：{{meetTime}}（点击修改）</view></picker>
-      <button bindtap="createMeeting" disabled="{{busy || !point}}">发起集合</button>
+      <button bindtap="createMeeting" disabled="{{busy || !point}}">② 发起集合</button>
     </block>
     <button class="secondary" bindtap="leave" disabled="{{busy}}">{{owner ? '解散小队' : '退出小队'}}</button>
   </block>

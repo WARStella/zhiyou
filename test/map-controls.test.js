@@ -205,3 +205,93 @@ test('定位**不覆盖**已选好的集合点 —— 那是两件事', () => {
   assert.equal(page.data.myPoint.latitude, 45.8, '我的位置更新了');
   assert.equal(page.data.meetingPoint.latitude, 45.79, '集合点不该被定位冲掉');
 });
+
+// ── 先自动生成，再拖动微调（2026-10-14 用户要求）──────────────
+
+const SUGGEST_KEY = 'zhiyou-meet-suggest';
+
+test('读回推荐的集合点：落成 meetingPoint、挪镜头、说清理由', () => {
+  /**
+   * 用户原话："应该是**点击集合后先自动生成集合点**，
+   *           然后再用这个装置能拖动选点"
+   *
+   * 让人从零开始找"大家都不太远的点"很难：他不知道同伴在哪、谁离得最远。
+   * 而后端早有 `meet.recommend`（minimax），只是界面上从来没有入口。
+   */
+  const page = loadPage('miniprogram/pages/map/index.js', {
+    storage: {
+      [SUGGEST_KEY]: {
+        placeId: 'p_zhongyang',
+        name: '中央大街',
+        latitude: 45.7756,
+        longitude: 126.6175,
+        maxWalkMin: 12,
+        rule: 'minimax：先让最远的成员步行时间最短',
+        at: Date.now(),
+      },
+    },
+  });
+
+  const applied = page.applyMeetSuggestion();
+
+  assert.equal(applied, true);
+  assert.ok(page.data.meetingPoint, '要落成集合点');
+  assert.equal(page.data.meetingPoint.name, '中央大街');
+  assert.equal(page.data.meetingPoint.latitude, 45.7756);
+  assert.equal(page.data.meetingPoint.fromSuggestion, true, '要标明是算法推荐的、未核验');
+  /** 镜头要挪过去 —— 用户接着就在这儿拖动微调 */
+  assert.equal(page.data.center.latitude, 45.7756);
+  assert.equal(page.data.scale, 16);
+  /** 理由要说出来，不做黑箱 */
+  assert.match(page.data.note, /12 分钟|最远/);
+});
+
+test('推荐结果**一次性**：读完立刻清掉', () => {
+  const page = loadPage('miniprogram/pages/map/index.js', {
+    storage: {
+      [SUGGEST_KEY]: { name: 'X', latitude: 45.7, longitude: 126.6, at: Date.now() },
+    },
+  });
+  page.applyMeetSuggestion();
+  assert.equal(page.__storage[SUGGEST_KEY], undefined, '不清的话下次切过来又变回推荐点');
+});
+
+test('**过期的推荐不执行** —— 半小时前的推荐点早就不合适了', () => {
+  const page = loadPage('miniprogram/pages/map/index.js', {
+    storage: {
+      [SUGGEST_KEY]: {
+        name: '很久以前的推荐',
+        latitude: 45.7,
+        longitude: 126.6,
+        at: Date.now() - 30 * 60 * 1000,
+      },
+    },
+  });
+  const applied = page.applyMeetSuggestion();
+
+  assert.equal(applied, false);
+  assert.equal(page.data.meetingPoint, null, '过期就不该动集合点');
+});
+
+test('没有推荐时什么都不做，不崩', () => {
+  const page = loadPage('miniprogram/pages/map/index.js', {});
+  assert.equal(page.applyMeetSuggestion(), false);
+  assert.equal(page.data.meetingPoint, null);
+});
+
+test('推荐点与**拖动微调**共用同一条路：微调后 fromSuggestion 仍在，便于追溯', () => {
+  /**
+   * ⚠️ 微调**不改变来源标记**：它是"从推荐点改过来的"，
+   *    追溯时要知道这一点（"用户认可了算法的位置，只挪了一点点"）。
+   */
+  const page = loadPage('miniprogram/pages/map/index.js', {
+    storage: { [SUGGEST_KEY]: { name: '推荐点', latitude: 45.7, longitude: 126.6, at: Date.now() } },
+    mapCenter: { latitude: 45.71, longitude: 126.61 },
+  });
+  page.applyMeetSuggestion();
+  page.startPick();
+  page.confirmPick();
+
+  assert.equal(page.data.meetingPoint.latitude, 45.71, '用了微调后的坐标');
+  assert.equal(page.data.meetingPoint.fromMapPick, true, '标明是用户拖过的');
+});

@@ -202,6 +202,14 @@ Page({
      * 那就**跳过 autoLocate 与 fitRoute**（它们都会抢镜头）。
      */
     const focused = this.applyPendingFocus()
+    /**
+     * 推荐的集合点（2026-10-14 用户要求："点击集合后**先自动生成集合点**，
+     * 然后再用这个装置能拖动选点"）。
+     *
+     * ⚠️ 与聚焦**分开处理**：聚焦是"看某个景点"，这是"把集合点定在某个位置"。
+     *    两者语义不同，混在一起以后改一处会碰到另一处。
+     */
+    this.applyMeetSuggestion()
     if (!focused) {
       /**
        * 顺序是有意的：**先把我自己放上去，再读路线**。
@@ -762,6 +770,55 @@ Page({
     })
     this.refreshMarkers()
     this.computeNearby()
+  },
+
+  /**
+   * ── 读回"推荐的集合点"（2026-10-14 用户要求）────────────────
+   *
+   * 流程：小队面板点「推荐一个集合点」→ 后端 minimax 算出最优候选 →
+   * 写进 storage → 切到本页 → 这里读出来落成集合点，**用户可以接着拖动微调**。
+   *
+   * ⚠️ 与 `applyPendingFocus` 同一套约定：**读完立刻清掉**（一次性），
+   *    并且**判过期**（超过 2 分钟不执行）—— storage 是持久的，
+   *    否则用户半小时后切到地图页，会突然看到一个早就过期的集合点。
+   */
+  applyMeetSuggestion() {
+    let s = null
+    try {
+      s = wx.getStorageSync('zhiyou-meet-suggest') || null
+      if (s) wx.removeStorageSync('zhiyou-meet-suggest')
+    } catch (e) {
+      return false
+    }
+    if (!s || typeof s.latitude !== 'number' || typeof s.longitude !== 'number') return false
+    if (s.at && Date.now() - s.at > 2 * 60 * 1000) return false
+
+    this.setAutoMeetingPoint({
+      placeId: s.placeId || 'suggest_' + Date.now(),
+      name: s.name || '推荐集合点',
+      latitude: s.latitude,
+      longitude: s.longitude,
+      /** 标记来源：算法推荐的，**未实地核验** —— 界面要能区分 */
+      fromSuggestion: true,
+    })
+    /**
+     * 镜头挪到推荐的集合点 —— 用户接着就要在这儿拖动微调，
+     * 镜头不在那儿的话他得先找一圈。
+     */
+    this.setData({ center: { latitude: s.latitude, longitude: s.longitude }, scale: 16 })
+    /**
+     * 理由要说出来（不做黑箱）：算法只知道"对所有人都近"，
+     * 不知道"南门还是北门"—— 那句话正是让用户知道**为什么还要他确认**。
+     */
+    this.setData({
+      note:
+        '已自动生成集合点（' +
+        (s.name || '推荐点') +
+        '）' +
+        (typeof s.maxWalkMin === 'number' ? '：走得最远的成员约 ' + s.maxWalkMin + ' 分钟' : '') +
+        '。拖动右下角 ✛ 可以微调。',
+    })
+    return true
   },
 
   /** 取消拖动选点，不改变已有的位置 */

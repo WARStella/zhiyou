@@ -137,6 +137,60 @@ Component({
       if (at <= new Date()) throw new Error('请选择今天尚未到达的集合时间')
       await this.call('meet.create', { crewId: this.data.crewId, tripId: this.data.trip ? this.data.trip.tripId : null, point: this.properties.point, placeName: this.data.pointName.trim(), method: 'manual', plannedMeetAt: at.toISOString() }); await this.read()
     }) },
+
+    /**
+     * ── 先自动生成一个集合点，再让用户拖动微调（2026-10-14 用户要求）──
+     *
+     * 用户原话："应该是**点击集合后先自动生成集合点**，
+     *           然后再用这个装置能拖动选点"
+     *
+     * ── 为什么这样对 ────────────────────────────────────────
+     *
+     * 让人从零开始在地图上找一个"大家都不太远的点"是很难的：
+     * 他不知道同伴在哪、谁离得最远。而后端**已经有**推荐能力
+     * （`meet.recommend`，minimax：先让最远的成员步行时间最短），
+     * 它只是在界面上**从来没有入口**。
+     *
+     * 所以这里：调推荐 → 取第一名 → 交给地图页显示 → 用户拖动微调。
+     * **微调仍然必要**：算法只保证"对所有人都近"，不知道
+     * "南门还是北门""树底下还是售票口"这类实地信息。
+     *
+     * ⚠️ 通过 storage 把结果交给地图页 —— 地图是 tab 页，
+     *    `switchTab` 不支持 URL 参数（与"聚焦景点"同一个约定）。
+     */
+    recommendMeetingPoint() { return this.run(async () => {
+      const r = await this.call('meet.recommend', {
+        crewId: this.data.crewId,
+        tripId: this.data.trip ? this.data.trip.tripId : null,
+      })
+      const top = (r && r.candidates && r.candidates[0]) || null
+      if (!top || !top.point) {
+        /**
+         * ⚠️ 推荐不出来时**说清为什么**，而不是给一个编出来的点。
+         * 常见原因：同伴还没共享位置、或没有已核验的地点可作候选。
+         */
+        const why = (r && r.reason) || (r && r.excluded && r.excluded.length ? '没有满足条件的候选点' : '暂时算不出推荐点')
+        throw new Error('推荐不出集合点：' + why + '。可以让同伴先共享位置，或在地图上手动拖动选点。')
+      }
+      try {
+        wx.setStorageSync('zhiyou-meet-suggest', {
+          placeId: top.placeId || null,
+          name: top.placeName || '推荐集合点',
+          latitude: top.point.latitude,
+          longitude: top.point.longitude,
+          /** 推荐理由带上 —— 界面要能说清"为什么是这儿"，不做黑箱 */
+          rule: (r && r.rule) || null,
+          maxWalkMin: top.maxWalkMin,
+          avgWalkMin: top.avgWalkMin,
+          at: Date.now(),
+        })
+      } catch (e) {
+        throw new Error('本地存不下推荐结果，请直接在地图上拖动选点')
+      }
+      /** 切到地图页 —— 那边读 storage 并落成集合点，用户可以接着拖 */
+      wx.switchTab({ url: '/pages/map/index' })
+      this.setData({ message: '已自动生成集合点。在地图上拖动中间的图钉可以微调。' })
+    }) },
     meetAction(e) { return this.run(async () => {
       const kind = e.currentTarget.dataset.kind, task = this.data.task
       if (!task) return
