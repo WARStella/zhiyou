@@ -105,59 +105,78 @@ test('非选点模式下拖动不产生任何影响', () => {
   assert.equal(page.__setDataLog.length, before);
 });
 
-test('点「好了」→ 用**当前中心**作为我的位置，退出模式', () => {
+test('点「定这里」→ 把当前中心定为**集合点**，退出模式', () => {
+  /**
+   * ⚠️⚠️ 这条断言的对象被用户纠正过一次，值得记下来：
+   *
+   * 我第一版写成了 `myPoint` + `mySource: 'manual'`，那是"**我在哪**"。
+   * 用户原话："还是不对，我是想把这个选点**当作集合点**用"
+   *
+   * 两者是不同的东西：
+   *   `myPoint`      我的位置 —— 算"我要走多久"、作为集合候选的排序基准
+   *   `meetingPoint` 集合点   —— 画集合点图钉、与我的位置连虚线、
+   *                             传给 team-panel 发起集合
+   *
+   * 所以这里断言 `meetingPoint`，并确认 `myPoint` **没有被动过**。
+   */
   const page = mapPage({ mapCenter: { latitude: 45.79, longitude: 126.53 } });
+  page.setData({ myPoint: { latitude: 1, longitude: 2 }, mySource: 'gps' });
   page.startPick();
 
   page.confirmPick();
 
-  assert.equal(page.data.myPoint.latitude, 45.79, '要用刚读到的中心，不是进来时的旧值');
-  assert.equal(page.data.myPoint.longitude, 126.53);
-  assert.equal(page.data.mySource, 'manual');
+  assert.ok(page.data.meetingPoint, '要落成集合点');
+  assert.equal(page.data.meetingPoint.latitude, 45.79, '用刚读到的中心，不是进来时的旧值');
+  assert.equal(page.data.meetingPoint.longitude, 126.53);
+  assert.equal(page.data.meetingPoint.fromMapPick, true, '要标明是地图上拖出来的，未核验');
   assert.equal(page.data.pickMode, false, '退出模式');
+
+  /** 我的位置不该被这次操作改掉 —— 那是另一个概念 */
+  assert.equal(page.data.myPoint.latitude, 1, 'myPoint 不该被选点改掉');
+  assert.equal(page.data.mySource, 'gps');
 });
 
 test('读不到地图中心时**如实说**，不编一个坐标', () => {
   /**
-   * 编一个坐标是最糟的：用户以为选好了，而位置其实是错的 ——
-   * 基于它算的"到集合点要走多久"全错。
+   * 编一个坐标是最糟的：用户以为集合点定好了，而位置其实是错的 ——
+   * 同伴按一个错误的地点赶过去。
    */
   const page = mapPage({ mapCenter: null });
   page.startPick();
   page.confirmPick();
 
-  assert.equal(page.data.myPoint, null, '不该凭空得到一个位置');
+  assert.equal(page.data.meetingPoint, null, '不该凭空得到一个集合点');
   assert.match(page.data.note, /没能读到地图中心/);
   assert.equal(page.data.pickMode, false, '读不到也要能退出模式');
 });
 
-test('取消选点不改变已有的位置', () => {
+test('取消选点不改变已有的集合点', () => {
   const page = mapPage({ mapCenter: CENTER });
-  page.setData({ myPoint: { latitude: 1, longitude: 2 }, mySource: 'gps' });
+  page.setAutoMeetingPoint({ placeId: 'p1', name: '原集合点', latitude: 1, longitude: 2 });
 
   page.startPick();
   page.cancelPick();
 
   assert.equal(page.data.pickMode, false);
-  assert.equal(page.data.myPoint.latitude, 1, '取消不该把之前的位置改掉');
-  assert.equal(page.data.mySource, 'gps');
+  assert.equal(page.data.meetingPoint.name, '原集合点', '取消不该把已选的集合点弄丢');
 });
 
-test('选点模式下点地图**不再改变位置** —— 那会与拖动打架', () => {
+test('选点模式下点地图**不再改变任何东西** —— 那会与拖动打架', () => {
   /**
    * ⚠️ 旧实现是"点地图选点"。现在选点由拖动完成，
-   * 若 `onMapTap` 还改位置，用户在拖动时随手一点就会把位置设到别处。
+   * 若 `onMapTap` 还改位置，用户在拖动时随手一点就会把点设到别处。
    */
   const page = mapPage();
   page.startPick();
-  page.setData({ myPoint: null });
+  page.setData({ myPoint: null, meetingPoint: null });
 
   page.onMapTap({ detail: { latitude: 1, longitude: 2 } });
 
-  assert.equal(page.data.myPoint, null, '选点模式下点地图不该设位置');
+  assert.equal(page.data.meetingPoint, null, '选点模式下点地图不该设集合点');
+  assert.equal(page.data.myPoint, null, '也不该设我的位置');
 });
 
-test('定位成功会退出选点模式 —— 否则两个图钉同时存在', () => {
+test('定位成功退出选点模式 —— 否则两个图钉同时存在', () => {
   const page = mapPage({
     mapCenter: CENTER,
     wx: { getLocation: (o) => o.success({ latitude: 45.8, longitude: 126.5, accuracy: 20 }) },
@@ -168,4 +187,21 @@ test('定位成功会退出选点模式 —— 否则两个图钉同时存在', 
   page.useGps();
 
   assert.equal(page.data.pickMode, false, '定位给了位置就不该还在拖图钉');
+});
+
+test('定位**不覆盖**已选好的集合点 —— 那是两件事', () => {
+  /**
+   * ⚠️ 用户点「◎」只是想更新"我在哪"（用来算走多久），
+   *    不该把他刚才辛苦拖出来的集合点冲掉。
+   */
+  const page = mapPage({
+    mapCenter: CENTER,
+    wx: { getLocation: (o) => o.success({ latitude: 45.8, longitude: 126.5, accuracy: 20 }) },
+  });
+  page.setAutoMeetingPoint({ placeId: 'map_1', name: '地图选点', latitude: 45.79, longitude: 126.53, fromMapPick: true });
+
+  page.useGps();
+
+  assert.equal(page.data.myPoint.latitude, 45.8, '我的位置更新了');
+  assert.equal(page.data.meetingPoint.latitude, 45.79, '集合点不该被定位冲掉');
 });

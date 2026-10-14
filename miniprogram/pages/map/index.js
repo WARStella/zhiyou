@@ -669,6 +669,9 @@ Page({
    * 确定图钉的位置，图钉在拖动时**保持在屏幕中心不动**，
    * 再次点击控件退出模式时才会随地图拖动一起移动"
    *
+   * 随后澄清用途："我是想把这个选点**当作集合点**用"
+   * —— 所以选出来的点写进 `meetingPoint`（见 `confirmPick`）。
+   *
    * ── 与旧实现的区别 ──────────────────────────────────────
    *
    * 旧的是"点地图上的某一点"（`onMapTap`）。那个在手机上很难点准：
@@ -676,27 +679,37 @@ Page({
    * 站到马路对面。拖动对中心图钉则天然精确 —— 手指在屏幕任何地方，
    * 图钉始终在正中间。
    *
-   * ── 实现要点 ────────────────────────────────────────────
+   * ── 中心图钉为什么"不动" ────────────────────────────────
    *
-   * 中心图钉是**固定在容器正中的覆盖层**（见 wxml 的 `.center-pin`），
-   * 地图在它下面滚。退出模式后覆盖层不再渲染，位置改由 `myPoint`
+   * 它是**固定在容器正中的覆盖层**（见 wxml 的 `.center-pin`），
+   * 地图在它下面滚。退出模式后覆盖层不再渲染，位置改由 `meetingPoint`
    * 对应的 marker 表示 —— 那是地图坐标，会随地图一起动。
    */
   startPick() {
-    const that = this
     this.setData({
       pickMode: true,
-      note: '拖动地图，把中间的图钉对准你的位置',
+      note: '拖动地图，把中间的图钉对准集合点',
     })
     /**
      * 进入模式时**先取一次地图中心**：用户可能什么都没拖就直接点「好了」。
-     * 不取的话 `myPoint` 还是旧的（甚至为空），而他以为已经选好了。
+     * 不取的话读到的还是进来前的位置，而他以为已经选好了。
      */
     this.readCenter()
   },
 
   /**
-   * 退出拖动模式并**采用当前中心点**。
+   * 退出拖动模式，把当前中心**定为集合点**（2026-10-14 用户澄清）。
+   *
+   * ⚠️⚠️ **写的是 `meetingPoint`，不是 `myPoint`** —— 这是本次改动的核心。
+   *
+   * 用户原话："还是不对，我是想把这个选点**当作集合点**用"
+   *
+   * 我第一版写成了 `myPoint` + `mySource: 'manual'`，那是"**我在哪**"；
+   * 而集合点是"**大家在哪碰头**" —— 两个完全不同的东西：
+   *
+   *   `myPoint`      我的位置：算"我要走多久"、画蓝点、作为集合候选的排序基准
+   *   `meetingPoint` 集合点：画集合点图钉、与我的位置连虚线、
+   *                  传给 `team-panel` 发起集合
    *
    * ⚠️ 退出前必须再读一次中心：拖动过程中 `bindregionchange` 是连续触发的，
    *    我们只更新提示用的坐标；真正落库要等用户说"就这儿"。
@@ -709,15 +722,46 @@ Page({
         that.setData({ pickMode: false, note: '没能读到地图中心，请重试或点「◎」用定位' })
         return
       }
-      that.setData({
-        myPoint: loc,
-        mySource: 'manual',
-        pickMode: false,
-        note: '已按拖动选点标记位置（位置来源：手动）',
+      /**
+       * 落成与"点地点卡片选中的集合点"**同一个形状** ——
+       * 这样地图上的集合点图钉、与我的位置之间的虚线、
+       * 以及传给 `team-panel` 的那份数据都不用改。
+       *
+       * ⚠️ `placeId` 用 `map_` 前缀标出来：这不是库里的地点，
+       *    而是用户在图上拖出来的一个点。
+       *    `refreshMarkers` 靠"是否在 places 里"判断该画哪种图钉，
+       *    这个前缀让判断更明确，也便于排障时分辨。
+       */
+      that.setAutoMeetingPoint({
+        placeId: 'map_' + Date.now(),
+        name: '地图选点',
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        /** 标记来源：用户在地图上拖出来的，**未经过任何核验** */
+        fromMapPick: true,
       })
-      that.refreshMarkers()
-      that.computeNearby()
+      that.setData({
+        pickMode: false,
+        note: '已把地图上的这个点作为集合点（未实地核验）。可切到「我的」发起集合。',
+      })
     })
+  },
+
+  /**
+   * 设置集合点（自动选中与拖动选点共用一条路）。
+   *
+   * ⚠️ 抽出这个方法是为了让两条路**一定写入同一个字段** ——
+   *    我第一版两条路写的是不同字段（一条 `meetingPoint`、
+   *    一条 `myPoint`），于是"集合点"这个概念在页面里有了两个来源。
+   */
+  setAutoMeetingPoint(point) {
+    this.setData({
+      meetingPoint: point,
+      photoNote: '',
+      currentPhotos: [],
+    })
+    this.refreshMarkers()
+    this.computeNearby()
   },
 
   /** 取消拖动选点，不改变已有的位置 */
