@@ -339,11 +339,76 @@ async function legTravelTimes(p) {
     }
   }
 
+  /**
+   * 每一段**有哪些方式可选**，以及各自多久。
+   *
+   * 用户要求"点击生成路径后出现界面，让用户分别选择每段路径的出行方式"
+   * （2026-10-14）。所以规划结果要带回**完整的候选清单**，
+   * 而不只是选中的那一个 —— 否则界面没法让用户挑。
+   *
+   * ⚠️ 只列**可用**的候选（`ok !== false`），并带上来源与换乘细节：
+   * 让用户在一个"取不到"的选项上做选择是没有意义的。
+   * 但**不可用的也要留着**（`unavailable`），界面要能说清"公交为什么不能选"。
+   */
+  const usableCandidates = candidates.filter((c) => c.ok !== false && typeof c.minutes === 'number');
+
+  /**
+   * 系统自己的推荐 —— **不受用户偏好影响**。
+   *
+   * 用户要求"在推荐的出行方式边上打出小小的推荐字样"（2026-10-14）。
+   * 那个"推荐"必须是**系统的判断**（最快），否则用户选了什么就推荐什么，
+   * 这个标签就毫无信息量了。
+   *
+   * 所以单独算一遍、不带 `preferredMode`。
+   */
+  const baseline = modeChoice.chooseMode(usableCandidates, { preference: opts.preference, weather: opts.weather });
+  const recommendedMode = baseline.chosen ? baseline.chosen.mode : null;
+
+  const options = usableCandidates.map((c) => ({
+    mode: c.mode,
+    modeLabel: modeChoice.MODE_LABEL[c.mode] || c.mode,
+    minutes: c.minutes,
+    meters: c.meters != null ? c.meters : null,
+    provider: c.provider || null,
+    source: c.source || 'upstream',
+    /** ⚠️ 界面据此在选项边上打"推荐"字样 */
+    isRecommended: c.mode === recommendedMode,
+    /** 公交的换乘细节（几号线、几号口）—— 让用户能据以比较 */
+    transit: c.transit || null,
+  }));
+
+  const unavailable = candidates
+    .filter((c) => c.ok === false)
+    .map((c) => ({ mode: c.mode, modeLabel: modeChoice.MODE_LABEL[c.mode] || c.mode, reason: c.reason || null }));
+
+  /**
+   * 用户为**这一段**单独指定的方式（2026-10-14）。
+   *
+   * 用户要求"点击生成路径后出现界面，让用户分别选择每段路径的出行方式"。
+   * `legModes` 是 `{ [toPlaceId]: mode }` —— 按**到达的地点**索引，
+   * 因为一段的身份就是"到哪个地方去"（起点可能是移动中的"我的位置"，
+   * 用它做键不稳定）。
+   *
+   * ⚠️ 认不出的值一律当没有 —— 与全局偏好同一条纪律：
+   * 一个显示用的字段不该让整个规划失败。
+   */
+  const perLegMode =
+    opts.legModes && toPlace._id && modeChoice.isPreferredMode(opts.legModes[toPlace._id])
+      ? opts.legModes[toPlace._id]
+      : null;
+  const perLegWanted = perLegMode && perLegMode !== modeChoice.PREFERRED_MODE.AUTO ? perLegMode : null;
+
   const choice = modeChoice.chooseMode(candidates, {
     preference: opts.preference,
     weather: opts.weather,
-    /** ⚠️ 必须透传 —— 漏了它"用户自选出行方式"就静默失效（退回最快优先） */
-    preferredMode: opts.preferredMode,
+    /**
+     * ⚠️ 必须透传 —— 漏了它"用户自选出行方式"就静默失效（退回最快优先）。
+     *
+     * 逐段选择与全局偏好用的是**同一个机制**：
+     * `legModes[toPlaceId]`（逐段）优先于 `preferredMode`（全局）。
+     * 不另造一套，因为两者的语义完全相同，都是"用户想要这个方式"。
+     */
+    preferredMode: perLegWanted || opts.preferredMode,
   });
 
   /**
@@ -366,6 +431,12 @@ async function legTravelTimes(p) {
     choice: enriched,
     fromCache,
     calls,
+    /** 这一段有哪些方式可选（含 `isRecommended`）—— 界面据此渲染逐段选择器 */
+    options,
+    /** 取不到的方式与原因 —— 界面要能说清"公交为什么不能选" */
+    unavailable,
+    /** 系统自己的推荐（不受用户偏好影响），供界面打"推荐"字样 */
+    recommendedMode,
     straightMeters: straight === null ? null : Math.round(straight),
   };
 }
@@ -493,7 +564,12 @@ async function resolveTripLegTimes(p) {
       fromPlace,
       toPlace,
       providers: p.providers,
-      opts: Object.assign({}, opts, { transitCity: opts.transitCity, preferredMode: opts.preferredMode }),
+      opts: Object.assign({}, opts, {
+        transitCity: opts.transitCity,
+        preferredMode: opts.preferredMode,
+        /** 逐段指定的方式 { [toPlaceId]: mode } —— 优先于全局偏好 */
+        legModes: opts.legModes || null,
+      }),
     });
 
     calls.matrix += r.calls.matrix;
@@ -504,6 +580,10 @@ async function resolveTripLegTimes(p) {
       toPlaceId: toPlace._id,
       candidates: r.candidates,
       choice: r.choice,
+      /** 逐段选择器要的数据（给界面用，不参与时间线计算） */
+      options: r.options || [],
+      unavailable: r.unavailable || [],
+      recommendedMode: r.recommendedMode || null,
       straightMeters: r.straightMeters,
     });
     entries.push({ fromPlace, toPlace, candidates: r.candidates });

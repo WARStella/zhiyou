@@ -406,6 +406,8 @@ async function resolveLegTravelTimes(ctx) {
       weather,
       preference: weather ? 'safety' : 'fastest',
       preferredMode,
+      /** 逐段指定的方式 —— 优先于全局偏好 */
+      legModes: spec.legModes || null,
       /** 高德公交需要 citycode —— 本项目单城（哈尔滨 = 0451） */
       transitCity: TRANSIT_CITY_CODE,
       allowTransit: spec.allowTransit !== false,
@@ -431,6 +433,38 @@ async function resolveLegTravelTimes(ctx) {
     matchedPreference: l.choice ? l.choice.matchedPreference : null,
     reason: l.choice ? l.choice.reason : null,
   }));
+
+  /**
+   * ── 逐段出行方式选择器要的数据（2026-10-14）────────────────
+   *
+   * 用户要求"点击生成路径后出现界面，让用户分别选择每段路径的出行方式"，
+   * 并在推荐的方式边上打"推荐"字样。
+   *
+   * 所以每段要给出**完整的候选清单**（各自多久、哪个是系统推荐的），
+   * 而不只是选中的那一个 —— 否则界面没法让用户挑。
+   *
+   * ⚠️ 放在 `out.legOptions` 而不是塞进 `legTimes`：
+   * `legTimes` 是给 `buildTimeline` 用的覆盖表（只有 duration），
+   * 而这是给界面用的展示数据，两者用途不同，混在一起会让
+   * "改一处影响另一处"。
+   */
+  out.legOptions = (r.legs || []).map((l) => {
+    const toPlace = placesById[l.toPlaceId];
+    return {
+      toPlaceId: l.toPlaceId,
+      toPlaceName: toPlace ? toPlace.name : null,
+      fromPlaceId: l.fromPlaceId || null,
+      fromPlaceName: l.fromPlaceId && placesById[l.fromPlaceId] ? placesById[l.fromPlaceId].name : null,
+      /** 这一段是"从我这里出发"吗 —— 界面文案不同 */
+      isFirstLeg: !l.fromPlaceId,
+      options: l.options || [],
+      unavailable: l.unavailable || [],
+      /** 系统推荐的方式（不受用户偏好影响）—— 界面打"推荐"字样用它 */
+      recommendedMode: l.recommendedMode || null,
+      /** 用户当前选中的（可能是他指定的，也可能是系统挑的） */
+      chosenMode: l.choice && l.choice.chosen ? l.choice.chosen.mode : null,
+    };
+  });
 
   for (const leg of r.legs) {
     const chosen = leg.choice && leg.choice.chosen;
@@ -583,6 +617,18 @@ async function plan(ctx) {
        * 这里、前端的 `startLegView`、以及 `buildCurrentLeg`。
        */
       preferredMode: p.preferredMode || null,
+      /**
+       * 逐段指定的出行方式：`{ [toPlaceId]: mode }`（2026-10-14）。
+       *
+       * 用户要求"点击生成路径后出现界面，让用户分别选择每段路径的出行方式"。
+       * 因此这是**两次调用**：先生成（不带 legModes），
+       * 用户在界面上逐段选完之后再生成一次（带上 legModes）。
+       *
+       * ⚠️ 与 `preferredMode` 的优先级：**逐段 > 全局**。
+       * 两者语义相同（都是"用户想要这个方式"），所以共用同一套判断，
+       * 不另造机制 —— 见 lib/mode-choice.js 的 preferredMode 说明。
+       */
+      legModes: p.legModes || null,
     };
   }
 
@@ -1136,6 +1182,20 @@ async function plan(ctx) {
     /** 出发位置（默认"我的位置"）与第一段交通 */
     startPoint,
     startLeg,
+    /**
+     * ── 逐段出行方式选择器要的数据（2026-10-14）────────────────
+     *
+     * 用户要求"点击生成路径后出现界面，让用户分别选择每段路径的出行方式"，
+     * 并在推荐的方式边上打"推荐"字样。所以每段给出完整候选清单
+     * （各自多久、哪个是系统推荐的）。
+     *
+     * ⚠️ 响应是**显式逐字段拼的**，新字段不写进来就静默丢掉 ——
+     * 我在 `spec`、`startLegView`、`legToNext` 上已经因为这个坑各犯过一次。
+     * 加字段时必须同时改所有构造点。
+     */
+    legOptions: travelResolve.legOptions || [],
+    /** 用户在界面上为每一段选的方式（原样回传，界面据此保持选中态） */
+    legModes: spec.legModes || null,
     saved: true,
   });
 }

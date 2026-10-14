@@ -799,6 +799,18 @@ Page({
            * 可用就用它（哪怕不是最快），不可用就给最快的并说明原因。
            */
           preferredMode: that.data.preferredMode || undefined,
+          /**
+           * 逐段指定的出行方式 `{ [toPlaceId]: mode }`（2026-10-14）。
+           *
+           * 逐段选择的**应用方式**就是再规划一次 —— 不是发一个新接口。
+           * 因为"换一种方式"要改的不只是那一行文字：后续每站的到达时间、
+           * 总步行量、硬约束检查全都跟着变，而这些都在 `trip.plan` 里算。
+           *
+           * 候选耗时已在第一次规划时取到，所以这次基本不消耗新配额。
+           */
+          legModes: (that.data.legModes && Object.keys(that.data.legModes).length)
+            ? that.data.legModes
+            : undefined,
           // 「逛一小时」→ 每站 60 分钟；null 时后端用地点自带默认值
           stayMin: that.data.stayMin || undefined,
           // 每个地点时长不同时按地点给（优先级高于 stayMin）
@@ -830,6 +842,122 @@ Page({
           that.setData({ loading: false, error: (err && err.errMsg) || '生成失败' })
         })
     })
+  },
+
+  /**
+   * ── 逐段出行方式选择器（2026-10-14 用户要求）────────────────
+   *
+   * "点击生成路径后出现界面，让用户分别选择每段路径的出行方式"，
+   * 并在推荐的方式边上打"推荐"字样。
+   *
+   * ── 两条设计决定 ────────────────────────────────────────
+   *
+   * ① **候选耗时直接复用规划结果**，不重新取数。
+   *    后端规划时已经把四种方式的耗时都拿到了（`legOptions`），
+   *    所以用户换一种方式**不需要新的地图调用** —— 又快又不烧配额。
+   *
+   * ② **改完要点「应用」才生效**，不是选一下就重排。
+   *    逐段选择会改整条行程的时间线（后面每站的到达时间都跟着变），
+   *    边选边重排会让界面一直跳，用户看不清自己在改什么。
+   */
+  buildLegPicker(d, opts) {
+    const legs = (d && d.legOptions) || []
+    if (!legs.length) return []
+
+    /**
+     * 用户之前在界面上选过的（按到达的地点索引），保持选中态。
+     *
+     * ⚠️ `ignorePicked` 用于「恢复推荐」：那时要**忽略**用户的选择、
+     * 回到系统挑的（`chosenMode` / `recommendedMode`）。
+     * 否则清空了 `legModes` 也还是把 `this.data.legModes` 读回来 ——
+     * 恢复就失效了（我第一版正是这个 bug）。
+     */
+    const picked = (opts && opts.ignorePicked) ? {} : (this.data.legModes || {})
+
+    return legs.map(function (leg, i) {
+      const chosen = picked[leg.toPlaceId] || leg.chosenMode || leg.recommendedMode
+      return {
+        index: i + 1,
+        toPlaceId: leg.toPlaceId,
+        toName: leg.toPlaceName || '这一站',
+        fromName: leg.isFirstLeg ? '我的位置' : leg.fromPlaceName || '上一站',
+        selected: chosen,
+        selectedLabel: modeInfo(chosen).name || '',
+        options: (leg.options || []).map(function (o) {
+          return {
+            mode: o.mode,
+            name: modeInfo(o.mode).name || o.mode,
+            icon: modeInfo(o.mode).icon,
+            minutes: o.minutes,
+            /** ⚠️ 系统的推荐（不受用户偏好影响）—— 界面据此打"推荐"字样 */
+            recommended: o.isRecommended === true,
+            isCurrent: o.mode === chosen,
+            /** 公交的换乘细节，让用户能据以比较（"地铁2号线 1号口进"） */
+            transitText: describeTransit(o.transit),
+          }
+        }),
+        /** 这一段取不到的方式（如公交没配 Key）—— 要说清为什么不能选 */
+        unavailable: leg.unavailable || [],
+        changed: Boolean(picked[leg.toPlaceId] && picked[leg.toPlaceId] !== leg.chosenMode),
+      }
+    })
+  },
+
+  /** 展开 / 收起逐段选择面板 */
+  toggleLegPicker() {
+    this.setData({ legPickerOpen: !this.data.legPickerOpen })
+  },
+
+  /**
+   * 用户在某一**段**里换了出行方式。
+   *
+   * ⚠️ 只改本地选中态，**不发请求** —— 见 `buildLegPicker` 的说明②。
+   */
+  onLegModeTap(e) {
+    const toPlaceId = e.currentTarget.dataset.placeid
+    const mode = e.currentTarget.dataset.mode
+    if (!toPlaceId || !mode) return
+
+    const legModes = Object.assign({}, this.data.legModes)
+    legModes[toPlaceId] = mode
+    /** 就地更新选中态，避免整块重建导致列表跳动 */
+    const picker = (this.data.legPicker || []).map(function (row) {
+      if (row.toPlaceId !== toPlaceId) return row
+      return Object.assign({}, row, {
+        selected: mode,
+        selectedLabel: modeInfo(mode).name || '',
+        changed: true,
+        options: row.options.map(function (o) {
+          return Object.assign({}, o, { isCurrent: o.mode === mode })
+        }),
+      })
+    })
+    this.setData({ legModes: legModes, legPicker: picker })
+  },
+
+  /**
+   * 把逐段选择恢复成系统推荐（改乱了想重来）。
+   *
+   * `ignorePicked: true` 是必须的 —— 否则会从 `this.data.legModes`
+   * 把用户的选择又读回来，"恢复"等于没做。
+   */
+  resetLegModes() {
+    this.setData({
+      legModes: {},
+      legPicker: this.buildLegPicker({ legOptions: this.data.rawLegOptions }, { ignorePicked: true }),
+    })
+  },
+
+  /**
+   * 应用逐段选择 —— **这一步才真的重新规划**。
+   *
+   * 重规划会用 `legModes` 覆盖每段的方式。候选耗时已在规划时取到，
+   * 所以这次调用**基本不需要新的地图配额**。
+   */
+  applyLegModes() {
+    if (!this.data.selected || !this.data.selected.length) return
+    this.setData({ legPickerOpen: false })
+    this.createTrip()
   },
 
   /** 当前节点 = 第一个未走完的节点 */
@@ -1024,6 +1152,28 @@ Page({
       planRejected: false,
       note: note || '',
       error: '',
+      /**
+       * ── 逐段出行方式选择器（2026-10-14 用户要求）────────────────
+       *
+       * "点击生成路径后出现界面，让用户分别选择每段路径的出行方式"，
+       * 并在推荐的方式边上打"推荐"字样。
+       *
+       * 所以把后端给的 `legOptions` 整理成界面能直接渲染的形态：
+       * 每段一行，行内是各方式的耗时，系统推荐的那个带 `recommended: true`。
+       *
+       * ⚠️ `selected` 是**当前生效的**方式（用户之前选过就保持，
+       * 没选过就是系统挑的）—— 否则用户选完再生成一次，
+       * 界面会显示成"没选"，用户会以为自己的选择丢了。
+       */
+      legPicker: this.buildLegPicker(d),
+      /**
+       * 后端给的逐段候选**原文**（不是整理过的 `legPicker`）。
+       * 「恢复推荐」要按它重建 —— 整理过的版本已经带上了用户的选中态，
+       * 用它重建等于什么也没恢复。
+       */
+      rawLegOptions: d.legOptions || [],
+      /** 逐段选择面板默认关着 —— 它只在用户想调整时才需要 */
+      legPickerOpen: false,
     }, () => {
       /**
        * setData 的回调在**渲染完成之后**触发 —— 此时地图组件才真正存在，

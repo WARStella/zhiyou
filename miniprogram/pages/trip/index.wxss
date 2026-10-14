@@ -878,3 +878,36 @@
   border-radius: 8rpx;
   padding: 6rpx 10rpx;
 }
+/* ── 逐段出行方式选择（2026-10-14 用户要求）────────────────
+   每段一行，行内是各方式的耗时；系统推荐的那个带"推荐"小字样。 */
+.leg-picker { padding-bottom: 12rpx; }
+.lp-head { cursor: pointer; }
+.lp-head-hover { background: #f3f6fa; border-radius: 10rpx; }
+.lp-leg { padding: 14rpx 0; border-top: 1rpx solid #edf1f6; }
+.lp-leg-head { display: flex; align-items: center; margin-bottom: 10rpx; }
+.lp-seq {
+  width: 34rpx; height: 34rpx; line-height: 34rpx; text-align: center;
+  border-radius: 50%; background: #e8f0f8; color: #0b3c6e;
+  font-size: 20rpx; margin-right: 10rpx;
+}
+.lp-path { font-size: 25rpx; color: #20334a; }
+.lp-opts { display: flex; flex-wrap: wrap; }
+.lp-opt {
+  display: flex; align-items: center; flex-wrap: wrap;
+  padding: 10rpx 16rpx; margin: 0 12rpx 12rpx 0;
+  border: 1rpx solid #d9e5ef; border-radius: 12rpx;
+  background: #fbfdff;
+}
+/* 选中的那个要一眼看出来 */
+.lp-opt-on { border-color: #0b3c6e; background: #eef4fb; }
+.lp-opt-name { font-size: 24rpx; color: #20334a; margin-right: 8rpx; }
+.lp-opt-min { font-size: 22rpx; color: #65758a; }
+/* "推荐"小字样 —— 系统的判断（最快），不受用户偏好影响 */
+.lp-badge {
+  margin-left: 8rpx; padding: 0 8rpx;
+  font-size: 18rpx; color: #b26a00; background: #fff2d8;
+  border-radius: 6rpx;
+}
+.lp-opt-sub { width: 100%; font-size: 19rpx; color: #7b8794; margin-top: 4rpx; }
+.lp-unavail { font-size: 20rpx; color: #9aa5b1; }
+.lp-actions { display: flex; margin-top: 12rpx; }
