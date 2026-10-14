@@ -31,6 +31,7 @@
  */
 
 const resp = require('../lib/resp');
+const { CODES, assert } = require('../lib/errors');
 const { createMapProvider } = require('../lib/map');
 
 /**
@@ -45,7 +46,6 @@ const DEFAULT_TO = { latitude: 45.8029, longitude: 126.5353 };
 
 /** 三种方式各问一次 —— 这是能看出"mode 被忽略"的唯一办法 */
 const PROBE_MODES = ['walking', 'bicycling', 'driving'];
-
 /** 各方式的合理速度区间（米/分钟）—— 与 lib/mode-choice.js 的口径一致 */
 const SPEED_RANGE = {
   walking: [40, 120],
@@ -88,12 +88,30 @@ function summarize(target, r) {
 }
 
 async function probe(ctx) {
+  const { env } = ctx;
   const p = ctx.payload || {};
   const from = p.from || DEFAULT_FROM;
   const to = p.to || DEFAULT_TO;
 
-  const makeProvider = ctx.createMapProvider || createMapProvider;
-  const provider = makeProvider(undefined, {});
+  // 探针会真实调用外部服务（可能产生费用），仅在开发环境开放
+  assert(env === 'dev', CODES.FORBIDDEN_ENV, `当前环境为 ${env}，距离矩阵探针仅限 dev`);
+
+  /**
+   * ⚠️ 调用约定必须与 `actions/map.js` 的 `map.probe` 一致：
+   *   `makeProvider(name, opts)`
+   *
+   * 我第一版写成 `makeProvider(undefined, {})` —— 与既有探针**两种约定**，
+   * 于是各处的默认值处理走的是不同分支。
+   * `key: p.overrideKey` 这一项是照抄 `map.probe` 的：只在显式传入时覆盖，
+   * 否则用环境变量（用于跑"无效 Key"那种情形）。
+   */
+  const providerName = p.provider || process.env.MAP_PROVIDER || 'tencent';
+  const makeProvider = (name, opts) =>
+    (ctx.createMapProvider || createMapProvider)(name || providerName, opts);
+  const provider = makeProvider(providerName, {
+    key: p.overrideKey,
+    timeoutMs: p.timeoutMs,
+  });
 
   const steps = [];
 
@@ -105,7 +123,9 @@ async function probe(ctx) {
     detail:
       keyStatus.configured === true
         ? `MAP_KEY 已配置（${keyStatus.masked}${keyStatus.trimmed ? '，已去除前后空白' : ''}）`
-        : 'MAP_KEY 未配置 —— 云开发控制台 → 云函数 → api → 配置 → 环境变量 → 新增 MAP_KEY（腾讯位置服务 WebService Key）',
+        : keyStatus.configured === null
+          ? '这个 provider 没有提供 keyStatus()，无法判断 Key 状态（先补上再跑探针）'
+          : 'MAP_KEY 未配置 —— 云开发控制台 → 云函数 → api → 配置 → 环境变量 → 新增 MAP_KEY（腾讯位置服务 WebService Key）',
   });
 
   if (keyStatus.configured !== true) {

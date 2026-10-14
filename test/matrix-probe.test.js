@@ -78,7 +78,7 @@ function cell(distance, duration, mode) {
 }
 
 function ctx(provider) {
-  return { payload: {}, createMapProvider: () => provider };
+  return { env: 'dev', payload: {}, createMapProvider: () => provider };
 }
 
 test('三种方式的耗时明显不同 → 判为 mode 被尊重、单位是秒', async () => {

@@ -293,3 +293,51 @@ test('假 provider 与真实 provider 的方式清单一致（防漂移）', asy
     );
   }
 });
+
+// ── Key 状态接口（2026-10-14 补）──────────────────────────
+
+test('回归：腾讯 provider 必须提供 keyStatus() —— 缺了会让探针误报"未配 Key"', () => {
+  /**
+   * ⚠️ 这条守着一个**白跑一轮**的错：
+   *
+   * 腾讯 provider 原来只有 `keyConfigured` / `keyMasked`（**属性**），
+   * 而高德那两个 provider 用的是 `keyStatus()`（**方法**）。
+   * 我写距离矩阵探针时照搬了高德那套：
+   *
+   *     typeof provider.keyStatus === 'function'
+   *       ? provider.keyStatus() : { configured: null }     // ← 永远拿到 null
+   *
+   * 而探针把这个 null 归进了"未配 Key"，于是**在没有问题的地方报了 KEY_MISSING** ——
+   * 而规划明明一直在正常调用矩阵（界面上有驾车数据）。
+   *
+   * 教训：`typeof x === 'function'` 这种"有就用"的写法，在对方**没有**
+   * 这个方法时**静默降级成另一个结论**，而不是报错。
+   */
+  const p = createTencentProvider({ key: 'MAP-SECRET-KEY' });
+
+  assert.equal(typeof p.keyStatus, 'function', '必须提供 keyStatus()');
+  const ks = p.keyStatus();
+  assert.equal(ks.configured, true);
+  assert.match(ks.masked, /\*/, '只允许掩码');
+  assert.equal(ks.masked.includes('SECRET'), false, '掩码不得泄露 Key');
+  assert.equal(ks.trimmed, false);
+});
+
+test('两个 Key 接口形状必须同时可用 —— 旧的使用者不能被破坏', () => {
+  const p = createTencentProvider({ key: '\tMAP-SECRET-KEY ' });
+
+  /** 旧字段（actions/map.js 与既有测试在用） */
+  assert.equal(p.keyConfigured, true);
+  assert.equal(p.keyWasTrimmed, true);
+  /** 新方法（探针在用） */
+  assert.equal(p.keyStatus().configured, true);
+  assert.equal(p.keyStatus().trimmed, true);
+  /** 两者必须一致 —— 不一致比缺一个更糟 */
+  assert.equal(p.keyStatus().configured, p.keyConfigured);
+});
+
+test('没配 Key 时 keyStatus 如实报 false', () => {
+  const p = createTencentProvider({ key: '' });
+  assert.equal(p.keyStatus().configured, false);
+  assert.equal(p.keyStatus().masked, null);
+});

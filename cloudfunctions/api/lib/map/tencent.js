@@ -307,6 +307,33 @@ function createTencentProvider(opts) {
     keyWasTrimmed: normalized.trimmed,
 
     /**
+     * Key 状态查询 —— **统一接口**（2026-10-14 补）。
+     *
+     * ⚠️ 这个 provider 原来只有 `keyConfigured` / `keyMasked`（**属性**），
+     * 而高德那两个 provider 用的是 `keyStatus()`（**方法**）。
+     * 同一个项目里两种约定，后果是我写距离矩阵探针时照搬了高德那套：
+     *
+     *     const ks = typeof provider.keyStatus === 'function'
+     *       ? provider.keyStatus() : { configured: null };   // ← 永远拿到 null
+     *
+     * 于是探针**在没有问题的地方报了 `KEY_MISSING`** ——
+     * 而规划明明一直在正常调用矩阵（界面上有驾车数据）。
+     *
+     * 教训：`typeof x === 'function'` 这种"有就用"的写法，
+     * 在对方**没有**这个方法时会**静默降级成另一个结论**，而不是报错。
+     * 现在两种调用形状都提供，消除这类踩空。
+     *
+     * 旧字段保留不动 —— `actions/map.js` 与既有测试都用着它们。
+     */
+    keyStatus() {
+      return {
+        configured: Boolean(key),
+        masked: key ? maskSecret(key) : null,
+        trimmed: normalized.trimmed,
+      };
+    },
+
+    /**
      * 距离矩阵 —— 一次拿到**路面距离 + 耗时**，用于"这一段走多久/多远"的估算。
      *
      * ── 为什么单独有这个（而不是复用 walkingRoute）──────────
