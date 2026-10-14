@@ -9,7 +9,7 @@
       scale="{{scale}}"
       markers="{{markers}}"
       polyline="{{polyline}}"
-      show-location="{{false}}"
+      show-location="{{true}}"
       enable-zoom="{{true}}"
       enable-scroll="{{true}}"
       bindtap="onMapTap"
@@ -70,11 +70,12 @@
 
     <view wx:if="{{meetingPoint}}" class="card sel">
       <view class="row">
-        <text class="k">已选集合点</text>
+        <text class="k">{{meetingPoint.fromTeamTask ? '进行中的集合' : '已选集合点'}}</text>
         <text class="v ok">{{meetingPoint.name}}</text>
       </view>
       <view class="sub">地图上的橙针即该点，虚线为步行方向（正式版将显示后端计算的实际步行路径）</view>
       <view class="sub">点地图上任意一个图钉，也可以改选集合点。</view>
+      <button wx:if="{{!meetingPoint.fromTeamTask}}" class="btn ghost" bindtap="clearMeeting">取消选择</button>
 
       <button class="btn ghost" bindtap="fetchPhotos" disabled="{{photoBusy}}">
         {{photoBusy ? '正在取照片…' : '取这个地方的照片'}}

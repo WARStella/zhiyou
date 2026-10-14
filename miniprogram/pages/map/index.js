@@ -110,6 +110,24 @@ Page({
    * `team-panel` 的 `zhiyou-active-crew` 那套约定），这里读回来即可。
    */
   onShow() {
+    /**
+     * 默认不选中任何集合点 —— **选中必须是用户动作的结果**。
+     *
+     * 唯一例外是"已经存在一场进行中的集合"：那种情况下把它显示出来
+     * 是用户要的信息，而不是我们替他做的选择（`onTeamState` 会把它填回来）。
+     */
+    if (!(this.teamMeeting && this.teamMeeting.name)) {
+      this.setData({ meetingPoint: null, photoNote: '' })
+    }
+
+    /**
+     * 顺序是有意的：**先把我自己放上去，再读路线**。
+     *
+     * `loadActiveTrip()` 在没有定位可用时会退而把视野收到路线上
+     * （见 `recenterOnMe` 的分工说明）。反过来先读路线的话，
+     * 定位回调回来再挪镜头，用户会看到地图先跳到路线、再跳回自己身上。
+     */
+    this.autoLocate()
     this.loadActiveTrip()
   },
 
@@ -173,7 +191,12 @@ Page({
           },
           note: '',
         })
-        that.fitRoute()
+        /**
+         * 镜头优先跟人。`recenterOnMe()` 返回 false 表示地图上下文不可用
+         * （基础库过低等），此时退而把整条路线收进视野 ——
+         * 总比停在一个与用户无关的默认点上强。
+         */
+        if (!that.recenterOnMe()) that.fitRoute()
         that.refreshMarkers()
       })
       .catch(function (err) {
@@ -213,10 +236,131 @@ Page({
     })
   },
 
+  /**
+   * 把镜头回到"我"身上。
+   *
+   * ── 与 `fitRoute` 的分工（2026-10-14 用户要求）────────────
+   *
+   * 用户说："应该默认镜头是自己的当前位置啊。" 这是对的 ——
+   * **"我在哪"是每一刻都要用的信息，路线一眼看全就够了。**
+   *
+   * 所以两者不并列，而是有优先级：
+   *   · 定位可用        → 镜头跟我（`moveToLocation`）；
+   *   · 定位不可用但有路线 → 退而求其次，镜头收到路线上（`fitRoute`）。
+   *
+   * 刻意**不**用 `includePoints([我, ...路线])` 把两者一起框进去：
+   * 人在离路线很远处时，这个盒子会大到什么都看不清 ——
+   * 那等于两个都没照顾到。空间关系用蓝色折线自己表达就够了。
+   *
+   * `moveToLocation` 不动缩放级别，所以不会把用户刚调好的比例尺冲掉；
+   * 这也是它比 `includePoints` 更适合"回到我"的原因。
+   */
+  recenterOnMe() {
+    const that = this
+    const ctx = wx.createMapContext('tripmap')
+    if (!ctx || typeof ctx.moveToLocation !== 'function') return false
+    ctx.moveToLocation({
+      fail(err) {
+        that.setData({ note: '镜头回到我的位置失败：' + ((err && err.errMsg) || '未知原因') })
+      },
+    })
+    return true
+  },
+
+  /**
+   * 打开地图时静默取一次当前位置。
+   *
+   * ── 为什么用 `getSetting` 先探一下权限（2026-10-14）────────
+   *
+   * 直接调 `wx.getLocation` 在**未授权**时会弹权限框。而地图是个 tab ——
+   * 用户每次点进来都弹一次，那是骚扰，不是功能。
+   *
+   * 所以先问 `getSetting`：只有**已经授权过**才取位置；没授权就什么都不做，
+   * 把主动权留给用户点「获取我的位置」那一下。
+   */
+  autoLocate() {
+    const that = this
+    wx.getSetting({
+      success(setting) {
+        if (!setting || !setting.authSetting || !setting.authSetting['scope.userLocation']) return
+        wx.getLocation({
+          type: 'gcj02',
+          success(res) {
+            that.setData({
+              myPoint: { latitude: res.latitude, longitude: res.longitude },
+              mySource: 'gps',
+              myAccuracyM: res.accuracy,
+            })
+            that.refreshMarkers()
+            /**
+             * ⚠️ 这里**刻意不调 `recenterOnMe()`**（2026-10-14）。
+             *
+             * `onShow` 里紧接着会跑 `loadActiveTrip()`，它结尾也会重定位一次。
+             * 两处都调会让镜头动两下 —— 用户看到的是地图先跳一下、再跳一下。
+             *
+             * 而"用户主动点「获取我的位置」"那条路径（`useGps`）**必须**调：
+             * 那时用户明确要位置，镜头就该立刻落过去。
+             */
+          },
+          /**
+           * 失败**不写 note**：这是页面自动触发的，用户没提要求。
+           * 写提示只会让一个正常打开的页面看起来像出了问题。
+           * 真正需要提示的是用户主动点「获取我的位置」的那条路径（`useGps`）。
+           */
+          fail() {},
+        })
+      },
+      fail() {},
+    })
+  },
+
   onTeamState(e) {
     this.teamLocations = e.detail.locations || []
     this.teamMeeting = e.detail.meeting || null
+    this.syncMeetingSelection()
     this.refreshMarkers()
+  },
+
+  /**
+   * 把"进行中的集合"反映到选中状态上 —— 但**不覆盖用户自己的选择**。
+   *
+   * 两条纪律：
+   *   ① 只在"还没有选中"时替用户填上。用户点过的地方优先，
+   *      否则他点开一个地点的照片、一刷新就被会议地点顶掉。
+   *   ② 只在**真的变了**的时候写 —— 否则 `onTeamState → setData → render`
+   *      会绕成一个环。
+   */
+  syncMeetingSelection() {
+    const meeting = this.teamMeeting
+    const meetingName = meeting && meeting.name
+    if (!meetingName || this.data.meetingPoint) return
+    if (this.__autoPickedMeetingName === meetingName) return
+    this.__autoPickedMeetingName = meetingName
+
+    const that = this
+    const matched = this.data.places.find(function (p) {
+      return p.name === meetingName
+    })
+    if (matched) {
+      this.selectPlace(matched.placeId)
+      return
+    }
+    /**
+     * 集合点可能**不在 places 库里**（手动选点时坐标由用户在地图上点出来，
+     * 并不对应任何一条地点记录）。这种情况也要能在地图上标出来，
+     * 否则"我们约在哪儿"这件事就看不见了。
+     */
+    this.setData({
+      meetingPoint: {
+        placeId: '__team_meeting__',
+        name: meetingName,
+        latitude: meeting.point.latitude,
+        longitude: meeting.point.longitude,
+        verified: true,
+        fromTeamTask: true,
+      },
+    })
+    that.refreshMarkers()
   },
 
   loadPlaces() {
@@ -282,6 +426,8 @@ Page({
         })
         that.refreshMarkers()
         that.computeNearby()
+        /** 用户刚给了位置，镜头就该落到他身上 —— 否则还得自己拖地图去找 */
+        that.recenterOnMe()
       },
       fail(err) {
         const msg = (err && err.errMsg) || '未知原因'
@@ -356,6 +502,17 @@ Page({
     this.setData({ meetingPoint: place, photoNote: '' })
     this.refreshMarkers()
     return true
+  },
+
+  /**
+   * 取消选中 —— 让地图回到"只显示地点、不显示集合点"的默认样子。
+   *
+   * 没有这个出口的话，用户点错一个地点就再也退不回默认视图了，
+   * 而且会以为"地图上本来就有一个集合点"。
+   */
+  clearMeeting() {
+    this.setData({ meetingPoint: null, photoNote: '' })
+    this.refreshMarkers()
   },
 
   /** 计算到各集合点候选的步行估算，按最耗时的成员（此处即本人）排序 */
@@ -542,6 +699,44 @@ Page({
       })
     })
 
+    /**
+     * 集合点**不在 places 库里**时，上面的循环画不到它。
+     *
+     * 这不是边角情况：`team-panel` 手动选点时，坐标是用户在地图上点出来的，
+     * 不对应任何一条地点记录；而"进行中的集合"也常常是那种点。
+     * 少了这一段，地图上就**看不到"我们约在哪儿"** ——
+     * 而集合页最该回答的就是这个问题。
+     */
+    const mp = this.data.meetingPoint
+    const meetingInLibrary =
+      mp &&
+      this.data.places.some(function (p) {
+        return p.placeId === mp.placeId
+      })
+    if (mp && !meetingInLibrary) {
+      const photoUrl = (this.data.photoUrls || {})[mp.placeId] || {}
+      const firstUrl = Object.keys(photoUrl).map(function (k) {
+        return photoUrl[k]
+      })[0]
+      markers.push({
+        id: 3000,
+        latitude: mp.latitude,
+        longitude: mp.longitude,
+        iconPath: firstUrl || '/assets/pin-meeting.png',
+        width: firstUrl ? 48 : 34,
+        height: firstUrl ? 48 : 42,
+        callout: {
+          content: mp.name + (mp.fromTeamTask ? ' · 队里定的集合点' : ''),
+          color: '#1F2933',
+          fontSize: 12,
+          borderRadius: 6,
+          bgColor: '#FFFFFF',
+          padding: 6,
+          display: 'ALWAYS',
+        },
+      })
+    }
+
     if (this.data.myPoint) {
       markers.push({
         id: 999,
@@ -602,9 +797,14 @@ Page({
       iconPath: '/assets/dot-me.png', width: 24, height: 24,
       callout: { content: '队员 ' + (i + 1) + (m.source === 'gps' ? ' · 定位' : ' · 手动'), display: 'BYCLICK' },
     }))
-    if (this.teamMeeting) markers.push({ id: 3000, latitude: this.teamMeeting.point.latitude,
-      longitude: this.teamMeeting.point.longitude, iconPath: '/assets/pin-meeting.png', width: 34, height: 42,
-      callout: { content: this.teamMeeting.name, display: 'ALWAYS' } })
+    /**
+     * ⚠️ 这里**不再**单独为 `teamMeeting` 画一个图钉（2026-10-14 去掉）。
+     *
+     * 原因：进行中的集合现在会通过 `syncMeetingSelection()` 变成
+     * `meetingPoint`，再由上面那段画出"选中"的针。
+     * 两处都画会在同一坐标上叠两个针 —— 看起来像一个画重了的 bug，
+     * 而且下面的针永远点不到。
+     */
     this.setData({ markers, polyline, markerPlaceIndex })
   },
 })

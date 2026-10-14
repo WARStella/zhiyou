@@ -88,7 +88,21 @@ function loadPage(relPath, opts) {
       getLocation: (o) => {
         if (o && typeof o.fail === 'function') o.fail({ errMsg: 'harness: no location' });
       },
-      createMapContext: () => ({ includePoints: (a) => wxCalls.push({ fn: 'includePoints', args: a }) }),
+      /**
+       * `wx.getSetting` —— 回调风格。
+       *
+       * ⚠️ 缺省**不假装已授权**（`authSetting` 为空对象）。
+       * 页面靠它决定"要不要静默取位置"：默认成已授权会让每个测试都走进
+       * 定位分支，而那不是真机上第一次打开地图的样子。
+       * 用 `opts.wx.getSetting` 显式模拟"已授权"。
+       */
+      getSetting: (o) => {
+        if (o && typeof o.success === 'function') o.success({ authSetting: {} });
+      },
+      createMapContext: () => ({
+        includePoints: (a) => wxCalls.push({ fn: 'includePoints', args: a }),
+        moveToLocation: (a) => wxCalls.push({ fn: 'moveToLocation', args: a }),
+      }),
       showToast: (a) => wxCalls.push({ fn: 'showToast', args: a }),
       openLocation: (a) => wxCalls.push({ fn: 'openLocation', args: a }),
       pageScrollTo: (a) => wxCalls.push({ fn: 'pageScrollTo', args: a }),
