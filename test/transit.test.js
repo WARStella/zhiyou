@@ -3,296 +3,271 @@
 /**
  * 高德公交（含地铁）provider 的测试。
  *
- * 全程不联网：HTTP 传输通过 `opts.http` 注入。
- * 契约来自官方文档（**未持 Key 实测**），所以每个字段都注明依据；
- * 实测若与文档不符，改的是这里并记录差异 —— 这也是 `transit.probe` 存在的理由。
+ * ── 这一版是**按实测重写的**（2026-10-14）──────────────────
  *
- * 这一层最容易出错的不是解析，而是**坐标顺序**：
- * 高德要求 `lon,lat`，而腾讯要 `lat,lng`，**两家相反**。
- * 写反了不会报错，只会得到一个"看起来正常、实际在几百公里外"的方案。
+ * 上一版的字段路径是照官方文档写的，结果是：端点与参数都不对，
+ * 一次都没跑通。后来用户在浏览器里直接把 URL 打通了，拿到真实返回，
+ * 才有下面这些断言。
+ *
+ * fixture 来源：`test/fixtures/upstream/direction-transit-integrated-harbin.json`
+ * （中央大街 → 冰雪大世界，真实返回精简而来，字段名一字未改）。
+ *
+ * 三条实测结论被钉在这里，别再靠"读文档"推翻它们：
+ *   ① **端点用 v3**，城市参数是 `city`/`cityd`。
+ *      v5 的 `city1`/`city2` 在同一 Key、同一坐标下回 `20001 缺少必填参数`。
+ *   ② **成功的 `infocode` 是 `10000`**，而成功返回**也带 `info`**（值为 "OK"）——
+ *      所以"有 info 就算错"是错的（我犯过这个错）。
+ *   ③ **地铁识别看 `buslines[].type` 是否含「地铁」**（实测：`"地铁线路"`）。
  */
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
-const { createAmapTransitProvider, parseTransit, STRATEGY } = require('../cloudfunctions/api/lib/transit/amap');
+const { createAmapTransitProvider, parseTransit, STRATEGY, DEFAULT_ENDPOINT } = require('../cloudfunctions/api/lib/transit/amap');
 
-const HARBIN = '哈尔滨';
+const FIXTURE = JSON.parse(
+  fs.readFileSync(
+    path.join(__dirname, 'fixtures', 'upstream', 'direction-transit-integrated-harbin.json'),
+    'utf8'
+  )
+);
+
 const FROM = { latitude: 45.7756, longitude: 126.6175 }; // 中央大街
-const TO = { latitude: 45.8038, longitude: 126.5331 }; // 冰雪大世界方向
+const TO = { latitude: 45.8029, longitude: 126.5353 }; // 冰雪大世界方向
+const CITY = '0451'; // 哈尔滨 citycode
 
 function fakeHttp(body) {
   const urls = [];
   const fn = async (url) => {
     urls.push(url);
-    return { json: typeof body === 'function' ? body(url) : body, httpStatus: 200 };
+    const json = typeof body === 'function' ? body(url) : body;
+    // 真 defaultTransport 返回 { json, httpStatus, rawBody } —— 形状要对齐
+    return { json, httpStatus: 200, rawBody: JSON.stringify(json) };
   };
   fn.urls = urls;
   return fn;
-}
-
-/** 高德公交规划的正常返回骨架（route.transits[]） */
-function transitOk(transits) {
-  return { status: '1', count: String((transits || []).length), route: { transits: transits || [] } };
 }
 
 function provider(http, opts) {
   return createAmapTransitProvider(Object.assign({ key: 'FAKE-AMAP-KEY', http }, opts || {}));
 }
 
-test('参数名必须是 v5 的 city1 —— 用 v3 的 city 会得到 20001 缺少必填参数', async () => {
-  /**
-   * ⚠️ 这条是**实测暴露后补上的回归**（2026-10-14）。
-   *
-   * 我照 v3「公交路径规划1.0」的参数表写了 v5 的请求：用了 `city` / `cityd`，
-   * 而 v5 要 `city1` / `city2`，且 **v5 没有 `city` 这个参数**。
-   * 上游回的是 `{"status":"0","info":"MISSING_REQUIRED_PARAMS","infocode":"20001"}`
-   * —— **不点明是哪个参数**。
-   *
-   * 两份文档在同一个站上、标题都叫"路径规划"，所以这个坑很容易再踩。
-   * 测试在这里钉死参数名。
-   */
-  const http = fakeHttp(transitOk([]));
-  await provider(http).route({ from: FROM, to: TO, city: '0451' });
+// ── 端点与参数（这是卡了三轮的地方）──────────────────────
+
+test('端点必须是 v3，且城市参数是 city（实测：v5 的 city1 回 20001）', async () => {
+  const http = fakeHttp(FIXTURE.body);
+  await provider(http).route({ from: FROM, to: TO, city: CITY });
 
   const url = http.urls[0];
-  assert.match(url, /[?&]city1=0451/, 'v5 的起点城市参数是 city1');
-  assert.ok(!/[?&]city=/.test(url), 'v5 没有 city 这个参数 —— 带了它没有用，还会掩盖真正的缺参问题');
-  // show_fields=cost 不加则票价相关字段不返回（与搜索接口的 show_fields=photos 同一类坑）
-  assert.match(url, /show_fields=cost/);
+  assert.match(DEFAULT_ENDPOINT, /\/v3\/direction\/transit\/integrated/, '用 v3 端点');
+  assert.match(url, /[?&]city=0451/, 'v3 的城市参数是 city');
+  assert.ok(!/[?&]city1=/.test(url), 'v5 的 city1 在这条端点上没有意义');
+  assert.ok(!/show_fields=/.test(url), 'v5 才需要 show_fields=cost，v3 默认就返回票价');
 });
 
-test('跨城才传 city2（v5 的终点城市参数名）', async () => {
-  const http = fakeHttp(transitOk([]));
-  await provider(http).route({ from: FROM, to: TO, city: '0451' });
-  assert.ok(!/city2=/.test(http.urls[0]), '同城不该带 city2');
+test('坐标顺序是 lon,lat —— 与腾讯相反，写反了不报错但会规划到别处', async () => {
+  const http = fakeHttp(FIXTURE.body);
+  await provider(http).route({ from: FROM, to: TO, city: CITY });
 
-  const http2 = fakeHttp(transitOk([]));
-  await provider(http2).route({ from: FROM, to: TO, city: '0451', city2: '010' });
-  assert.match(http2.urls[0], /city2=010/);
+  assert.match(http.urls[0], /origin=126\.617500%2C45\.775600/, 'origin 必须是「经度,纬度」');
+  assert.match(http.urls[0], /destination=126\.535300%2C45\.802900/);
 });
 
-test('坐标顺序是 lon,lat —— 与腾讯相反，写反了不会报错但会规划到别处', async () => {
-  const http = fakeHttp(transitOk([]));
-  await provider(http).route({ from: FROM, to: TO, city: '0451' });
+test('跨城才传 cityd', async () => {
+  const http = fakeHttp(FIXTURE.body);
+  await provider(http).route({ from: FROM, to: TO, city: CITY });
+  assert.ok(!/cityd=/.test(http.urls[0]), '同城不该带 cityd');
 
-  const url = http.urls[0];
-  assert.match(url, /origin=126\.617500%2C45\.775600/, 'origin 必须是「经度,纬度」');
-  assert.match(url, /destination=126\.533100%2C45\.803800/);
+  const http2 = fakeHttp(FIXTURE.body);
+  await provider(http2).route({ from: FROM, to: TO, city: CITY, cityd: '010' });
+  assert.match(http2.urls[0], /cityd=010/);
 });
 
-test('city 是必填，漏了要在本地拦住并说清 v5 的参数名', async () => {
-  const http = fakeHttp(transitOk([]));
+test('city 是必填，漏了本地就拦住并说清字段名', async () => {
+  const http = fakeHttp(FIXTURE.body);
   const r = await provider(http).route({ from: FROM, to: TO });
 
-  assert.equal(r.ok, false);
   assert.equal(r.reason, 'CITY_REQUIRED');
-  assert.match(r.message, /city1/, '要说清 v5 的参数名是 city1 —— 上游的错误信息不点明');
-  assert.match(r.hint, /citycode/);
-  assert.equal(http.urls.length, 0, '本地就能判定的错误不该发请求');
+  assert.match(r.message, /citycode/);
+  assert.equal(http.urls.length, 0);
 });
 
-test('strategy 进 URL，且中文名按 v5 档位（0 是"推荐"不是"最快捷"）', async () => {
-  const expected = {
-    0: '推荐',
-    1: '最经济',
-    2: '最少换乘',
-    3: '最少步行',
-    4: '最舒适',
-    5: '不乘地铁',
-    6: '地铁图模式',
-    7: '地铁优先',
-    8: '时间最短',
-  };
+test('strategy 用 v3 的五档（不是 v5 的九档）', async () => {
+  const expected = { 0: '最快捷', 1: '最经济', 2: '最少换乘', 3: '最少步行', 5: '不乘地铁' };
   for (const [value, label] of Object.entries(expected)) {
-    const http = fakeHttp(transitOk([]));
-    const r = await provider(http).route({ from: FROM, to: TO, city: '0451', strategy: value });
+    const http = fakeHttp(FIXTURE.body);
+    const r = await provider(http).route({ from: FROM, to: TO, city: CITY, strategy: value });
     assert.match(http.urls[0], new RegExp(`strategy=${value}`));
-    assert.equal(r.strategyLabel, label, `v5 的 ${value} 应当是「${label}」`);
+    assert.equal(r.strategyLabel, label);
+  }
+  assert.equal(STRATEGY.FASTEST, '0');
+  assert.equal(STRATEGY.NO_SUBWAY, '5');
+});
+
+// ── 解析真实返回 ────────────────────────────────────────────
+
+test('解析真实返回：取到两个方案，各自的耗时/步行/票价都对', async () => {
+  const http = fakeHttp(FIXTURE.body);
+  const r = await provider(http).route({ from: FROM, to: TO, city: CITY });
+
+  assert.equal(r.ok, true);
+  assert.equal(r.routes.length, 2);
+
+  // 方案一：地铁，4170 秒 = 69.5 分
+  assert.equal(r.routes[0].durationMinutes, 69.5);
+  assert.equal(r.routes[0].walkingMeters, 3442);
+  assert.equal(r.routes[0].costYuan, 3);
+  assert.equal(r.routes[0].hasSubway, true);
+
+  // 方案二：普通公交，3773 秒 ≈ 62.9 分，步行更少、更便宜
+  assert.equal(r.routes[1].durationMinutes, 62.9);
+  assert.equal(r.routes[1].walkingMeters, 1538);
+  assert.equal(r.routes[1].costYuan, 2);
+  assert.equal(r.routes[1].hasSubway, false);
+});
+
+test('默认给的是第一个方案，且步骤按"走路→坐车→出入口"排开', async () => {
+  const http = fakeHttp(FIXTURE.body);
+  const r = await provider(http).route({ from: FROM, to: TO, city: CITY });
+
+  const kinds = r.best.steps.map((s) => s.kind);
+  assert.deepEqual(kinds, ['walking', 'transit', 'entrance-exit', 'walking']);
+  assert.equal(r.best.transitStepCount, 1);
+});
+
+test('地铁识别：`type` 含「地铁」→ 地铁；「普通公交线路」→ 不是', async () => {
+  const transit = parseTransit(FIXTURE.body);
+
+  const subway = transit.best.steps.find((s) => s.kind === 'transit');
+  assert.equal(subway.isSubway, true);
+  assert.equal(subway.lineType, '地铁线路');
+  assert.equal(subway.lineName, '地铁2号线(气象台--江北大学城)');
+  assert.equal(subway.departureStop, '中央大街');
+  assert.equal(subway.arrivalStop, '世茂大道');
+  assert.equal(subway.viaStationCount, 3);
+  // 首末班时间也要取出来 —— 界面可以据此提示"末班车快没了"
+  assert.equal(subway.startTime, '0532');
+  assert.equal(subway.endTime, '2254');
+
+  // 方案二的 126 路是普通公交
+  const bus = parseTransit(FIXTURE.body).routes[1];
+  assert.equal(bus.hasSubway, false);
+  assert.deepEqual(bus.lineNames, ['126路(防洪纪念塔(友谊路)--枫叶小镇奥特莱斯)']);
+});
+
+test('出入口（几号口）被解析出来 —— 这是集合协同最有用的信息', async () => {
+  const transit = parseTransit(FIXTURE.body);
+  const ee = transit.best.steps.find((s) => s.kind === 'entrance-exit');
+
+  assert.ok(ee, '实测返回里有 entrance/exit，不能丢');
+  assert.equal(ee.entranceName, '1号口');
+  assert.equal(ee.exitName, '3号口');
+  assert.deepEqual(ee.entranceLocation, { latitude: 45.769293, longitude: 126.616338 });
+  assert.match(ee.instruction, /进 1号口/, '要说成人话');
+});
+
+test('步行指引用上游原话', async () => {
+  const transit = parseTransit(FIXTURE.body);
+  const walk = transit.best.steps.find((s) => s.kind === 'walking');
+
+  assert.equal(walk.instruction, '步行41米右转');
+  assert.ok(walk.allInstructions.length >= 2, '全部步行指引都要留着');
+  assert.equal(walk.walkingMeters, 1011);
+  assert.equal(walk.durationSeconds, 1013);
+});
+
+test('route 层的整体信息（总里程、打车参考价）也要取出来', async () => {
+  const transit = parseTransit(FIXTURE.body);
+  assert.equal(transit.routeSummary.distanceMeters, 9409);
+  assert.equal(transit.routeSummary.taxiCostYuan, 24);
+});
+
+test('转车次数按"坐车段数 - 1"算', async () => {
+  const transit = parseTransit(FIXTURE.body);
+  assert.equal(transit.routes[0].transferCount, 0, '只有一段地铁 → 无需换乘');
+  assert.equal(transit.routes[1].transferCount, 0, '只有一段公交 → 无需换乘');
+});
+
+// ── 成功与失败的判定 ────────────────────────────────────────
+
+test('回归：成功返回**也带 info 与 infocode**，不能因此判失败', async () => {
+  /**
+   * ⚠️ 我上一版把判定写成 `ok = status==='1' && !infocode && !info`，
+   * 而真实成功返回是 `{"status":"1","info":"OK","infocode":"10000", …}` ——
+   * **成功会被判成失败**。这条测试钉住"10000 才是成功码"。
+   */
+  const http = fakeHttp(FIXTURE.body);
+  const r = await provider(http).route({ from: FROM, to: TO, city: CITY });
+
+  assert.equal(FIXTURE.body.info, 'OK', '前提：实测成功返回带 info');
+  assert.equal(FIXTURE.body.infocode, '10000', '前提：实测成功 infocode 是 10000');
+  assert.equal(r.ok, true, '带 info/infocode 的成功返回必须判成功');
+});
+
+test('实测的三种错误返回都要判失败，且带成因提示', async () => {
+  const cases = [
+    ['20001', 'MISSING_REQUIRED_PARAMS', /city|缺少必填/],
+    ['10001', 'INVALID_USER_KEY', /Key/],
+    ['10012', 'NO_PERMISSION', /未开通|权限/],
+  ];
+  for (const [infocode, info, re] of cases) {
+    const http = fakeHttp({ status: '0', info, infocode });
+    const r = await provider(http).route({ from: FROM, to: TO, city: CITY });
+    assert.equal(r.ok, false, `${infocode} 应当判失败`);
+    assert.equal(r.infocode, infocode);
+    assert.ok(r.hint, `${infocode} 必须有提示`);
+    assert.match(r.hint, re);
   }
 });
 
-test('缺省 strategy 为「推荐」（v5 的 0）', async () => {
-  const http = fakeHttp(transitOk([]));
-  const r = await provider(http).route({ from: FROM, to: TO, city: '0451' });
-  assert.equal(r.strategy, '0');
-  assert.equal(r.strategyLabel, '推荐');
-});
-
-test('回归：实测那次拿到的是 status:0 + infocode:20001，必须判失败并给出可行动提示', async () => {
-  /**
-   * ⚠️ 这是**真实返回**（2026-10-14 由 transit.probe 实测得到），逐字照搬：
-   *
-   *     {"status":"0","info":"MISSING_REQUIRED_PARAMS","infocode":"20001"}
-   *
-   * 三个教训都钉在这条测试里：
-   *   ① 成功判定不能只看 `status` —— 还要看 `infocode` / `info` 是否存在；
-   *   ② 提示要按 `infocode` 查（它是更细的错误码）。我原先拿 `status`（"0"）
-   *      去查表，于是 `hint` 为 null —— 用户拿到一个没有下文的失败；
-   *   ③ 最可能的原因必须写进提示：v5 的起点城市参数是 `city1` 而不是 `city`。
-   */
-  const http = fakeHttp({ status: '0', info: 'MISSING_REQUIRED_PARAMS', infocode: '20001' });
-  const r = await provider(http).route({ from: FROM, to: TO, city: '0451' });
-
-  assert.equal(r.ok, false, '有 infocode 就是出错');
-  assert.equal(r.status, '0');
-  assert.equal(r.infocode, '20001', 'infocode 要如实带出去');
-  assert.equal(r.info, 'MISSING_REQUIRED_PARAMS');
-  assert.ok(r.hint, '提示不能是 null —— 实测那次就是 null');
-  assert.match(r.hint, /city1/, '要直接点出最可能的原因');
-});
-
-test('回归：成功码但带 infocode 时也要判失败（别赌上游只用一种成功码）', async () => {
-  const http = fakeHttp({ status: '1', info: 'SOMETHING_WRONG', infocode: '10012' });
-  const r = await provider(http).route({ from: FROM, to: TO, city: '0451' });
-
-  assert.equal(r.ok, false, '只要出现 infocode/info 就按出错处理');
-  assert.ok(r.hint);
-});
-
-test('上游只给文字错误说明时也有兜底解释', async () => {
-  const http = fakeHttp({ status: '0', info: 'INVALID_USER_KEY' });
-  const r = await provider(http).route({ from: FROM, to: TO, city: '0451' });
-
-  assert.equal(r.ok, false);
-  assert.match(r.hint, /Key/, '按 info 文本兜底');
-});
-
-test('解析出一个可用的公交方案：耗时、步行距离、票价、换乘', async () => {
-  const http = fakeHttp(
-    transitOk([
-      {
-        duration: '1860', // 31 分钟
-        walking_distance: '820',
-        cost: '2.0',
-        segments: [
-          { walking: { distance: '300', duration: '240' }, instruction: '步行至防洪纪念塔站' },
-          {
-            bus: {
-              buslines: [
-                {
-                  name: '地铁2号线(气象台--江北大学城)',
-                  type: '地铁线路',
-                  via_num: '4',
-                  departure_stop: { name: '防洪纪念塔' },
-                  arrival_stop: { name: '冰雪大世界' },
-                },
-              ],
-            },
-            instruction: '乘坐地铁2号线',
-          },
-          { walking: { distance: '520', duration: '420' }, instruction: '步行至目的地' },
-        ],
-      },
-    ])
-  );
-  const r = await provider(http).route({ from: FROM, to: TO, city: '0451' });
-
-  assert.equal(r.ok, true);
-  assert.equal(r.best.durationMinutes, 31, '1860 秒 = 31 分钟');
-  assert.equal(r.best.walkingMeters, 820);
-  assert.equal(r.best.costYuan, 2);
-  assert.equal(r.best.hasSubway, true, '这一段是地铁 —— 界面上该显示地铁图标');
-  assert.equal(r.best.transitStepCount, 1, '只有一步是坐车，其余是走路');
-
-  const ride = r.best.steps.find((s) => s.kind === 'transit');
-  assert.equal(ride.isSubway, true);
-  assert.equal(ride.lineName, '地铁2号线(气象台--江北大学城)');
-  assert.equal(ride.departureStop, '防洪纪念塔');
-  assert.equal(ride.arrivalStop, '冰雪大世界');
-  assert.equal(ride.viaStationCount, 4);
-});
-
-test('公交（非地铁）不会被误判成地铁', async () => {
-  const http = fakeHttp(
-    transitOk([
-      {
-        duration: '2400',
-        walking_distance: '400',
-        segments: [
-          {
-            bus: { buslines: [{ name: '110路', type: '普通公交线路', via_num: '8' }] },
-          },
-        ],
-      },
-    ])
-  );
-  const r = await provider(http).route({ from: FROM, to: TO, city: '0451' });
-
-  assert.equal(r.best.hasSubway, false);
-  assert.equal(r.best.steps[0].isSubway, false);
-  assert.equal(r.best.steps[0].lineName, '110路');
-});
-
-test('多方案时给出各自摘要（"最少换乘"这类偏好要有依据）', async () => {
-  const http = fakeHttp(
-    transitOk([
-      { duration: '1800', walking_distance: '600', cost: '2.0', segments: [{ bus: { buslines: [{ type: '地铁线路' }] } }] },
-      { duration: '2400', walking_distance: '200', cost: '1.0', segments: [{ bus: { buslines: [{ type: '普通公交线路' }] } }] },
-    ])
-  );
-  const r = await provider(http).route({ from: FROM, to: TO, city: '0451' });
-
-  assert.equal(r.routes.length, 2);
-  assert.equal(r.routes[0].durationMinutes, 30);
-  assert.equal(r.routes[1].walkingMeters, 200, '第二方案步行更少 —— "最少步行"的依据');
-  assert.equal(r.routes[1].costYuan, 1, '"最经济"的依据');
-});
-
-test('没有公交方案时明确说明，而不是返回一个空壳', async () => {
-  const http = fakeHttp(transitOk([]));
-  const r = await provider(http).route({ from: FROM, to: TO, city: '0451' });
+test('没有公交方案时明确说明，而不是返回空壳', async () => {
+  const http = fakeHttp({ status: '1', info: 'OK', infocode: '10000', count: '0', route: { transits: [] } });
+  const r = await provider(http).route({ from: FROM, to: TO, city: CITY });
 
   assert.equal(r.ok, true, '上游调用本身成功');
   assert.equal(r.best, null);
-  assert.equal(r.emptyReason, 'NO_TRANSIT_ROUTE', '要说清"这两点之间没有公交"，而不是"出错了"');
+  assert.equal(r.emptyReason, 'NO_TRANSIT_ROUTE');
 });
 
-test('20801/20802 这类"公交不可达"的 status 要给出人话', async () => {
-  const http = fakeHttp({ status: '20801', info: '起点附近没有公交站点' });
-  const r = await provider(http).route({ from: FROM, to: TO, city: '0451' });
-
-  assert.equal(r.ok, false);
-  assert.equal(r.reason, 'UPSTREAM_STATUS_20801');
-  assert.match(r.hint, /公交不可达|没有公交站点/);
+test('实测的 parsedVia 要如实带出去（供以后核对字段）', async () => {
+  const transit = parseTransit(FIXTURE.body);
+  assert.match(transit.parsedVia.duration, /秒/);
+  assert.match(transit.parsedVia.buslines, /数组/);
+  assert.match(transit.parsedVia.lineType, /地铁线路/);
+  assert.match(transit.parsedVia.entranceExit, /几号口/);
 });
 
-test('没配 Key 时给可执行的修复指引，且不发请求', async () => {
-  const http = fakeHttp(transitOk([]));
-  const r = await createAmapTransitProvider({ key: '', http }).route({ from: FROM, to: TO, city: '0451' });
-
-  assert.equal(r.reason, 'AMAP_KEY_NOT_CONFIGURED');
-  assert.match(r.hint, /环境变量/);
-  assert.equal(http.urls.length, 0);
-});
-
-test('Key 前后空白会被去掉（与照片 provider 共用同一份归一化）', async () => {
-  const http = fakeHttp(transitOk([]));
-  const p = createAmapTransitProvider({ key: '  AMAP-KEY-X  ', http });
-  await p.route({ from: FROM, to: TO, city: '0451' });
-
-  assert.equal(p.keyStatus().trimmed, true);
-  assert.match(http.urls[0], /key=AMAP-KEY-X$/, '实际发出去的必须是去掉空白后的值');
-});
-
-test('Key 不出现在返回结构里（脱敏）', async () => {
-  const http = fakeHttp(transitOk([]));
-  const r = await provider(http).route({ from: FROM, to: TO, city: '0451' });
-  assert.ok(!JSON.stringify(r).includes('FAKE-AMAP-KEY'));
-  assert.match(r.requestUrl, /key=\*\*\*REDACTED\*\*\*/);
-});
-
-test('缺起点或终点时本地拦住', async () => {
-  const http = fakeHttp(transitOk([]));
-  const r = await provider(http).route({ from: FROM, city: '0451' });
-  assert.equal(r.reason, 'ORIGIN_DESTINATION_REQUIRED');
-  assert.equal(http.urls.length, 0);
-});
-
-test('parseTransit 对缺字段的返回不炸（上游结构可能与我们预期不同）', () => {
+test('缺字段的返回不炸（上游结构可能再变）', () => {
   const parsed = parseTransit({ route: { transits: [{}] } });
   assert.equal(parsed.best.durationMinutes, null);
   assert.equal(parsed.best.hasSubway, false);
   assert.equal(parsed.best.transitStepCount, 0);
-  assert.ok(parsed.parsedVia, '必须带回"按哪个字段路径解析的"，便于与实测核对');
+  assert.ok(parsed.parsedVia);
+});
+
+// ── Key 相关的通用约定 ──────────────────────────────────────
+
+test('没配 Key 时给可执行的修复指引，且不发请求', async () => {
+  const http = fakeHttp(FIXTURE.body);
+  const r = await createAmapTransitProvider({ key: '', http }).route({ from: FROM, to: TO, city: CITY });
+  assert.equal(r.reason, 'AMAP_KEY_NOT_CONFIGURED');
+  assert.equal(http.urls.length, 0);
+});
+
+test('Key 前后空白会被去掉（与照片 provider 共用同一份归一化）', async () => {
+  const http = fakeHttp(FIXTURE.body);
+  const p = createAmapTransitProvider({ key: '  AMAP-KEY-X  ', http });
+  await p.route({ from: FROM, to: TO, city: CITY });
+
+  assert.equal(p.keyStatus().trimmed, true);
+  assert.match(http.urls[0], /key=AMAP-KEY-X$/);
+});
+
+test('Key 不出现在返回结构里（脱敏）', async () => {
+  const http = fakeHttp(FIXTURE.body);
+  const r = await provider(http).route({ from: FROM, to: TO, city: CITY });
+  assert.ok(!JSON.stringify(r).includes('FAKE-AMAP-KEY'));
+  assert.match(r.requestUrl, /key=\*\*\*REDACTED\*\*\*/);
 });

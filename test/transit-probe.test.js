@@ -163,7 +163,7 @@ test('parsedVia 与 rawHead 必须回传 —— 没有它们，实测发现字�
 
   const fields = res.steps.find((s) => s.step === 'fields');
   assert.ok(fields.raw.parsedVia, '必须带回"按哪个字段路径解析的"');
-  assert.match(fields.raw.parsedVia.duration, /transits\[0\]\.duration/);
+  assert.match(fields.raw.parsedVia.duration, /transits\[\]\.duration/, 'v3 实测确认的路径');
   assert.ok(res.rawHead, '必须带回原始返回头部，用于与文档核对');
   assert.match(res.rawHead, /transits/, 'rawHead 里应当能看到真实结构');
 });

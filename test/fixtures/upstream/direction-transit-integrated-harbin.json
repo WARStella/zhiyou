@@ -1,0 +1,156 @@
+{
+  "name": "transit-integrated 中央大街→冰雪大世界",
+  "kind": "direction-transit-integrated-v3",
+  "source": "高德 Web服务 API 真实调用",
+  "recordedAt": "2026-10-14",
+  "request": {
+    "endpoint": "https://restapi.amap.com/v3/direction/transit/integrated",
+    "origin": "126.6175,45.7756",
+    "destination": "126.5353,45.8029",
+    "city": "0451",
+    "strategy": "0"
+  },
+  "note": "从真实返回中**精简**：保留 2 个方案、每个方案的 1 段步行 + 1 段公交，以及 entrance/exit。真实返回 5 个方案、完整 polyline 与全部 steps。精简只为让 fixture 可读，字段名与结构一字未改。",
+  "httpStatus": 200,
+  "body": {
+    "status": "1",
+    "info": "OK",
+    "infocode": "10000",
+    "count": "5",
+    "route": {
+      "origin": "126.6175,45.7756",
+      "destination": "126.5353,45.8029",
+      "distance": "9409",
+      "taxi_cost": "24",
+      "transits": [
+        {
+          "cost": "3.0",
+          "duration": "4170",
+          "nightflag": "0",
+          "walking_distance": "3442",
+          "distance": "11918",
+          "missed": "0",
+          "segments": [
+            {
+              "walking": {
+                "origin": "126.617271,45.775536",
+                "destination": "126.616257,45.768925",
+                "distance": "1011",
+                "duration": "1013",
+                "steps": [
+                  {
+                    "instruction": "步行41米右转",
+                    "road": [],
+                    "distance": "41",
+                    "action": "右转",
+                    "assistant_action": []
+                  },
+                  {
+                    "instruction": "沿中医街步行295米左转",
+                    "road": "中医街",
+                    "distance": "295",
+                    "action": "左转",
+                    "assistant_action": []
+                  }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": { "name": "中央大街", "id": "900000066262011", "location": "126.616256,45.768927" },
+                    "arrival_stop": { "name": "世茂大道", "id": "900000066262015", "location": "126.552393,45.806676" },
+                    "name": "地铁2号线(气象台--江北大学城)",
+                    "id": "900000066262",
+                    "type": "地铁线路",
+                    "distance": "8476",
+                    "duration": "870",
+                    "via_num": "3",
+                    "start_time": "0532",
+                    "end_time": "2254",
+                    "station_start_time": "0532",
+                    "station_end_time": "2254",
+                    "via_stops": [
+                      { "name": "人民广场", "id": "900000066262012", "location": "126.604984,45.773010" },
+                      { "name": "太阳岛", "id": "900000066262013", "location": "126.587862,45.784524" },
+                      { "name": "冰雪大世界", "id": "900000066262014", "location": "126.567694,45.778569" }
+                    ]
+                  }
+                ]
+              },
+              "entrance": { "name": "1号口", "location": "126.616338,45.769293" },
+              "exit": { "name": "3号口", "location": "126.552064,45.805679" },
+              "railway": { "via_stops": [], "alters": [], "spaces": [] }
+            },
+            {
+              "walking": {
+                "origin": "126.552391,45.806675",
+                "destination": "126.535202,45.803074",
+                "distance": "2431",
+                "duration": "2287",
+                "steps": [
+                  { "instruction": "步行141米左转", "road": [], "distance": "141", "action": "左转", "assistant_action": [] }
+                ]
+              },
+              "bus": { "buslines": [] },
+              "entrance": [],
+              "exit": [],
+              "railway": { "via_stops": [], "alters": [], "spaces": [] }
+            }
+          ]
+        },
+        {
+          "cost": "2.0",
+          "duration": "3773",
+          "nightflag": "0",
+          "walking_distance": "1538",
+          "distance": "14068",
+          "missed": "0",
+          "segments": [
+            {
+              "walking": {
+                "origin": "126.617043,45.775948",
+                "destination": "126.615799,45.775837",
+                "distance": "114",
+                "duration": "112",
+                "steps": [
+                  { "instruction": "步行22米左转", "road": [], "distance": "22", "action": "左转", "assistant_action": [] }
+                ]
+              },
+              "bus": {
+                "buslines": [
+                  {
+                    "departure_stop": { "name": "上游街(中央大街)", "id": "230100010403048", "location": "126.615799,45.775833" },
+                    "arrival_stop": { "name": "世纪花园小区B区1号门", "id": "230100010403022", "location": "126.525475,45.808201" },
+                    "name": "126路(防洪纪念塔(友谊路)--枫叶小镇奥特莱斯)",
+                    "id": "230100010403",
+                    "type": "普通公交线路",
+                    "distance": "12530",
+                    "duration": "2354",
+                    "via_num": "14",
+                    "via_stops": []
+                  }
+                ]
+              },
+              "entrance": [],
+              "exit": [],
+              "railway": { "via_stops": [], "alters": [], "spaces": [] }
+            },
+            {
+              "walking": {
+                "origin": "126.525490,45.808197",
+                "destination": "126.535202,45.803074",
+                "distance": "1424",
+                "duration": "1307",
+                "steps": []
+              },
+              "bus": { "buslines": [] },
+              "entrance": [],
+              "exit": [],
+              "railway": { "via_stops": [], "alters": [], "spaces": [] }
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

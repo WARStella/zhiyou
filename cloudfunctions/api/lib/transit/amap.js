@@ -37,47 +37,57 @@
 const { defaultTransport, redact, maskSecret } = require('../http');
 const { resolveKey } = require('../amap/key');
 
-/** 「公交路径规划 2.0（公交地铁一体化）」端点 */
-const DEFAULT_ENDPOINT = 'https://restapi.amap.com/v5/direction/transit/integrated';
+/** 「公交路径规划」端点 —— **用 v3，不用 v5**。理由见下面那段实测记录 */
+const DEFAULT_ENDPOINT = 'https://restapi.amap.com/v3/direction/transit/integrated';
 const DEFAULT_TIMEOUT_MS = 8000;
 
 /**
- * 换乘策略 —— **v5（路径规划 2.0）的档位，与 v3 完全不同**。
+ * ── 为什么是 v3 而不是 v5（2026-10-14 实测，别再改回去）──────
  *
- * ⚠️ 这里曾经写错并因此线上失败一次（2026-10-14）：我照 **v3**
- * 「公交路径规划1.0」的参数表写了 **v5** 的请求，两份文档在同一个站上、
- * 标题都叫"路径规划"，于是：
+ * 高德同时存在两套公交接口：
  *
- *   · 参数名用了 v3 的 `city` / `cityd`，而 v5 要 **`city1` / `city2`**
- *     —— 且 v5 **没有 `city` 这个参数**，高德回 `20001 缺少必填参数`；
- *   · 策略档位也按 v3 理解，把 `0` 当成"最快捷"，而 v5 的 `0` 是"推荐"。
+ *   v3 `/v3/direction/transit/integrated`  城市参数 `city` / `cityd`
+ *   v5 `/v5/direction/transit/integrated`  城市参数 `city1` / `city2`
  *
- * v5 档位（官方参数表原文）：
- *   0 推荐 / 1 最经济 / 2 最少换乘 / 3 最少步行 / 4 最舒适 /
- *   5 不乘地铁 / 6 地铁图模式 / 7 地铁优先 / 8 时间最短
+ * 两种都试过，**同一个 Key、同一组坐标**：
+ *
+ *   v5 → `{"status":"0","info":"MISSING_REQUIRED_PARAMS","infocode":"20001"}`
+ *        （参数按 v5 文档写全了：origin/destination/city1/strategy/show_fields）
+ *   v3 → `{"status":"1","info":"OK","count":"5", route.transits:[…]}` ✅
+ *
+ * 排查过程中被**证伪**的两条思路，一并记下来免得重走：
+ *   · "用假 Key 探参数对不对" —— 高德**先校 Key 再校参数**，
+ *     假 Key 无论参数对错都只回 `INVALID_USER_KEY`，问不出东西。
+ *   · "Key 没开通路径规划" —— 同一个 Key 走 v3 是通的，所以服务是开着的。
+ *
+ * 另外 `/v5/place/text`（照片那条路）用同一个 Key 也是通的，
+ * 说明**不是 Key 或平台的问题，是这个 v5 端点与这组参数不匹配**。
+ *
+ * 留 v3 还有一个好处：v3 的字段是**实测确认过的**（见下面 parseTransit），
+ * 而 v5 的字段只有第三方参数表，没实测。
+ */
+
+/**
+ * 换乘策略 —— **v3 的档位**（官方文档原文）。
+ *
+ * ⚠️ v5 的档位不同（0-8，含"地铁图模式""地铁优先""时间最短"）。
+ * 这里用 v3，所以是五档。改动端点时必须同步改这里 ——
+ * 两者混用不会报错，只会让"最少步行"静默变成别的东西。
  */
 const STRATEGY = {
-  RECOMMENDED: '0',
+  FASTEST: '0',
   CHEAPEST: '1',
   FEWEST_TRANSFER: '2',
   LEAST_WALK: '3',
-  MOST_COMFORTABLE: '4',
   NO_SUBWAY: '5',
-  SUBWAY_MAP: '6',
-  SUBWAY_FIRST: '7',
-  SHORTEST_TIME: '8',
 };
 
 const STRATEGY_LABEL = {
-  0: '推荐',
+  0: '最快捷',
   1: '最经济',
   2: '最少换乘',
   3: '最少步行',
-  4: '最舒适',
   5: '不乘地铁',
-  6: '地铁图模式',
-  7: '地铁优先',
-  8: '时间最短',
 };
 
 /** 高德错误码的成因（只写确证的几条，不编） */
@@ -143,15 +153,14 @@ function createAmapTransitProvider(opts) {
     },
 
     /**
-     * 公交（含地铁）路线规划 —— **v5（路径规划 2.0）**。
+     * 公交（含地铁）路线规划 —— **v3 端点**（理由见文件头那段实测记录）。
      *
      * @param {object} input
      * @param {{latitude:number,longitude:number}} input.from
      * @param {{latitude:number,longitude:number}} input.to
-     * @param {string} input.city        **必填 → 实际发的是 `city1`**（起点城市，citycode）
-     * @param {string} [input.city2]     终点城市 citycode，**跨城才填**（实际发 `city2`）
-     * @param {string} [input.strategy]  见 STRATEGY，缺省 `0`（推荐）
-     * @param {number} [input.alternativeRoute] 返回方案条数 1-10，缺省 5
+     * @param {string} input.city        **必填** —— 起点城市 citycode（哈尔滨 = 0451）
+     * @param {string} [input.cityd]     终点城市 citycode，**跨城才填**
+     * @param {string} [input.strategy]  见 STRATEGY，缺省 `0`（最快捷）
      * @returns {Promise<object>} 恒返回结构，不抛异常
      */
     async route(input) {
@@ -159,17 +168,17 @@ function createAmapTransitProvider(opts) {
       const from = input.from;
       const to = input.to;
       const city = input.city;
-      const strategy = input.strategy === undefined || input.strategy === null ? STRATEGY.RECOMMENDED : String(input.strategy);
+      const strategy =
+        input.strategy === undefined || input.strategy === null ? STRATEGY.FASTEST : String(input.strategy);
 
       const base = {
         provider: 'amap-transit',
         operation: 'direction/transit/integrated',
-        apiVersion: 'v5',
+        apiVersion: 'v3',
         from: from || null,
         to: to || null,
-        /** 对外的字段名仍叫 city（业务语义），但**发出去的必须是 city1** */
         city: city || null,
-        city2: input.city2 || null,
+        cityd: input.cityd || null,
         strategy,
         strategyLabel: STRATEGY_LABEL[strategy] || null,
       };
@@ -182,14 +191,14 @@ function createAmapTransitProvider(opts) {
         });
       }
       /**
-       * ⚠️ 起点城市是**必填**。这里的错误码是 `20001 缺少必填参数`，
-       * 而它**不点明是哪个参数** —— 所以本地先拦住并说清是 `city1`。
+       * ⚠️ 起点城市是**必填**。上游对缺参只回 `20001 缺少必填参数`，
+       * **不点明是哪个参数** —— 所以本地先拦住并说清字段名。
        */
       if (!city) {
         return Object.assign(base, {
           ok: false,
           reason: 'CITY_REQUIRED',
-          message: '公交规划必须给出起点城市（v5 参数名是 city1，取 citycode）',
+          message: '公交规划必须给出起点城市 citycode',
           hint: '如 city: "0451"（哈尔滨 citycode）；本项目单城，通常由服务端常量补齐',
         });
       }
@@ -203,17 +212,15 @@ function createAmapTransitProvider(opts) {
       }
 
       /**
-       * ⚠️ `show_fields=cost` 是**必须的**：不加它票价与耗时相关字段不返回。
-       * 与搜索接口的 `show_fields=photos` 同一类坑 —— 漏了不报错，只是安静地少字段。
+       * ⚠️ 这里**没有** v5 那套 `show_fields=cost` —— v3 默认就返回票价与耗时。
+       * 加一个 v3 不认识的参数不会报错，但会让人误以为"是按 v5 调的"。
        */
       const requestUrl =
         `${endpoint}?origin=${encodeURIComponent(ll(from))}` +
         `&destination=${encodeURIComponent(ll(to))}` +
-        `&city1=${encodeURIComponent(String(city))}` +
-        (input.city2 ? `&city2=${encodeURIComponent(String(input.city2))}` : '') +
+        `&city=${encodeURIComponent(String(city))}` +
+        (input.cityd ? `&cityd=${encodeURIComponent(String(input.cityd))}` : '') +
         `&strategy=${encodeURIComponent(strategy)}` +
-        `&show_fields=cost` +
-        (input.alternativeRoute ? `&AlternativeRoute=${encodeURIComponent(String(input.alternativeRoute))}` : '') +
         (input.nightflag ? `&nightflag=${encodeURIComponent(String(input.nightflag))}` : '') +
         `&key=${encodeURIComponent(key)}`;
 
@@ -252,7 +259,28 @@ function createAmapTransitProvider(opts) {
        * 文档里只讲了 `status`，而**取证实测胜过读文档**。
        */
       const infocode = body.infocode === undefined ? null : String(body.infocode);
-      const ok = String(status) === '1' && !infocode && !info;
+      /**
+       * ⚠️ 成功判定经历了两轮修正，两轮都是实测逼出来的：
+       *
+       * 第一版 `ok = status === '1'` —— 太松。
+       * 第二版 `ok = status === '1' && !infocode && !info` —— **错了**：
+       *   实测的**成功**返回是
+       *     `{"status":"1","info":"OK","infocode":"10000", …}`
+       *   它**也带 info 与 infocode**，于是成功会被判成失败。
+       *
+       * 现在按实测的三个样本定规则：
+       *   成功      status:'1'  infocode:'10000'  info:'OK'
+       *   缺必填    status:'0'  infocode:'20001'  info:'MISSING_REQUIRED_PARAMS'
+       *   Key 无效  status:'0'  infocode:'10001'  info:'INVALID_USER_KEY'
+       *
+       * 即：**`10000` 才是成功码**。缺 infocode 时回落到"status 为 1 且 info 不是错误文本"。
+       */
+      const OK_INFOCODE = '10000';
+      const ok =
+        String(status) === '1' &&
+        (infocode !== null
+          ? infocode === OK_INFOCODE
+          : !info || /^ok$/i.test(String(info)));
 
       const parsed = ok ? parseTransit(body) : null;
 
@@ -296,75 +324,154 @@ function createAmapTransitProvider(opts) {
  *   · `segments`        换乘概览（界面上要说清"坐几号线、在哪换"）
  */
 function parseTransit(body) {
-  const transits = (body.route && Array.isArray(body.route.transits) && body.route.transits) || [];
+  const route = body.route || {};
+  const transits = (Array.isArray(route.transits) && route.transits) || [];
   const first = transits[0] || null;
 
+  /**
+   * ⚠️ 下面这些路径是**实测确认过的**（2026-10-14，见
+   * `test/fixtures/upstream/direction-transit-integrated-harbin.json`），
+   * 不是照文档写的。与腾讯 provider 同一条纪律：由原始返回核对。
+   */
   const parsedVia = {
     list: 'route.transits[]',
-    duration: 'route.transits[0].duration',
-    walkingDistance: 'route.transits[0].walking_distance',
-    cost: 'route.transits[0].cost',
-    segments: 'route.transits[0].segments[]',
+    duration: 'route.transits[].duration（**秒**，字符串）',
+    walkingDistance: 'route.transits[].walking_distance（米）',
+    cost: 'route.transits[].cost（元）',
+    segments: 'route.transits[].segments[]',
+    walkingInstruction: 'segments[].walking.steps[].instruction（上游原话）',
+    buslines: 'segments[].bus.buslines[]（**数组**，可能多条可选线路）',
+    lineType: 'segments[].bus.buslines[].type（「地铁线路」/「普通公交线路」）',
+    entranceExit: 'segments[].entrance.name / segments[].exit.name（**几号口**）',
   };
 
   if (!first) {
+    return { routes: [], best: null, parsedVia, emptyReason: 'NO_TRANSIT_ROUTE' };
+  }
+
+  const toMinutes = (seconds) => (seconds === null ? null : Math.round((seconds / 60) * 10) / 10);
+
+  /** 把一个方案的 segments 摊成"走路一段、坐车一段"的序列 */
+  function stepsOf(transit) {
+    const segments = (Array.isArray(transit.segments) && transit.segments) || [];
+    const steps = [];
+
+    for (const seg of segments) {
+      const walking = seg.walking || null;
+      if (walking && toNumber(walking.distance) !== null) {
+        const instr = (Array.isArray(walking.steps) && walking.steps) || [];
+        steps.push({
+          kind: 'walking',
+          /** 上游原话的第一句 —— 与腾讯同一条纪律：不自己编路线描述 */
+          instruction: instr.length ? instr[0].instruction || null : null,
+          /** 全部步行指引，界面需要"到哪里拐弯"时用 */
+          allInstructions: instr.map((s) => s.instruction).filter(Boolean),
+          walkingMeters: toNumber(walking.distance),
+          durationSeconds: toNumber(walking.duration),
+        });
+      }
+
+      const buslines = (seg.bus && Array.isArray(seg.bus.buslines) && seg.bus.buslines) || [];
+      for (const line of buslines) {
+        const name = line.name || null;
+        const type = String(line.type || '');
+        steps.push({
+          kind: 'transit',
+          instruction: name,
+          lineName: name,
+          /** ⚠️ 实测确认：`type` 为「地铁线路」时是地铁，否则「普通公交线路」 */
+          isSubway: /地铁/.test(type),
+          lineType: type || null,
+          viaStationCount: toNumber(line.via_num),
+          viaStops: (Array.isArray(line.via_stops) && line.via_stops) || [],
+          departureStop: line.departure_stop ? line.departure_stop.name || null : null,
+          arrivalStop: line.arrival_stop ? line.arrival_stop.name || null : null,
+          /* 线路自身的里程与耗时（秒） */
+          distanceMeters: toNumber(line.distance),
+          durationSeconds: toNumber(line.duration),
+          /**
+           * 首末班时间 —— **必须是字符串，不能转数字**。
+           * 实测值是 `"0532"` / `"2254"` 这种四位时刻；转成数字会变成
+           * `532`，前导零丢掉，显示成「5:32」就错了。
+           */
+          startTime: line.start_time || null,
+          endTime: line.end_time || null,
+        });
+      }
+
+      /**
+       * 地铁/公交的**出入口**（实测发现，文档里的示例没提）。
+       * 对集合协同这是最有用的信息之一 —— "在 1 号口等"比"在世茂大道站等"清楚得多。
+       */
+      const entrance = seg.entrance && seg.entrance.name ? seg.entrance : null;
+      const exit = seg.exit && seg.exit.name ? seg.exit : null;
+      if (entrance || exit) {
+        steps.push({
+          kind: 'entrance-exit',
+          instruction: [entrance && `进 ${entrance.name}`, exit && `出 ${exit.name}`]
+            .filter(Boolean)
+            .join(' / '),
+          entranceName: entrance ? entrance.name : null,
+          entranceLocation: entrance ? parseAmapLocation(entrance.location) : null,
+          exitName: exit ? exit.name : null,
+          exitLocation: exit ? parseAmapLocation(exit.location) : null,
+        });
+      }
+    }
+
+    return steps;
+  }
+
+  function summaryOf(transit) {
+    const steps = stepsOf(transit);
+    const rideSteps = steps.filter((s) => s.kind === 'transit');
     return {
-      routes: [],
-      best: null,
-      parsedVia,
-      emptyReason: 'NO_TRANSIT_ROUTE',
+      durationMinutes: toMinutes(toNumber(transit.duration)),
+      durationSeconds: toNumber(transit.duration),
+      walkingMeters: toNumber(transit.walking_distance),
+      costYuan: toNumber(transit.cost),
+      /** 线路总里程（米）—— 与 walking_distance 不是一回事 */
+      distanceMeters: toNumber(transit.distance),
+      /** `walking_distance` 是米，要转成人类可读的公里时前端处理 */
+      transferCount: Math.max(0, rideSteps.length - 1),
+      hasSubway: rideSteps.some((s) => s.isSubway),
+      lineNames: rideSteps.map((s) => s.lineName).filter(Boolean),
+      /** 首末班时间（取第一条线路的，供界面提示） */
+      firstLineStartTime: rideSteps.length ? rideSteps[0].startTime : null,
+      lastLineEndTime: rideSteps.length ? rideSteps[0].endTime : null,
     };
   }
 
-  const durationSeconds = toNumber(first.duration);
-  const walkingMeters = toNumber(first.walking_distance);
-  const costYuan = toNumber(first.cost);
-
-  const segments = (Array.isArray(first.segments) && first.segments) || [];
-  const steps = segments.map((seg) => {
-    const bus = (seg.bus && seg.bus.buslines && seg.bus.buslines[0]) || null;
-    const walking = seg.walking || null;
-    const railway = seg.railway || null;
-    return {
-      /** 这一段是走路还是坐车 —— 界面要靠它区分图标 */
-      kind: walking ? 'walking' : bus || railway ? 'transit' : 'unknown',
-      /** 上游原话的指引（与腾讯同一条纪律：不自己编路线描述） */
-      instruction: seg.instruction || null,
-      /** 线路名，如「地铁2号线」「110路」 */
-      lineName: bus ? bus.name || null : railway ? railway.name || null : null,
-      /** ⚠️ 地铁还是公交：`bus.type` 里带「地铁」字样时是地铁 */
-      isSubway: bus ? /地铁/.test(String(bus.type || '')) : Boolean(railway),
-      viaStationCount: bus && bus.via_num !== undefined ? toNumber(bus.via_num) : null,
-      departureStop: bus && bus.departure_stop ? bus.departure_stop.name || null : null,
-      arrivalStop: bus && bus.arrival_stop ? bus.arrival_stop.name || null : null,
-      walkingMeters: walking ? toNumber(walking.distance) : null,
-      durationSeconds: walking ? toNumber(walking.duration) : null,
-    };
-  });
+  const bestSteps = stepsOf(first);
 
   return {
-    routes: transits.slice(0, 5).map((t) => ({
-      durationMinutes: toNumber(t.duration) === null ? null : Math.round((toNumber(t.duration) / 60) * 10) / 10,
-      walkingMeters: toNumber(t.walking_distance),
-      costYuan: toNumber(t.cost),
-      transferCount: Array.isArray(t.segments) ? Math.max(0, t.segments.filter((s) => s.bus || s.railway).length - 1) : null,
-      hasSubway: Array.isArray(t.segments)
-        ? t.segments.some((s) => (s.bus && /地铁/.test(String(s.bus.type || ''))) || s.railway)
-        : null,
-    })),
-    best: {
-      durationMinutes: durationSeconds === null ? null : Math.round((durationSeconds / 60) * 10) / 10,
-      durationSeconds,
-      walkingMeters,
-      costYuan,
-      steps,
+    /** 上游可能给 5 个方案；全部给出来，"最少换乘/最少步行"才有比较依据 */
+    routes: transits.slice(0, 5).map(summaryOf),
+    best: Object.assign(summaryOf(first), {
+      steps: bestSteps,
       /** 有几步是坐车 —— 0 表示"其实全靠走"，那就不该推荐公交 */
-      transitStepCount: steps.filter((s) => s.kind === 'transit').length,
-      hasSubway: steps.some((s) => s.isSubway),
+      transitStepCount: bestSteps.filter((s) => s.kind === 'transit').length,
+    }),
+    /** 起终点整体信息（route 层，不是某个方案） */
+    routeSummary: {
+      distanceMeters: toNumber(route.distance),
+      /** 打车参考价 —— 展示用，"其实打车更贵/更快"是用户会问的 */
+      taxiCostYuan: toNumber(route.taxi_cost),
     },
     parsedVia,
     emptyReason: null,
   };
+}
+
+/** 高德的坐标是 `"经度,纬度"` 字符串 */
+function parseAmapLocation(raw) {
+  if (typeof raw !== 'string') return null;
+  const parts = raw.split(',');
+  if (parts.length !== 2) return null;
+  const lng = Number(parts[0]);
+  const lat = Number(parts[1]);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+  return { latitude: lat, longitude: lng };
 }
 
 function toNumber(v) {
