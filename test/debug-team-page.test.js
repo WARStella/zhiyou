@@ -5,7 +5,7 @@ const { makeWorld } = require('./helpers');
 let sequence = 0;
 function pageFor(w, who) {
   const handlers = {};
-  for (const action of ['ops.health', 'user.login', 'crew.create', 'crew.join', 'crew.get', 'meet.create', 'meet.get', 'meet.confirm', 'meet.arrive', 'meet.depart']) {
+  for (const action of ['ops.health', 'user.login', 'crew.create', 'crew.join', 'crew.get', 'meet.create', 'meet.get', 'meet.confirm', 'meet.arrive', 'meet.prepareDepart', 'meet.depart']) {
     handlers[action] = (payload, options) => w[who](action, payload, options);
   }
   return loadPage('miniprogram/pages/debug-team/index.js', {

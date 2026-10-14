@@ -41,7 +41,9 @@
     </view>
     <button data-kind="confirm" bindtap="mutate" disabled="{{busy}}">确认集合</button>
     <button data-kind="arrive" bindtap="mutate" disabled="{{busy}}">我已到达</button>
-    <button data-kind="depart" bindtap="mutate" disabled="{{busy}}">尝试出发</button>
+    <button bindtap="prepareDepart" disabled="{{busy}}">检查后续行程（不记录出发）</button>
+    <view wx:if="{{departureCheck}}">{{departureCheck.message}}</view>
+    <button data-kind="depart" bindtap="mutate" disabled="{{busy}}">尝试确认出发</button>
     <view class="hint">先 B/C 同时确认，再测试未到齐出发；随后同时到达，最后分别测试 B 出发被拒绝、A 出发成功。刻意保留出发按钮，让后端验证权限。</view>
   </view>
   <view class="card">

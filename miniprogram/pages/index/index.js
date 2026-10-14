@@ -38,6 +38,15 @@ Page({
   runHealth() {
     this.call('ops.health', {}, '后端自检')
   },
+  cleanupPlaceholderPlaces() {
+    wx.showModal({
+      title: '清理占位地点',
+      content: '仅删除名称带“（占位）”或来源为 PLACEHOLDER 的记录，保留真实地点和历史行程。',
+      success: (res) => {
+        if (res.confirm) this.call('ops.cleanupPlaceholderPlaces', { confirm: true }, '清理占位地点')
+      },
+    })
+  },
 
   openTeamDebug() {
     wx.navigateTo({

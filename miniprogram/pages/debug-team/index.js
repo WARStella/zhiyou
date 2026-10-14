@@ -7,6 +7,7 @@ Page({
     placeName: '', latitude: '', longitude: '', sharedRequestId: '',
     version: null, logs: [], pretty: '', lastWriteId: '',
     refreshedAt: '',
+    departureCheck: null,
   },
 
   async onLoad() {
@@ -100,6 +101,7 @@ Page({
     })
   },
   async readMeeting() {
+    this.setData({ departureCheck: null })
     const meetTaskId = this.data.taskInput.trim()
     if (!meetTaskId) return
     const r = await this.send('meet.get', { meetTaskId })
@@ -115,6 +117,7 @@ Page({
       const task = this.data.task
       if (!task || task.meetTaskId !== this.data.taskInput.trim()) throw new Error('请先加载当前任务。')
       const payload = { meetTaskId: task.meetTaskId }
+      if (kind === 'depart' && this.data.departureCheck) payload.checkId = this.data.departureCheck.checkId
       let action = 'meet.confirm'
       const options = { expectedVersion: this.data.version }
       if (kind === 'confirm' || kind === 'old' || kind === 'shared') payload.decision = 'confirm'
@@ -137,6 +140,14 @@ Page({
       const r = this.lastWrite
       await this.send(r.action, r.payload, r.options, false)
       await this.readMeeting()
+    })
+  },
+  prepareDepart() {
+    return this.run(async () => {
+      if (!this.data.task) throw new Error('请先加载集合任务')
+      const r = await this.send('meet.prepareDepart', { meetTaskId: this.data.task.meetTaskId }, { expectedVersion: this.data.version })
+      await this.readMeeting()
+      if (r.ok) this.setData({ departureCheck: r.data })
     })
   },
   copy(e) {
