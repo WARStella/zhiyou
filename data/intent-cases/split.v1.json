@@ -1,0 +1,460 @@
+{
+  "kind": "datasetSplitManifest",
+  "datasetKind": "intent",
+  "datasetVersion": "intent-cases-v1",
+  "createdAt": "2026-10-15T03:21:26.741Z",
+  "source": {
+    "file": "cases.v1.json",
+    "sha256": "7f652cda3abb1005af442bca93aed03a995a04f419a3b3277a60740252fb4cbc",
+    "records": 100
+  },
+  "params": {
+    "ratio": 0.3,
+    "seed": "zy-split-2026",
+    "rule": "按 scenarioGroupId 分组：同场景的改写句与多轮对话整体落一侧",
+    "minScoreGroups": null
+  },
+  "counts": {
+    "totalRecords": 100,
+    "totalGroups": 85,
+    "devRecords": 70,
+    "devGroups": 60,
+    "frozenRecords": 30,
+    "frozenGroups": 25,
+    "ungrouped": 0,
+    "multiItemGroups": 15,
+    "maxGroupSize": 2
+  },
+  "integrity": {
+    "ok": true,
+    "violations": []
+  },
+  "groups": [
+    {
+      "groupId": "cd-01",
+      "side": "dev",
+      "items": 2
+    },
+    {
+      "groupId": "cd-02",
+      "side": "dev",
+      "items": 2
+    },
+    {
+      "groupId": "cd-03",
+      "side": "frozen",
+      "items": 2
+    },
+    {
+      "groupId": "cd-04",
+      "side": "dev",
+      "items": 2
+    },
+    {
+      "groupId": "cd-05",
+      "side": "dev",
+      "items": 2
+    },
+    {
+      "groupId": "cd-06",
+      "side": "frozen",
+      "items": 2
+    },
+    {
+      "groupId": "cd-07",
+      "side": "dev",
+      "items": 2
+    },
+    {
+      "groupId": "cd-08",
+      "side": "frozen",
+      "items": 2
+    },
+    {
+      "groupId": "cd-09",
+      "side": "dev",
+      "items": 2
+    },
+    {
+      "groupId": "cd-10",
+      "side": "frozen",
+      "items": 2
+    },
+    {
+      "groupId": "cd-11",
+      "side": "dev",
+      "items": 2
+    },
+    {
+      "groupId": "cd-12",
+      "side": "dev",
+      "items": 2
+    },
+    {
+      "groupId": "cd-13",
+      "side": "frozen",
+      "items": 2
+    },
+    {
+      "groupId": "cd-14",
+      "side": "dev",
+      "items": 2
+    },
+    {
+      "groupId": "cd-15",
+      "side": "dev",
+      "items": 2
+    },
+    {
+      "groupId": "cn-01",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "cn-02",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "cn-03",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "cn-04",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "cn-05",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "cn-06",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "cn-07",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "cn-08",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "cn-09",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "cn-10",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-01",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-02",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-03",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-04",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-05",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-06",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-07",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-08",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-09",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-10",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-11",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-12",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-13",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-14",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-15",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-16",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-17",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-18",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-19",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "explicit-20",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "negation-01",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "negation-02",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "negation-03",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "negation-04",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "negation-05",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "negation-06",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "negation-07",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "negation-08",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "negation-09",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "negation-10",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "negation-11",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "negation-12",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "negation-13",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "negation-14",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "negation-15",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "oos-01",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "oos-02",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "oos-03",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "oos-04",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "oos-05",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "oos-06",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "oos-07",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "oos-08",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "oos-09",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "oos-10",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "vague-01",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "vague-02",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "vague-03",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "vague-04",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "vague-05",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "vague-06",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "vague-07",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "vague-08",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "vague-09",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "vague-10",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "vague-11",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "vague-12",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "vague-13",
+      "side": "dev",
+      "items": 1
+    },
+    {
+      "groupId": "vague-14",
+      "side": "frozen",
+      "items": 1
+    },
+    {
+      "groupId": "vague-15",
+      "side": "dev",
+      "items": 1
+    }
+  ],
+  "note": "本清单冻结的是\"这一批数据的这一次切分\"。数据一变，源文件哈希就变，必须重新生成清单并留档旧清单 —— 否则说不清某条基线是在哪批数据上跑的。"
+}

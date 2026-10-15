@@ -24,11 +24,16 @@ const s = (id, straight, ratio, extra) =>
   Object.assign(
     {
       _id: id,
+      schemaVersion: 2,
+      sampleId: id,
       straightMeters: straight,
-      actualMeters: Math.round(straight * ratio),
+      providerRouteMeters: Math.round(straight * ratio),
       detourRatio: Number(ratio.toFixed(3)),
-      predictedMinutes: Math.round((straight * ratio) / 70),
-      actualMinutes: null,
+      providerDurationSeconds: Math.round(((straight * ratio) / 70) * 60),
+      observedDurationSeconds: null,
+      qualityStatus: 'ok',
+      excludedReason: null,
+      provider: 'fake',
       mode: 'walking',
       fromName: 'A',
       toName: 'B',
@@ -37,16 +42,46 @@ const s = (id, straight, ratio, extra) =>
     extra || {}
   );
 
-/** 一批"长距离倍率小、短距离倍率大"的样本 —— 与 10/13 实测同向 */
+/**
+ * 一批样本：**每条记录属于不同的路线组**（用 `fromId`/`toId` 区分）。
+ *
+ * ⚠️ 2026-10-15 改：早先这个夹具不给 id，于是所有样本的路线组键都是同一个
+ * （`name_A|name_B`）—— 按组切分之后它们会**整批落在一侧**，
+ * 那样"两边都非空"的断言必然失败，而失败原因不在实现上。
+ * 夹具的形状决定了测试在测什么。
+ */
 function batch(n) {
   const rows = [];
   const dist = [40, 80, 150, 250, 400, 550, 750, 900, 1200, 1600, 2200, 3000];
   for (let i = 0; i < n; i++) {
     const straight = dist[i % dist.length] * (1 + ((i * 37) % 11) / 100);
     const ratio = straight < 100 ? 3.0 : straight < 300 ? 2.0 : straight < 600 ? 1.6 : 1.4;
-    rows.push(s(`w_${i}`, Math.round(straight), ratio));
+    const fromId = `p_a${i % 25}`;
+    const toId = `p_b${Math.floor(i / 25)}`;
+    rows.push(
+      s(`w_${i}`, Math.round(straight), ratio, {
+        fromId,
+        toId,
+        routeGroupId: [fromId, toId].sort().join('|'),
+      })
+    );
   }
   return rows;
+}
+
+/** 一条路线的多次调用（重复请求）—— 组键相同，记录不同 */
+function repeatsOf(fromId, toId, straight, ratio, times) {
+  const out = [];
+  for (let k = 0; k < times; k++) {
+    out.push(
+      s(`${fromId}_${toId}_${k}`, straight, ratio * (1 + (k % 3) / 100), {
+        fromId,
+        toId,
+        routeGroupId: [fromId, toId].sort().join('|'),
+      })
+    );
+  }
+  return out;
 }
 
 // ── 纪律一：冻结集不许参与拟合 ────────────────────────────
@@ -61,24 +96,23 @@ test('**改冻结集的标签，拟合结果必须一模一样**（防泄漏）'
   const rows = batch(200);
 
   const a = W.evaluate(rows);
-  // 把冻结集的真实距离全部改成离谱值 → 只有分数该变，系数不该变
-  const poisoned = rows.map((r) => {
-    const isFrozen = W.hash32(`zy-walk-2026|${W.splitKey(r)}`) % 1000 < 300;
-    return isFrozen ? Object.assign({}, r, { actualMeters: r.actualMeters * 7 }) : r;
-  });
+  const sp = W.splitFrozen(rows);
+  const frozenIds = new Set(sp.frozen.map((r) => r._id));
+  assert.ok(frozenIds.size > 0, '这一组数据必须切出冻结集，否则这条测试是空的');
+
+  // 把冻结集的**标签**（路径距离）全部改成离谱值 → 只有分数该变，系数不该变
+  const poisoned = rows.map((r) =>
+    frozenIds.has(r._id) ? Object.assign({}, r, { providerRouteMeters: r.providerRouteMeters * 7 }) : r
+  );
   const b = W.evaluate(poisoned);
 
-  assert.ok(a.split.frozen > 0 && a.split.dev > 0, '这组数据必须两侧都非空，否则这条测试是空的');
+  assert.ok(a.split.frozen > 0 && a.split.dev > 0, '这组数据必须两侧都非空');
   assert.deepEqual(
     b.fits.constant.factor,
     a.fits.constant.factor,
     '单常数只能由开发集决定 —— 冻结集变了它不该变'
   );
-  assert.deepEqual(
-    b.fits.buckets.factors,
-    a.fits.buckets.factors,
-    '分段系数同理'
-  );
+  assert.deepEqual(b.fits.buckets.factors, a.fits.buckets.factors, '分段系数同理');
   assert.notDeepEqual(
     b.baseline.score.mapePercent,
     a.baseline.score.mapePercent,
@@ -95,15 +129,18 @@ test('切分是确定性的：同一批数据、同一个种子 → 同一个划
   const a = W.splitFrozen(rows, { ratio: 0.3 });
   const b = W.splitFrozen(rows, { ratio: 0.3 });
 
-  assert.deepEqual(
-    a.frozen.map((x) => x._id),
-    b.frozen.map((x) => x._id)
+  assert.deepEqual(a.frozen.map((x) => x._id), b.frozen.map((x) => x._id));
+  assert.deepEqual(a.dev.map((x) => x._id), b.dev.map((x) => x._id));
+  assert.equal(
+    a.dev.length + a.frozen.length + a.ungrouped.length,
+    a.total,
+    '算得出组键的样本必须全部落到某一侧，一条都不许丢'
   );
-  assert.deepEqual(
-    a.dev.map((x) => x._id),
-    b.dev.map((x) => x._id)
+  assert.equal(
+    a.total + a.excluded.length + a.pendingReview.length,
+    rows.length,
+    '可用 + 排除 + 待复核 = 全部记录，账要平'
   );
-  assert.equal(a.dev.length + a.frozen.length + a.excluded.length, a.total, '切分不许丢样本');
 
   const other = W.splitFrozen(rows, { ratio: 0.3, seed: '另一个种子' });
   assert.notDeepEqual(
@@ -111,6 +148,173 @@ test('切分是确定性的：同一批数据、同一个种子 → 同一个划
     a.frozen.map((x) => x._id),
     '换种子就该换划分 —— 否则种子没有生效'
   );
+});
+
+// ── 分组切分：2026-10-15 修的那个真实缺陷 ─────────────────
+
+test('**同一条路线的重复请求必须同组同侧** —— 否则分数偏乐观', () => {
+  /**
+   * 这是那个真实缺陷的回归测试。
+   *
+   * 旧实现按每条记录的 `_id` 切分：一次规划 5 段、十次规划就有十条同一路线的记录，
+   * 它们会**同时落进开发集与冻结集** → 冻结集"见过"的东西，参数已经在开发集上
+   * 调过了 → 分数偏乐观，而且**看起来一切正常**。
+   */
+  const rows = [];
+  for (let i = 0; i < 40; i++) {
+    const straight = 400 + i * 10;
+    const ratio = 1.5 + (i % 5) / 10;
+    rows.push(...repeatsOf(`p_a${i}`, `p_b${i}`, straight, ratio, 5)); // 每条路线取 5 次
+  }
+  const sp = W.splitFrozen(rows);
+  const sideOf = new Map();
+  for (const r of sp.dev) sideOf.set(r.routeGroupId, 'dev');
+  for (const r of sp.frozen) sideOf.set(r.routeGroupId, 'frozen');
+
+  // 每个组的所有记录必须在同一侧
+  for (const r of rows) {
+    const side = sideOf.get(r.routeGroupId);
+    assert.ok(side, `组 ${r.routeGroupId} 没有落到任何一侧`);
+    const sameGroupRows = rows.filter((x) => x.routeGroupId === r.routeGroupId);
+    for (const x of sameGroupRows) {
+      assert.equal(
+        sp.dev.includes(x) || sp.frozen.includes(x),
+        true,
+        '同组记录必须整体在某侧'
+      );
+    }
+  }
+  // 结构性断言：组数远小于记录数
+  const cov = W.coverage(rows);
+  assert.equal(cov.records, 200, '200 条记录');
+  assert.equal(cov.distinctRoutes, 40, '但只有 40 条独立路线 —— 重复不提高信息量');
+  assert.equal(cov.repeatedRecords, 160);
+  assert.equal(cov.maxRepeats, 5);
+});
+
+test('反向（A→B 与 B→A）算**同一条路线**', () => {
+  const forward = s('f1', 500, 1.5, { fromId: 'p_a', toId: 'p_b' });
+  const backward = s('b1', 500, 1.5, { fromId: 'p_b', toId: 'p_a' });
+  assert.equal(
+    W.routeGroupKey(forward),
+    W.routeGroupKey(backward),
+    '同一条路换个方向走，不该被当成两条独立路线 —— 否则切分时又漏掉一半泄漏'
+  );
+});
+
+test('组完整性：跨侧的组会被**独立检查**抓出来', () => {
+  /**
+   * 不能只依赖"切分函数写对了"。泄漏不会报错，只会让分数变好，
+   * 所以要有一条**另一条路径**的检查。
+   */
+  const g1 = s('a1', 500, 1.5, { fromId: 'p_a', toId: 'p_b' });
+  const g1b = s('a2', 500, 1.5, { fromId: 'p_a', toId: 'p_b' });
+  const g2 = s('b1', 700, 1.4, { fromId: 'p_c', toId: 'p_d' });
+
+  const ok = W.datasetSplit.assertGroupIntegrity({ dev: [g1, g2], frozen: [g1b] }, W.routeGroupKey);
+  assert.equal(ok.ok, false, '同一个组出现在两侧 → 必须报出来');
+  assert.equal(ok.violations.length, 1);
+  assert.deepEqual(ok.violations[0].sides, ['dev', 'frozen']);
+
+  const clean = W.datasetSplit.assertGroupIntegrity({ dev: [g1, g1b], frozen: [g2] }, W.routeGroupKey);
+  assert.equal(clean.ok, true);
+});
+
+test('算不出组键的记录进 ungrouped，**不塞进任何一侧**', () => {
+  const rows = batch(40).concat([{ _id: 'mystery', straightMeters: 500, providerRouteMeters: 750 }]);
+  const sp = W.splitFrozen(rows);
+  assert.equal(sp.ungrouped.length, 1, '身份不明的记录要单独列出，不能随便归到某侧');
+  assert.equal(sp.ungrouped[0]._id, 'mystery');
+});
+
+test('独立路线数不够时**不给结论** —— 记录数够了也不行', () => {
+  /**
+   * 同一条路调 30 次 = 30 条记录、**1 条路线**。
+   * 按记录数放行，等于用"同一条路走三十遍"凑出样本量。
+   */
+  const rows = repeatsOf('p_a', 'p_b', 500, 1.5, 40);
+  const rep = W.evaluate(rows);
+  assert.equal(rep.frozenRowsEnough, false, '40 条记录连条数门都没过');
+  assert.equal(rep.frozenGroupsEnough, false);
+  assert.match(rep.verdict, /不足以判断/);
+});
+
+test('输入契约：预测**只依赖直线距离**，不碰地图返回的任何字段', () => {
+  /**
+   * 若模型的用途是"地图接口失败时兜底"，那么在地图失败那一刻，
+   * 路径距离、耗时、路线形状**统统拿不到**。它们只能是标签，不能是输入。
+   *
+   * 判据：把除 `straightMeters` 之外的一切都换掉，预测必须一模一样。
+   */
+  const base = s('c1', 600, 1.5, { fromId: 'p_a', toId: 'p_b' });
+  const model = { kind: 'fixed', factor: 1.5 };
+
+  const mutated = Object.assign({}, base, {
+    providerRouteMeters: 999999,
+    providerDurationSeconds: 1,
+    observedDurationSeconds: 99999,
+    provider: '别的地图',
+    timeBucket: 'night',
+    weekday: 6,
+    weather: '雪',
+    routeGroupId: '别处',
+    fromName: '另一个地方',
+  });
+
+  assert.equal(
+    W.predictMeters(model, base, 1.3),
+    W.predictMeters(model, mutated, 1.3),
+    '预测不许依赖地图返回的字段或情境字段'
+  );
+  assert.deepEqual(
+    W.evaluate([base]).inputContract.allowedInputs,
+    ['straightMeters', 'mode'],
+    '允许的输入只有直线距离与出行方式（首版）'
+  );
+});
+
+test('质量分级：待复核与已排除都**不进拟合**，但都计入报告', () => {
+  const rows = batch(60).concat([
+    s('pending1', 500, 40, { fromId: 'p_x', toId: 'p_y', qualityStatus: 'pending_review' }),
+    s('excluded1', 500, 1.5, { fromId: 'p_z', toId: 'p_w', excludedReason: 'IMPLAUSIBLE' }),
+  ]);
+  const sp = W.splitFrozen(rows);
+  assert.equal(sp.pendingReview.length, 1);
+  assert.equal(sp.excluded.length, 1);
+
+  const rep = W.evaluate(rows);
+  assert.equal(rep.coverage.pendingReview, 1, '待复核要单独一栏 —— 否则"库里多少、用了多少"对不上');
+  assert.equal(rep.coverage.excluded, 1);
+  const usedIds = new Set([...sp.dev, ...sp.frozen].map((x) => x._id));
+  assert.equal(usedIds.has('pending1'), false);
+  assert.equal(usedIds.has('excluded1'), false);
+});
+
+test('字段读取：新名优先，旧名回落 —— 迁移期两种样本都要能读', () => {
+  const legacy = {
+    _id: 'legacy1',
+    straightMeters: 500,
+    actualMeters: 750, // 旧名 = 路径距离
+    predictedMinutes: 10,
+    actualMinutes: 9,
+  };
+  assert.equal(W.routeMetersOf(legacy), 750, '旧样本要能读出路径距离');
+  assert.equal(W.providerSecondsOf(legacy), 600, '旧名是分钟 → 统一换成秒');
+  assert.equal(W.observedSecondsOf(legacy), 540);
+
+  const modern = {
+    _id: 'new1',
+    straightMeters: 500,
+    providerRouteMeters: 800,
+    providerDurationSeconds: 660,
+    observedDurationSeconds: 600,
+  };
+  assert.equal(W.routeMetersOf(modern), 800, '同时存在时**新名优先**');
+  assert.equal(W.providerSecondsOf(modern), 660);
+  assert.equal(W.observedSecondsOf(modern), 600);
+
+  assert.equal(W.trueRatio(legacy), 1.5);
+  assert.equal(W.trueRatio(modern), 1.6);
 });
 
 test('切分不按顺序切 —— 否则两边分布不同', () => {

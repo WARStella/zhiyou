@@ -121,10 +121,123 @@ test('预测与真实必须分开存 —— 拿预测当标签是循环论证', 
   await planOnce(w, ['p_zhongyang', 'p_fanghong', 'p_sofia']);
 
   const s = (await w.repo.find(C.WALK_SAMPLES, {}))[0];
-  assert.ok(s.predictedMinutes > 0, '地图的预测值作为**特征**存下来');
-  assert.equal(s.actualMinutes, null, '**真实用时一开始必须是空的** —— 用户还没走');
+  assert.ok(s.providerDurationSeconds > 0, '地图的预测值作为**特征**存下来（秒）');
+  assert.equal(s.observedDurationSeconds, null, '**真实用时一开始必须是空的** —— 用户还没走');
+  assert.equal(s.actualMinutes, null, '兼容字段同样为空');
   assert.equal(s.labeledAt, null);
-  assert.notEqual(s.predictedMinutes, undefined);
+});
+
+// ── 字段口径与分组（2026-10-15 整理）──────────────────────
+
+test('样本字段：新旧名同时写、值一致，且带 schemaVersion 与路线组键', async () => {
+  /**
+   * ⚠️ 旧名 `actualMeters` 会**误导**：它一直是"地图返回的路径距离"，
+   * 不是"真人实际走的距离"。所以新名叫 `providerRouteMeters`，
+   * 并**双写**过渡 —— 迁移期两种样本都要能读（读的一侧见 lib/walk-eval.js）。
+   */
+  const w = await makeWorld();
+  await planOnce(w, ['p_zhongyang', 'p_fanghong', 'p_sofia']);
+  const rows = await w.repo.find(C.WALK_SAMPLES, {});
+  assert.ok(rows.length >= 1);
+
+  for (const s of rows) {
+    assert.equal(s.schemaVersion, 2, '字段口径变了就提版本，否则离线分析会悄悄错位');
+    assert.ok(s.sampleId, '样本要有自己的 id：不依赖数据库 _id，也不必多写一次库');
+    assert.equal(s.providerRouteMeters, s.actualMeters, '新名与兼容名必须是同一个值');
+    assert.equal(
+      s.providerDurationSeconds,
+      Math.round(s.predictedMinutes * 60),
+      '耗时统一存秒，兼容名是分钟'
+    );
+    assert.equal(s.upstreamDurationUnit, 'minutes', '上游单位要写下来，不靠记忆');
+    assert.equal(s.qualityStatus, 'ok');
+    assert.equal(s.excludedReason, null);
+    assert.equal(s.cacheHit, false, '命中缓存的段不产生样本 —— 这个字段让该偏差可被核对');
+    assert.ok(s.provider, '记下来源，便于核对"这条是怎么来的"');
+    assert.ok(s.fetchedAt);
+    /**
+     * 分组键必须在写入时算好，且规则与读入口一致
+     * （`sorted(fromId, toId)`，反向自动合并）。
+     */
+    assert.equal(s.routeGroupId, [s.fromId, s.toId].sort().join('|'));
+  }
+});
+
+test('命中缓存的段**不产生样本** —— 这是样本集的抽样偏差，必须写下来', async () => {
+  /**
+   * 这条测试本来是想验证"重复规划产生多组记录"，结果**第一次跑就红了** ——
+   * 因为第二次规划的路段全部命中 `walkableTo` 缓存，**一次地图调用都没有**，
+   * 于是**一条样本都没记**。
+   *
+   * 红的不是实现，是**我的假设**。而它暴露的是一件必须写进文档的事：
+   *
+   *   > 样本集**系统性偏向"没缓存过的路线"**（新路线、跨区路线），
+   *   > 反复走的熟路一条样本都不贡献。
+   *
+   * 这不是缺陷（缓存本来就是对的），但它是**抽样偏差** ——
+   * 评测与答辩时都要说明，否则"我们有 300 条样本"会被误读成"覆盖了 300 段路"。
+   */
+  const w = await makeWorld();
+  const ids = ['p_zhongyang', 'p_fanghong', 'p_sofia'];
+
+  const first = expectOk(await planOnce(w, ids));
+  assert.ok(first.walkTimes.mapApiCalls > 0, '第一次规划必须真的调了地图接口');
+  const rows1 = await w.repo.find(C.WALK_SAMPLES, {});
+  assert.equal(rows1.length, first.walkTimes.mapApiCalls, '每调一次地图接口记一条样本');
+
+  const second = expectOk(await planOnce(w, ids));
+  assert.equal(second.walkTimes.mapApiCalls, 0, '第二次规划应当全部命中缓存');
+  const rows2 = await w.repo.find(C.WALK_SAMPLES, {});
+  assert.equal(rows2.length, rows1.length, '命中缓存不产生样本 —— 这条偏差是可核对的（cacheHit 字段）');
+});
+
+test('清掉缓存后再规划：同一条路得到**同一个路线组**，不产生新路线', async () => {
+  /**
+   * 上一条说明了"熟路不产生样本"。这条把缓存清掉再走一遍，
+   * 验证真正要守的东西：**同一条路的多次记录必须落在同一个组**。
+   *
+   * 这是 2026-10-15 修的那个缺陷的另一半 —— 按记录切分时，
+   * 同一条路的多条记录会同时进开发集与冻结集，分数偏乐观且不报错。
+   */
+  const w = await makeWorld();
+  const ids = ['p_zhongyang', 'p_fanghong', 'p_sofia'];
+
+  await planOnce(w, ids);
+  const rows1 = await w.repo.find(C.WALK_SAMPLES, {});
+  const groups1 = new Set(rows1.map((s) => s.routeGroupId));
+  assert.ok(rows1.length > 0 && groups1.size > 0);
+
+  // 清掉库内地点的步行缓存 → 下一次规划会重新调地图接口
+  const places = await w.repo.find(C.PLACES, {});
+  for (const p of places) await w.repo.update(C.PLACES, p._id, { walkableTo: [] });
+
+  const again = expectOk(await planOnce(w, ids));
+  assert.ok(again.walkTimes.mapApiCalls > 0, '清掉缓存后应当重新调接口');
+
+  const rows2 = await w.repo.find(C.WALK_SAMPLES, {});
+  assert.ok(rows2.length > rows1.length, '样本应当增加');
+
+  const groups2 = new Set(rows2.map((s) => s.routeGroupId));
+  /**
+   * ⚠️ 断言的是**键的稳定性**，不是"两轮组集合相等"。
+   *
+   * 第一次跑这条时红了：清缓存把**夹具里预置的那条缓存也清掉了**，
+   * 于是第二轮多调了一段接口、多出一个组 —— 集合当然不相等。
+   * 而真正要守的是：**同一条路在两轮里必须得到同一个键**
+   * （键一变，切分就把它当两条路线，泄漏又回来了）。
+   */
+  for (const g of groups1) {
+    assert.ok(groups2.has(g), `第一轮的组 ${g} 在第二轮必须仍是同一个键`);
+  }
+  for (const s of rows2) {
+    assert.equal(s.routeGroupId, [s.fromId, s.toId].sort().join('|'), '组键规则必须两轮一致');
+  }
+
+  const perGroup = new Map();
+  for (const s of rows2) perGroup.set(s.routeGroupId, (perGroup.get(s.routeGroupId) || 0) + 1);
+  for (const g of groups1) {
+    assert.ok(perGroup.get(g) >= 2, `组 ${g} 应当有至少 2 条（规划了两轮）`);
+  }
 });
 
 test('时段函数：按北京时间分档，夜里归到 night', () => {
@@ -210,6 +323,11 @@ test('走完一段之后，样本被回填真实用时', async () => {
 
   assert.ok(expectedMin > 0, '造出来的时间间隔必须是正的，否则这条测试是空的');
   assert.equal(after.actualMinutes, expectedMin, '真实用时 = 到达 − 上一站实际离开');
+  assert.equal(
+    after.observedDurationSeconds,
+    expectedMin * 60,
+    '新字段存**秒** —— 同一个量两个单位，必须同时写、且换算一致'
+  );
   assert.equal(
     Number.isInteger(after.actualMinutes),
     true,

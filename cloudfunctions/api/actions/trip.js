@@ -17,6 +17,38 @@ const modeChoice = require('../lib/mode-choice');
 const geo = require('../lib/geo');
 const time = require('../lib/time');
 const C = require('../lib/repo/collections');
+/**
+ * 地点的稳定标识 —— **全项目唯一实现在 `lib/place-id.js`**。
+ *
+ * ⚠️ 2026-10-15 合并：本文件原先有一份自己的副本（`inlinePlaceId`），
+ * 与 `lib/place-id.js` 的**兜底粒度不同**：
+ *
+ *     lib/place-id.js → `toFixed(3)`（约 100 米，注释写明是实测定的粒度）
+ *     本文件的副本     → `toFixed(6)`（约 0.1 米）
+ *
+ * 于是同一批**没有 `placeId`/`poiId`** 的地点，走两条路会得到**两个不同的键**。
+ * 而 `walkableTo` 缓存按这个键索引 —— 键一变，缓存永远对不上，
+ * **而且不报错**。这正是本项目反复记录的"两套规则必然漂移"。
+ *
+ * 名字保留成别名，让调用点与既有注释不必大改；但实现只有一处。
+ */
+const { stablePlaceId: inlinePlaceId } = require('../lib/place-id');
+/**
+ * 分组切分工具 —— **路线组键只在这里算一次，写进样本**。
+ *
+ * 读入口（`lib/walk-eval.js`）优先用样本里存好的 `routeGroupId`，
+ * 只为历史数据现算。同一套规则，不在两处各写一遍。
+ */
+const split = require('../lib/dataset-split');
+
+/**
+ * 倍率超过这个值 → 标 `pending_review`（**不删、不丢**）。
+ *
+ * 阈值必须**远大于**真实情况的极端值：10/13 实测「直线 10 米 → 路径 76 米」
+ * 的倍率是 **7.6**，而那是**真实存在**的数据。
+ * 阈值定得太小，就会把真实情况误标成异常，反而污染质量标记。
+ */
+const MAX_PLAUSIBLE_RATIO = 20;
 
 /**
  * 把缺失的步行时间从**地图路线接口**取回来。
@@ -120,7 +152,53 @@ async function fillMissingWalkTimes(ctx) {
      */
     try {
       const straight = geo.haversineMeters(leg.from.location, leg.to.location);
+      /**
+       * ── 字段口径（2026-10-15 整理，用户建议）──────────────────
+       *
+       * 旧字段名有两处会**误导**，新格式按语义改名，并**双写**过渡：
+       *
+       *   `actualMeters` → `providerRouteMeters`
+       *       它一直是**地图返回的路径距离**，不是"真人实际走的距离"。
+       *       名字里带 actual，读的人（包括写它的我）会以为是实测值。
+       *
+       *   `predictedMinutes` → `providerDurationSeconds`
+       *       上游 `duration` 的单位是**分钟**（10/13 实测：815 米 → 12）。
+       *       统一存**秒**，并把上游单位显式记在 `upstreamDurationUnit` ——
+       *       单位靠记忆迟早出错，本项目已经栽过一次（把分钟当秒，耗时算成 1/60）。
+       *
+       *   `actualMinutes` → `observedDurationSeconds`
+       *       真人观测用时。**没有就留空**，绝不用预测值补。
+       *
+       * ── 一条必须写下来的偏差（否则样本量会被误读）──────────
+       *
+       * 样本**只在真的调了地图接口时**才记。命中 `walkableTo` 缓存的段
+       * **不产生样本** → 样本集**系统性偏向"没缓存过的路线"**（新路线、跨区路线）。
+       * 这不是缺陷，但它是**抽样偏差**，评测与答辩都要说明。
+       * `cacheHit` 恒为 false，它存在的意义是让这件事**可被核对**，
+       * 而不是记一个没用的常量。
+       */
+      const straightRounded = Math.round(straight);
+      const routeMeters = r.distanceMeters;
+      const ratio =
+        straight > 0 && typeof routeMeters === 'number'
+          ? Number((routeMeters / straight).toFixed(3))
+          : null;
+      /**
+       * 明显不合理的倍率**不删、不静默丢**，只标 `pending_review`：
+       * 上游偶尔返回奇怪的值，而"看起来不可能"未必等于"错"
+       * （与 `ops.walkCacheCheck` 同一处置原则：只读体检，不自动删）。
+       */
+      const qualityStatus = ratio !== null && ratio > MAX_PLAUSIBLE_RATIO ? 'pending_review' : 'ok';
       await repo.insert(C.WALK_SAMPLES, {
+        /** 结构版本 —— 字段口径变了就提它，否则离线分析会悄悄错位 */
+        schemaVersion: 2,
+        /**
+         * 样本自身的 id：`planRunId#序号`。
+         *
+         * 不依赖数据库 `_id`（插入前拿不到），也**不额外写一次库**；
+         * 同一次规划内序号唯一，跨规划由 `planRunId` 区分。
+         */
+        sampleId: `${ctx.planRunId}#${(out.samplesRecorded || 0) + 1}`,
         planRunId: ctx.planRunId,
         // ── 情境：用户提醒后补上的维度 ──
         /** 出行方式。首版恒为 walking；接上骑行/驾车后就是分类特征 */
@@ -135,20 +213,39 @@ async function fillMissingWalkTimes(ctx) {
         /** 星期几：工作日与周末的人流、班次都不同 */
         weekday: new Date(bucketAt).getDay(),
         // ── 距离（真实几何量，可以直接当特征/标签）──
-        straightMeters: Math.round(straight),
-        /** ⚠️ 名字保留 `actualMeters` 是历史原因，它其实是**路径距离** */
-        actualMeters: r.distanceMeters,
+        straightMeters: straightRounded,
+        /** 地图返回的**路径距离** —— 本轮的参考标签 */
+        providerRouteMeters: routeMeters,
         /** 路径 ÷ 直线。**这是个可以直接学的量**（两端都是真实几何量） */
-        detourRatio:
-          straight > 0 && typeof r.distanceMeters === 'number'
-            ? Number((r.distanceMeters / straight).toFixed(3))
-            : null,
-        // ── 时间 ──
-        /** 地图**预测**的耗时 —— 是**特征**，不是标签 */
+        detourRatio: ratio,
+        /**
+         * ⚠️ **兼容字段**（旧名，语义等于 `providerRouteMeters`）。
+         * 迁移完成后删除；现在两处都写，读的一方两种都能读。
+         */
+        actualMeters: routeMeters,
+        // ── 时间：预测是特征，真实用时才是标签 ──
+        /** 地图**预测**的耗时（秒）—— 是**特征**，不是标签 */
+        providerDurationSeconds:
+          typeof r.durationMinutes === 'number' ? Math.round(r.durationMinutes * 60) : null,
+        /** 上游给的单位 —— 写下来，不靠记忆 */
+        upstreamDurationUnit: 'minutes',
+        /** ⚠️ 兼容字段：同一预测值的"分钟"表示 */
         predictedMinutes: r.durationMinutes,
-        /** ⚠️ 用户**真实**用时 —— 一开始必然是 null，走完才回填 */
+        /** ⚠️ 用户**真实**用时（秒）—— 一开始必然是 null，走完才回填 */
+        observedDurationSeconds: null,
+        /** ⚠️ 兼容字段：真实用时的"分钟"表示 */
         actualMinutes: null,
         labeledAt: null,
+        // ── 数据质量：可核对、可排除，但不静默丢 ──
+        qualityStatus,
+        excludedReason: null,
+        // ── 来源与采样方式：用于核对"这条是怎么来的" ──
+        provider: r.provider || null,
+        fetchedAt: now,
+        /** 恒为 false —— 命中缓存的段不产生样本（见上方说明） */
+        cacheHit: false,
+        // ── 分组：切分必须按**路线组**，不能按记录（否则同一路线两侧都进）──
+        routeGroupId: split.routeGroupKeyOfEndpoints(leg.from, leg.to),
         // ── 追溯 ──
         fromName: leg.from.name,
         toName: leg.to.name,
@@ -192,26 +289,12 @@ async function fillMissingWalkTimes(ctx) {
 }
 
 /**
- * 内嵌地点的**稳定标识**。
+ * ⚠️ **本函数已合并进 `lib/place-id.js`**（2026-10-15）。
  *
- * ⚠️ **必须稳定**：同一批地点两次规划要得到相同的 `_id`，
- * 否则 `nodes[].placeId` 每次都变，踏勘实测的步行时间（`walkableTo` 按
- * placeId 索引）就永远对不上。
- *
- * 优先级：
- *   ① 已入库地点用它的 `placeId`（踏勘过的）；
- *   ② 上游 POI 的 `poiId`（腾讯给的，稳定）；
- *   ③ 名字 + 坐标 —— 前两者都没有时的兜底，仍然稳定。
+ * 原实现见上方 require 处的说明：两处兜底粒度不同（3 位 vs 6 位小数），
+ * 会让无 `poiId` 的地点拿到两个键。现在它只是 `stablePlaceId` 的别名，
+ * 这里不再保留第二份实现 —— **留一个空壳比留两份实现安全。**
  */
-function inlinePlaceId(item) {
-  if (!item) return null;
-  if (item.placeId) return item.placeId;
-  if (item.poiId) return `poi_${item.poiId}`;
-  const loc = item.location || {};
-  if (typeof loc.latitude !== 'number' || typeof loc.longitude !== 'number') return null;
-  if (!item.name) return null;
-  return `x_${item.name}_${loc.latitude.toFixed(6)}_${loc.longitude.toFixed(6)}`;
-}
 
 /**
  * 决定游览顺序。
@@ -285,12 +368,32 @@ async function backfillTravelActual(ctx) {
   try {
     const pending = await repo.find(
       C.WALK_SAMPLES,
+      /**
+       * ⚠️ 查询条件用**兼容字段** `actualMinutes: null`，不是新名。
+       *
+       * 理由：它在新旧两种样本里**都存在**（新格式双写）。
+       * 换成 `observedDurationSeconds: null` 的话，历史样本根本没这个字段，
+       * 而"字段不存在"与"字段为 null"在不同仓储实现里的匹配语义**不一样**
+       * （本项目已经对齐过一次 MongoDB 的 `$exists` 语义）——
+       * 那会让一批老样本**永远回填不上**，且不报错。
+       */
       { planRunId, fromId: prev.placeId, toId: node.placeId, actualMinutes: null },
       { limit: 20 }
     );
     for (const s of pending) {
       // eslint-disable-next-line no-await-in-loop
-      await repo.update(C.WALK_SAMPLES, s._id, { actualMinutes: minutes, labeledAt: now });
+      await repo.update(C.WALK_SAMPLES, s._id, {
+        /** 真人观测用时（秒）—— 标签 */
+        observedDurationSeconds: minutes * 60,
+        /** ⚠️ 兼容字段（分钟） */
+        actualMinutes: minutes,
+        labeledAt: now,
+        /**
+         * **不动 `qualityStatus`**：它描述的是"几何量是否可信"，
+         * 而标签到达并不能修复一个可疑的倍率。
+         * 两个维度各自成立，不互相覆盖。
+         */
+      });
       updated++;
     }
   } catch (e) {

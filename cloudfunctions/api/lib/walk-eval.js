@@ -64,6 +64,19 @@ const MIN_BUCKET_SAMPLES = 5;
 const MIN_SCORE_SAMPLES = 30;
 
 /**
+ * **独立路线数**的下限（2026-10-15 新增）。
+ *
+ * ⚠️ 为什么除了条数还要加这一道：同一路线被反复调用会产生多条记录
+ * （一次规划 5 段、十次规划就有十条同路线记录）。**重复请求不提高信息量**，
+ * 把它们当独立样本，等于用"同一条路走十遍"凑出 300 条样本量，
+ * 而真实的独立路线可能只有 30 条。
+ *
+ * 所以两道门都要过：**条数 ≥ 30**（有得算）且**独立路线 ≥ 20**（算出来有意义）。
+ * 值同样是人设定的，正式实测前冻结（§11.4）。
+ */
+const MIN_SCORE_GROUPS = 20;
+
+/**
  * 判"打败了基线"的**最小相对改进**。
  *
  * ⚠️ 这是一个**人为设定**的阈值，不是一个算出来的数。它的作用是防止
@@ -76,6 +89,63 @@ const MIN_RELATIVE_GAIN = 0.05;
 /** 产品当前用的那个常数（`geo.DETOUR_FACTOR` 的历史值，用作对照基线之一） */
 const PRODUCT_CONSTANT = 1.3;
 
+/**
+ * 分组切分工具 —— **哈希与路线组键都从那里来，本文件不再自己实现一份**。
+ *
+ * ⚠️ 2026-10-15 修正的真实缺陷：原先本文件按每条样本的 `_id` 哈希切分。
+ * 而同一路线会被反复调用（一次规划 5 段），于是**近乎相同的样本
+ * 同时落进开发集与冻结集** → 冻结集"见过"的东西，参数已经在开发集上
+ * 调过了 → 分数偏乐观，**而且看起来一切正常**。
+ *
+ * 现在按**路线组**切：同一条路（含反向、含重复请求）整体落在同一侧。
+ */
+const splitLib = require('./dataset-split');
+
+// ── 字段读取：新旧两种写法都要能读 ────────────────────────
+//
+// 2026-10-15 的字段改名（见 `actions/trip.js` 的写入处注释）：
+//   actualMeters          → providerRouteMeters   （它一直是"路径距离"，不是实测）
+//   predictedMinutes      → providerDurationSeconds
+//   actualMinutes         → observedDurationSeconds
+//
+// 读的一方**两种都读**，因为库里同时存在新旧两种样本；
+// 迁移完成后删掉旧的那几行即可。这里集中在一处，别处不许再判断字段名。
+
+/** 路径距离（米）—— 本轮的参考标签 */
+function routeMetersOf(sample) {
+  if (!sample) return null;
+  if (typeof sample.providerRouteMeters === 'number') return sample.providerRouteMeters;
+  if (typeof sample.actualMeters === 'number') return sample.actualMeters; // 兼容
+  return null;
+}
+
+/** 地图预测耗时（秒）—— 特征，不是标签 */
+function providerSecondsOf(sample) {
+  if (!sample) return null;
+  if (typeof sample.providerDurationSeconds === 'number') return sample.providerDurationSeconds;
+  if (typeof sample.predictedMinutes === 'number') return sample.predictedMinutes * 60; // 兼容
+  return null;
+}
+
+/** 真人观测耗时（秒）—— 标签，没有就是没有 */
+function observedSecondsOf(sample) {
+  if (!sample) return null;
+  if (typeof sample.observedDurationSeconds === 'number') return sample.observedDurationSeconds;
+  if (typeof sample.actualMinutes === 'number') return sample.actualMinutes * 60; // 兼容
+  return null;
+}
+
+/**
+ * 质量分级：`excluded` 明确排除；`pending_review` **不参与拟合与评分**，
+ * 但**一定计入报告**（否则"库里 260 条、用了 200 条"说不清）。
+ */
+function qualityOf(sample) {
+  if (!sample) return 'excluded';
+  if (sample.qualityStatus === 'excluded' || sample.excludedReason) return 'excluded';
+  if (sample.qualityStatus === 'pending_review') return 'pending_review';
+  return 'ok';
+}
+
 /** 中位数 —— 比均值抗离群（同一条路偶尔会有异常返回值）。空数组返回 null。 */
 function median(nums) {
   if (!nums || !nums.length) return null;
@@ -85,36 +155,46 @@ function median(nums) {
 }
 
 /**
- * 可用的样本 —— 判据与 `ops.walkStats` **完全一致**（两端都是正的真实几何量）。
+ * 可用的样本 —— 判据与 `ops.walkStats` **完全一致**（两端都是正的真实几何量），
+ * 另加一条：**质量标记为待复核或已排除的不进拟合**。
  *
  * ⚠️ 排除掉的条数**必须一起返回**，不能静默丢：
- * "用了 200 条"与"库里有 260 条、60 条算不出倍率"是两句不同的话，
+ * "用了 200 条"与"库里有 260 条、60 条算不出倍率或待复核"是两句不同的话，
  * 后者能看出数据质量问题，前者会把问题藏起来。
  */
 function usableSamples(rows) {
   const list = Array.isArray(rows) ? rows : [];
   const usable = [];
   const excluded = [];
+  const pendingReview = [];
   for (const s of list) {
+    const q = qualityOf(s);
+    if (q === 'pending_review') {
+      pendingReview.push(s);
+      continue;
+    }
+    if (q === 'excluded') {
+      excluded.push(s);
+      continue;
+    }
     const ok =
       s &&
       typeof s.straightMeters === 'number' &&
-      typeof s.actualMeters === 'number' &&
+      typeof routeMetersOf(s) === 'number' &&
       s.straightMeters > 0 &&
-      s.actualMeters > 0;
+      routeMetersOf(s) > 0;
     if (ok) usable.push(s);
     else excluded.push(s);
   }
-  return { usable, excluded };
+  return { usable, excluded, pendingReview };
 }
 
 /** 一条样本的真实倍率（目标量）。不可用时返回 null。 */
 function trueRatio(sample) {
-  if (!sample || typeof sample.straightMeters !== 'number' || typeof sample.actualMeters !== 'number') {
-    return null;
-  }
-  if (!(sample.straightMeters > 0)) return null;
-  return sample.actualMeters / sample.straightMeters;
+  if (!sample || typeof sample.straightMeters !== 'number') return null;
+  const route = routeMetersOf(sample);
+  if (!(sample.straightMeters > 0) || typeof route !== 'number') return null;
+  return route / sample.straightMeters;
 }
 
 /** 一条样本落在哪个区间（找不到则返回 null，而不是硬塞进最后一桶） */
@@ -127,52 +207,36 @@ function bucketOf(straightMeters, buckets) {
 }
 
 /**
- * 稳定哈希（FNV-1a 32 位）—— **冻结切分靠它，不靠随机数**。
+ * 确定性切分：先取**路线组**，再按组把样本分成**开发集**与**冻结集**。
  *
- * 用随机切分的话，每次跑评测都会得到**不同的划分**，
- * 于是"这一版比上一版好"里面混进了切分噪声，而没人看得出来。
- * 哈希切分保证：**同一批数据、同一个种子 → 每次得到同一个冻结集**。
- */
-function hash32(str) {
-  let h = 0x811c9dc5;
-  const s = String(str == null ? '' : str);
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
-  }
-  return h >>> 0;
-}
-
-/** 一条样本的切分键 —— 优先用库里的 _id，退回"段 + 采样时刻" */
-function splitKey(sample) {
-  if (!sample) return '';
-  if (sample._id) return String(sample._id);
-  return `${sample.fromId || sample.fromName || '?'}->${sample.toId || sample.toName || '?'}@${
-    sample.sampledAt || ''
-  }`;
-}
-
-/**
- * 确定性切分：按哈希取模把样本分成**开发集**与**冻结集**。
+ * ⚠️ 与 2026-10-15 之前的版本有三个区别，每一个都是缺陷修复：
  *
- * ⚠️ 用 `>= ratio` 而不是"排序后取前 N 条"：后者会把**同一时段的样本
- * 整批放进同一侧**（样本是按时间写入的），于是两边的分布不同，
- * 比较就变成了"不同场景之间的比较"。
+ *   ① **按组切，不按记录切** —— 否则同一路线的多次调用会同时进两侧，
+ *      分数偏乐观且不报错（详见 `lib/dataset-split.js` 的说明）。
+ *   ② **反向合并** —— A→B 与 B→A 是同一条路，组键排序后拼接。
+ *   ③ **算不出组键的进 `ungrouped`**，不进任何一侧 ——
+ *      把它们随便塞进某一侧，等于让"身份不明"的东西参与评分。
  */
 function splitFrozen(rows, opts) {
   const o = opts || {};
-  const ratio = typeof o.ratio === 'number' ? o.ratio : 0.3;
-  const seed = o.seed == null ? 'zy-walk-2026' : o.seed;
-  const { usable, excluded } = usableSamples(rows);
-  const dev = [];
-  const frozen = [];
-  for (const s of usable) {
-    const h = hash32(`${seed}|${splitKey(s)}`);
-    // 取模 1000，避免 ratio 的浮点乘法带来的边界抖动
-    if (h % 1000 < Math.round(ratio * 1000)) frozen.push(s);
-    else dev.push(s);
-  }
-  return { dev, frozen, excluded, ratio, seed, total: usable.length };
+  const { usable, excluded, pendingReview } = usableSamples(rows);
+  const s = splitLib.splitByGroup(usable, {
+    ratio: o.ratio,
+    seed: o.seed == null ? 'zy-walk-2026' : o.seed,
+    keyFn: splitLib.routeGroupKey,
+  });
+  return {
+    dev: s.dev,
+    frozen: s.frozen,
+    excluded,
+    pendingReview,
+    ungrouped: s.ungrouped,
+    groups: s.groups,
+    ratio: s.ratio,
+    seed: s.seed,
+    total: usable.length,
+    stats: s.stats,
+  };
 }
 
 // ── 拟合：**只接受开发集** ────────────────────────────────
@@ -228,6 +292,11 @@ function fitBuckets(dev, buckets) {
 /**
  * 预测一条样本的**路径距离**。
  *
+ * ⚠️ **只读 `straightMeters`**（与模型自带的系数）—— 这是刻意的约束，不是巧合：
+ * 模型要在**地图接口失败**时兜底，而那一刻路径距离、耗时、路线形状都不存在。
+ * 所以输入只有直线距离；天气、星期、时段也不塞（要么拿不到，要么要用户额外说）。
+ * 有测试守着这条契约（把样本里所有非 `straightMeters` 的字段换掉，预测必须不变）。
+ *
  * `fallbackFactor` = 区间样本不足时用的系数（评测器传单常数的拟合值）；
  * 它是**明确写出来的参数**，不是隐藏在函数里的 1.3 ——
  * 否则"分段常数到底用了什么"在报告里说不清。
@@ -266,7 +335,7 @@ function scoreMeters(model, samples, opts) {
   const signed = [];
   const skipped = [];
   for (const s of samples || []) {
-    const truth = s && typeof s.actualMeters === 'number' ? s.actualMeters : null;
+    const truth = routeMetersOf(s);
     const pred = predictMeters(model, s, fallbackFactor);
     if (truth == null || truth <= 0 || pred == null || !(pred > 0)) {
       skipped.push(s);
@@ -289,9 +358,8 @@ function scoreMeters(model, samples, opts) {
             (samples || [])
               .map((s) => {
                 const pred = predictMeters(model, s, fallbackFactor);
-                return pred == null || typeof s.actualMeters !== 'number'
-                  ? null
-                  : Math.abs(pred - s.actualMeters);
+                const truth = routeMetersOf(s);
+                return pred == null || typeof truth !== 'number' ? null : Math.abs(pred - truth);
               })
               .filter((x) => x !== null)
           ).toFixed(1)
@@ -305,31 +373,51 @@ function scoreMeters(model, samples, opts) {
 /**
  * 覆盖率报告 —— **"哪些目标还不能评"本身就是一个结论**。
  *
- * `actualMinutes` 在无外场实测时基本恒为 null（计划书 §1.3）。
- * 与其在报告里留一个空表格，不如明确写出"0/240 条有时长标签，
- * 因此本轮不评时长模型"。
+ * 三个要点：
+ *
+ * ① `observedDurationSeconds` 在无外场实测时基本恒为空（计划书 v7.1 §1.3）。
+ *    与其在报告里留一个空表格，不如明确写出"0/240 条有时长标签，
+ *    因此本轮不评时长模型"。
+ *
+ * ② **独立路线数与记录数分开报**。同一条路调十次是十条记录、一条路线 ——
+ *    "重复请求可以留作稳定性记录，但不能当作新的独立路线"。
+ *
+ * ③ `pendingReview`（质量待复核）**单独一栏**：它们没参与拟合，
+ *    但必须出现在报告里，否则"库里多少、用了多少"对不上。
  */
 function coverage(rows) {
   const list = Array.isArray(rows) ? rows : [];
-  const { usable, excluded } = usableSamples(list);
-  const withPredicted = usable.filter((s) => typeof s.predictedMinutes === 'number' && s.predictedMinutes > 0);
-  const withActual = usable.filter((s) => typeof s.actualMinutes === 'number' && s.actualMinutes > 0);
-  const buckets = DISTANCE_BUCKETS.map((b) => ({
-    label: b.label,
-    count: usable.filter((s) => {
+  const { usable, excluded, pendingReview } = usableSamples(list);
+  const withPredicted = usable.filter((s) => typeof providerSecondsOf(s) === 'number' && providerSecondsOf(s) > 0);
+  const withObserved = usable.filter((s) => typeof observedSecondsOf(s) === 'number' && observedSecondsOf(s) > 0);
+  const buckets = DISTANCE_BUCKETS.map((b) => {
+    const inBucket = usable.filter((s) => {
       const bb = bucketOf(s.straightMeters);
       return bb && bb.label === b.label;
-    }).length,
-  }));
+    });
+    const groups = new Set(inBucket.map((s) => splitLib.routeGroupKey(s)).filter(Boolean));
+    return { label: b.label, count: inBucket.length, groups: groups.size };
+  });
+  const byGroup = splitLib.coverageByGroup(usable, { keyFn: splitLib.routeGroupKey });
   return {
     total: list.length,
     usable: usable.length,
     excluded: excluded.length,
+    pendingReview: pendingReview.length,
+    withPredictedSeconds: withPredicted.length,
+    withObservedSeconds: withObserved.length,
+    /** 兼容旧名（10/15 之前只有分钟口径） */
     withPredictedMinutes: withPredicted.length,
-    withActualMinutes: withActual.length,
+    withActualMinutes: withObserved.length,
     buckets,
+    /** 记录数 vs 独立路线数 —— 两个数一起看才有意义 */
+    records: byGroup.records,
+    distinctRoutes: byGroup.distinctGroups,
+    repeatedRecords: byGroup.repeatedRecords,
+    maxRepeats: byGroup.maxRepeats,
+    ungrouped: byGroup.ungrouped,
     /** 时长模型能不能评 —— 判据是"有时长标签的条数"，不是总条数 */
-    minutesTargetEvaluable: withActual.length >= MIN_SCORE_SAMPLES,
+    minutesTargetEvaluable: withObserved.length >= MIN_SCORE_SAMPLES,
   };
 }
 
@@ -401,7 +489,7 @@ function evaluate(rows, opts) {
   const candidates = [
     { name: '单常数（开发集中位倍率）', score: constantScore, model: constantFit },
     { name: '分段常数（开发集分区间中位倍率）', score: bucketScore, model: bucketFit },
-    { name: '时长模型（用 actualMinutes）', score: null, model: null },
+    { name: '时长模型（用 observedDurationSeconds）', score: null, model: null },
   ];
 
   const results = candidates.map((c) => {
@@ -450,43 +538,93 @@ function evaluate(rows, opts) {
     };
   });
 
-  const frozenEnough = split.frozen.length >= MIN_SCORE_SAMPLES;
+  const frozenRowsEnough = split.frozen.length >= MIN_SCORE_SAMPLES;
+  /**
+   * ⚠️ **两道门**（2026-10-15 加）：条数够了不代表信息量够。
+   * 同一条路调十次是十条记录、**一条**路线；用记录数当样本量，
+   * 等于用"同一条路走十遍"凑出 300 条。
+   */
+  const frozenGroupsEnough = split.stats.frozenGroups >= MIN_SCORE_GROUPS;
+  const frozenEnough = frozenRowsEnough && frozenGroupsEnough;
+  const gateReason = !frozenRowsEnough
+    ? `冻结集只有 ${split.frozen.length} 条记录（需要 ${MIN_SCORE_SAMPLES} 条）`
+    : !frozenGroupsEnough
+      ? `冻结集只覆盖 ${split.stats.frozenGroups} 条独立路线（需要 ${MIN_SCORE_GROUPS} 条）—— 重复请求不提高信息量`
+      : null;
+
   return {
     kind: 'walkEval',
     frozenEnough,
+    frozenRowsEnough,
+    frozenGroupsEnough,
+    gateReason,
     minScoreSamples: MIN_SCORE_SAMPLES,
+    minScoreGroups: MIN_SCORE_GROUPS,
     minRelativeGain: MIN_RELATIVE_GAIN,
     split: {
       total: split.total,
       dev: split.dev.length,
       frozen: split.frozen.length,
       excluded: split.excluded.length,
+      pendingReview: split.pendingReview.length,
+      ungrouped: split.ungrouped.length,
+      devGroups: split.stats.devGroups,
+      frozenGroups: split.stats.frozenGroups,
+      totalGroups: split.stats.totalGroups,
+      multiItemGroups: split.stats.multiItemGroups,
+      maxGroupSize: split.stats.maxGroupSize,
       ratio: split.ratio,
       seed: split.seed,
+      rule: '按路线组切分：同组整体落一侧；反向（A→B 与 B→A）同组；重复请求同组',
     },
     coverage: cov,
+    /**
+     * **输入契约** —— 一条会决定成败的边界。
+     *
+     * 若模型的用途是"**地图接口失败时兜底**"，那么在地图失败的那一刻，
+     * 路径距离、预测耗时、路线形状**统统拿不到**。它们只能是**标签**，不能是输入。
+     * 首版因此只用 `straightMeters`（直线距离，手上有坐标就能算）：
+     * 天气、星期、时段这些先不塞 —— 它们要么拿不到，要么需要用户额外说。
+     */
+    inputContract: {
+      label: 'providerRouteMeters（地图返回的路径距离）',
+      allowedInputs: ['straightMeters', 'mode'],
+      forbiddenInputs: [
+        'providerRouteMeters',
+        'providerDurationSeconds',
+        'provider',
+        'routeGroupId',
+        'polyline',
+        'steps',
+      ],
+      why:
+        '兜底模型在"地图接口失败"时被调用，那一刻地图返回的任何字段都不存在 —— ' +
+        '把它们当输入，等于用一个在需要它时必然缺席的特征。',
+    },
     baseline: { model: baseline, score: baseScore },
     fits: { constant: constantFit, buckets: bucketFit },
     candidates: results,
-    verdict: buildVerdict({ frozenEnough, cov, results, split, base }),
+    verdict: buildVerdict({ frozenEnough, cov, results, split, base, gateReason }),
     note:
       '本评测器**只做距离目标**（直线 vs 路径，两端都是真实几何量）。' +
-      '时长目标需要用户真实用时，无外场实测时基本为 null —— 它只报覆盖率，不给分数。',
+      '时长目标需要用户真实用时，无外场实测时基本为空 —— 它只报覆盖率，不给分数。',
   };
 }
 
 /** 一句话结论 —— 直接可贴进报告，且**包含"为什么不能下结论"** */
-function buildVerdict({ frozenEnough, cov, results, split, base }) {
+function buildVerdict({ frozenEnough, cov, results, split, base, gateReason }) {
   if (!frozenEnough) {
     return (
-      `冻结集只有 ${split.frozen.length} 条（需要 ${MIN_SCORE_SAMPLES} 条）—— **不足以判断**。` +
-      `现有样本 ${cov.usable} 条，继续积累：每次真实调地图接口都会自动记一条。`
+      `${gateReason || '冻结集样本不足'} —— **不足以判断**。` +
+      `现有可用样本 ${cov.usable} 条、覆盖 ${cov.distinctRoutes} 条独立路线，` +
+      `继续积累：每次真实调地图接口都会自动记一条` +
+      `（注意样本偏向"未缓存过的路线"，见写入处的说明）。`
     );
   }
   const winners = results.filter((r) => r.beaten);
   const evaluable = results.filter((r) => r.evaluable);
   if (!evaluable.length) {
-    return `冻结集 ${split.frozen.length} 条，但没有任何候选可评 —— 检查基线是否可用。`;
+    return `冻结集 ${split.frozen.length} 条 / ${split.stats.frozenGroups} 条独立路线，但没有任何候选可评 —— 检查基线是否可用。`;
   }
   if (!winners.length) {
     return (
@@ -496,7 +634,7 @@ function buildVerdict({ frozenEnough, cov, results, split, base }) {
     );
   }
   return (
-    `基线中位误差 ${base}%；` +
+    `基线中位误差 ${base}%（冻结集 ${split.frozen.length} 条 / ${split.stats.frozenGroups} 条独立路线）；` +
     winners.map((w) => `「${w.name}」将其降至 ${w.mapePercent}%（改进 ${w.gainPercent}%）`).join('；') +
     `。下一步才是考虑导出参数表（§6.8.2 形态①），并写进 logDecision。`
   );
@@ -506,14 +644,23 @@ module.exports = {
   DISTANCE_BUCKETS,
   MIN_BUCKET_SAMPLES,
   MIN_SCORE_SAMPLES,
+  MIN_SCORE_GROUPS,
   MIN_RELATIVE_GAIN,
   PRODUCT_CONSTANT,
   median,
+  // 字段读取（新旧两种写法都读）—— 别处不许再判断字段名
+  routeMetersOf,
+  providerSecondsOf,
+  observedSecondsOf,
+  qualityOf,
   usableSamples,
   trueRatio,
   bucketOf,
-  hash32,
-  splitKey,
+  // 哈希与路线组键**从 dataset-split 来**，这里只做转出，避免第二份实现
+  hash32: splitLib.hash32,
+  routeGroupKey: splitLib.routeGroupKey,
+  /** 整个分组工具也转出 —— 测试要用 `assertGroupIntegrity` 做独立检查 */
+  datasetSplit: splitLib,
   splitFrozen,
   fitConstant,
   fitBuckets,

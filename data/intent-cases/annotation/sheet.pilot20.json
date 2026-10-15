@@ -1,0 +1,186 @@
+{
+  "purpose": "两人交叉标注（各填一份，不许互相看）",
+  "instructions": "只填 annotatorA 或 annotatorB 中的一份；expected 字段照 cases.v1.json 的口径；遇到判断不了的情况写 {\"action\":\"clarify\",\"clarifyFields\":[...]}，不要留空。",
+  "cases": [
+    {
+      "caseId": "intent-001",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "我想在中央大街待两小时，尽量少走路",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-002",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "必须去防洪纪念塔，别的随便",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-003",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "今天下午两点开始逛，五点前得结束，我赶火车",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-004",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "就两个地方，哈工大和索菲亚，各逛一个小时",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-005",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "骑车去哈工大，然后步行去中央大街",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-006",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "我想骑车去哈工大，再去冰雪大世界",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-007",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "在中央大街附近随便逛逛，两小时够了",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-008",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "必须去老道外，但博物馆我不去",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-009",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "我想去的地方有中央大街、松花江铁路桥、果戈里大街，一共仨",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-010",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "早上十点出发，先去索菲亚，待一个半小时",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-011",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "去索菲亚，怎么去你帮我定，待 90 分钟",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-012",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "一早就出发去太阳岛，慢慢逛，别安排太多地方",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-013",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "我走路去中央大街，四十五分钟逛完就走",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-014",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "松花江铁路桥想待四十分钟，太阳岛玩两个小时，两个都要去",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-015",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "尽量多去几个地方，时间紧，能紧凑点就紧凑点",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-016",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "骑共享单车去防洪纪念塔，路上别给我安排别的",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-017",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "我下午两点开始逛，从中央大街出发，一直逛到六点",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-018",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "要带爸妈逛，别走太多路，中央大街和索菲亚各留一小时吧",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-019",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "坐地铁去冰雪大世界，玩两个小时",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    },
+    {
+      "caseId": "intent-020",
+      "turnIndex": 0,
+      "type": "明确需求",
+      "text": "我想去哈工大，待一小时；然后去中央大街待两小时",
+      "annotatorA": null,
+      "annotatorB": null,
+      "note": ""
+    }
+  ]
+}
