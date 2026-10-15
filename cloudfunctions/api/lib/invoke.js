@@ -15,9 +15,10 @@
  *   6. 异常一律转为统一响应结构，不抛给客户端
  */
 
-const { CODES, isAppError } = require('./errors');
+const { CODES, isAppError, fail } = require('./errors');
 const resp = require('./resp');
 const { withIdempotency } = require('./idem');
+const { checkAdminAccess, adminOpenidsFromEnv } = require('./ops-guard');
 const C = require('./repo/collections');
 const actions = require('../actions');
 
@@ -147,6 +148,41 @@ async function invoke(event, ctx) {
       return handler(callCtx);
     };
 
+    /**
+     * **运维与探针类 action 的准入闸门**（2026-10-15 加）。
+     *
+     * ── 为什么放在这个位置（两处顺序都是想过的）────────────
+     *
+     * ① **在注入点断言之后**：手里同时有两处配置错误时，
+     *    先报"注入点没给"这条**我们自己的集成缺陷** —— 它是开发期问题，
+     *    比"你没权限"更该先被看见（`injection-points` 那条测试就是这个口径）。
+     *
+     * ② **在 try 内、以异常形式抛出**，不用提前 return：
+     *    提前 return 会**跳过下面的事件日志**，而"谁被拒了"恰恰要留痕 ——
+     *    §11.3 要求留「非成员访问被拒」的证据，不留痕就凑不出这份证据。
+     *    抛 `AppError`（已知错误）不会打堆栈，响应里也带得上 details。
+     *
+     * 背景：这些接口原本只靠 `env === 'dev'` 把关，而环境判定本身是宽松的
+     * （`index.js`：变量没配成 prod 就算 dev）—— 体验版一发出去，
+     * `place.survey`（**写核验等级**）、`ops.exportWalkSamples`（导出地点名）
+     * 就对所有体验成员开放了。详见 `lib/ops-guard.js`。
+     */
+    stage = 'admin-guard';
+    const access = checkAdminAccess({
+      action,
+      openid: ctx.openid,
+      env: ctx.env || 'dev',
+      /** 测试可直接传数组；线上由 `index.js` 从环境变量取 */
+      adminOpenids: ctx.adminOpenids === undefined ? adminOpenidsFromEnv() : ctx.adminOpenids,
+    });
+    if (!access.allowed) throw fail(access.code, access.message, access.details);
+
+    /**
+     * ⚠️ stage 名保持 `'idempotency'` 不变 —— 它是**已有测试断言的值**
+     * （"必须指出失败阶段"那条）。加守卫时顺手改名，等于把一条通过的测试
+     * 改成失败，而失败原因与守卫毫无关系。
+     */
+    stage = 'idempotency';
     const r = await withIdempotency(
       ctx.repo,
       { requestId, userId: ctx.openid, action, now: ctx.now },

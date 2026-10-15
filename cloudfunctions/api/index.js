@@ -10,6 +10,7 @@
 
 const cloud = require('wx-server-sdk');
 const { invoke } = require('./lib/invoke');
+const { adminOpenidsFromEnv } = require('./lib/ops-guard');
 const { getRepo } = require('./lib/repo');
 
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV });
@@ -26,6 +27,16 @@ exports.main = async (event, context) => {
     repo,
     openid: wxContext.OPENID,
     env,
+    /**
+     * 运维/探针类 action 的白名单（2026-10-15）。
+     *
+     * **不配 = 全部拒绝**（fail closed）。理由见 `lib/ops-guard.js`：
+     * "没配就当没限制"会让守卫在真正需要它的那一刻（刚部署、还没配变量）
+     * 恰好失效 —— 而那一刻正是体验版刚发出去的时候。
+     *
+     * 值形如：`openidA,openidB`（云开发控制台 → 云函数 → api → 配置 → 环境变量）。
+     */
+    adminOpenids: adminOpenidsFromEnv(),
     /**
      * 注入点必须**显式**声明，即使是"线上不注入替身"这个选择。
      *

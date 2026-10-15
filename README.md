@@ -65,8 +65,20 @@ node --test test/
      | 名称 | 值 | 说明 |
      |---|---|---|
      | `ZY_ENV` | `dev` | 控制 `ops.initDb` 等运维接口是否可执行；正式实测期改 `prod` |
+     | `ZY_ADMIN_OPENIDS` | 你的 openid（多个用逗号分隔） | **运维/探针接口的白名单**（2026-10-15 加）。⚠️ **不配 = 全部拒绝** |
      | `MAP_KEY` | 腾讯位置服务的 Key | **只存在于此，绝不进代码或仓库**（11/12 验收项） |
+     | `AI_API_KEY` | DeepSeek 的 Key | 需求解析用；**没配就自动降级到规则解析**——那时 AI 相关的验证都测不出来 |
      | `MAP_PROVIDER` | 可留空 | 留空默认 `tencent`；本地/联调可设 `fake` 走假服务 |
+
+   > **`ZY_ADMIN_OPENIDS` 为什么要 fail closed（没配就拒绝）**：
+   > 这些接口原本只靠 `env === 'dev'` 把关，而环境判定是宽松的
+   > （`index.js`：`ZY_ENV` 没配成 `prod` 就算 `dev`）。体验版一发给测试者，
+   > `place.survey`（**写地点核验等级**）、`ops.exportWalkSamples`（导出地点名）
+   > 就对所有体验成员开放了。
+   >
+   > "没配就当没限制"是最糟的默认值 —— 它会让守卫在**真正需要它的那一刻**
+   > （刚部署、还没配变量）恰好失效。所以不配就拒绝，并**把你自己的 openid
+   > 放进错误信息**，复制到环境变量里即可（见 `lib/ops-guard.js`）。
 
    > `config.json` 只放**经过验证**的字段（当前仅 `permissions.openapi`）。
    > 我无法确认 `timeout` 是否为 `config.json` 的合法字段，因此不写进去 ——

@@ -66,6 +66,16 @@ async function makeWorld(opts) {
         openid,
         env: opts.env || 'dev',
         now: o.now ? new Date(o.now) : base,
+        /**
+         * 运维/探针类 action 的白名单（2026-10-15 加）。
+         *
+         * ⚠️ 默认把**当前 openid 自己**放进名单，否则所有既有测试都会因为
+         * `ops.*` 被守卫挡下而红 —— 而那是**测试夹具的问题**，不是实现的问题
+         * （本项目已经吃过一次"夹具形状决定测试在测什么"的亏）。
+         *
+         * 要测"被拒绝"就传 `adminOpenids: []`。
+         */
+        adminOpenids: opts.adminOpenids === undefined ? [openid] : opts.adminOpenids,
         /** 动作层通过它拿到地图服务；测试可注入任意实现 */
         createMapProvider: opts.createMapProvider || defaultMapFactory,
         /**

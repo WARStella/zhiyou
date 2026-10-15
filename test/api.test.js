@@ -1206,7 +1206,20 @@ test('ops.selfTest：前置步骤失败时后续标记为跳过，而不是级�
 
   const res = await invoke(
     { action: 'ops.selfTest', requestId: 'selftest-fail', payload: {} },
-    { repo, openid: 'openid_A', env: 'dev', createMapProvider: null, createPhotoService: null, createTransitProvider: null }
+    {
+      repo,
+      openid: 'openid_A',
+      env: 'dev',
+      /**
+       * ⚠️ 2026-10-15：`ops.*` 现在要过**管理员白名单**（`lib/ops-guard.js`）。
+       * 手搭 ctx 的测试必须显式声明自己的白名单 —— 入口 `index.js` 会从环境变量取，
+       * 而"没声明"在守卫里等于"没有权限"（fail closed）。
+       */
+      adminOpenids: ['openid_A'],
+      createMapProvider: null,
+      createPhotoService: null,
+      createTransitProvider: null,
+    }
   );
 
   assert.equal(res.ok, true, '自检本身要成功返回，由 results 说明问题');
@@ -1319,7 +1332,16 @@ test('ops.verifyIndexes：索引缺失时必须报出来，而不是静默通过
 
   const res = await invoke(
     { action: 'ops.verifyIndexes', requestId: 'idx-fail', payload: {} },
-    { repo: permissive, openid: 'openid_A', env: 'dev', createMapProvider: null, createPhotoService: null, createTransitProvider: null }
+    {
+      repo: permissive,
+      openid: 'openid_A',
+      env: 'dev',
+      /** 手搭 ctx 必须显式声明管理员白名单，见 `lib/ops-guard.js` */
+      adminOpenids: ['openid_A'],
+      createMapProvider: null,
+      createPhotoService: null,
+      createTransitProvider: null,
+    }
   );
 
   assert.equal(res.ok, true, '校验本身要成功返回，由 results 说明问题');

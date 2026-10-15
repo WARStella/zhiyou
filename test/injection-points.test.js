@@ -56,6 +56,12 @@ test('漏传注入点会立刻报错，而不是静默回落到真实实现', as
     openid: 'openid_A',
     env: 'dev',
     now: w.NOW,
+    /**
+     * ⚠️ 2026-10-15：`ops.*` 现在要过管理员白名单（`lib/ops-guard.js`）。
+     * 手搭 ctx 的测试必须显式声明，否则守卫会先一步拒绝 ——
+     * 那样这条测试验的就不是"注入点断言生效"，而是"权限被拒"。
+     */
+    adminOpenids: ['openid_A'],
     createMapProvider: null,
     createPhotoService: null,
     createTransitProvider: null,

@@ -9,6 +9,14 @@ const CODES = {
   AUTH_REQUIRED: 'AUTH_REQUIRED',
   FORBIDDEN_NOT_MEMBER: 'FORBIDDEN_NOT_MEMBER',
   FORBIDDEN_ENV: 'FORBIDDEN_ENV',
+  /**
+   * 运维/探针类 action 的黑白名单守卫（2026-10-15）。
+   *
+   * 与 `FORBIDDEN_ENV` 分开，因为**两者的处置完全不同**：
+   * 环境不对要去改部署配置；白名单不对要去加 openid。
+   * 混成一个码，排查时就得先猜是哪一种。
+   */
+  FORBIDDEN_NOT_ADMIN: 'FORBIDDEN_NOT_ADMIN',
   LOCATION_SHARING_OFF: 'LOCATION_SHARING_OFF',
   VERSION_CONFLICT: 'VERSION_CONFLICT',
   IDEMPOTENT_REPLAY: 'IDEMPOTENT_REPLAY',
