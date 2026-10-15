@@ -387,7 +387,7 @@ test('出行方式的归一化：模型的同义写法要认，野值要挡住',
   assert.equal(norm('BICYCLING'), 'bicycling', '大小写不该影响');
   assert.equal(norm(' 骑行 '), 'bicycling', '首尾空格不该影响');
   assert.equal(norm('走'), 'walking');
-  assert.equal(norm('地铁'), 'transit');
+  assert.equal(norm('地铁'), 'subway');
   assert.equal(norm('drive'), 'driving');
 
   /** 认不出就置 null，**不原样透传** —— 野值会让下游静默失效 */

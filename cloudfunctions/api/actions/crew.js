@@ -151,6 +151,7 @@ async function get(ctx) {
       status: crew.status,
       memberCount: members.length,
     },
+    me: openid,
     myRole: member.role,
     members: members.map((m) => ({
       userId: m.userId,

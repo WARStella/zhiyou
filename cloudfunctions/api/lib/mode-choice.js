@@ -51,6 +51,7 @@ const MODE_LABEL = {
   bicycling: '骑行',
   driving: '驾车',
   transit: '公交',
+  subway: '地铁',
 };
 
 /**
@@ -65,6 +66,7 @@ const PREFERRED_MODE = {
   BICYCLING: 'bicycling',
   DRIVING: 'driving',
   TRANSIT: 'transit',
+  SUBWAY: 'subway',
 };
 
 /** 界面用的选项列表（含 `auto`）—— 前端直接拿它渲染，避免两处漂移 */
@@ -74,6 +76,7 @@ const MODE_OPTIONS = [
   { value: 'bicycling', label: '骑行' },
   { value: 'driving', label: '驾车' },
   { value: 'transit', label: '公交地铁' },
+  { value: 'subway', label: '地铁优先' },
 ];
 
 const isPreferredMode = (v) =>

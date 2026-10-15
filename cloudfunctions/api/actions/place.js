@@ -16,7 +16,7 @@ const { isPlaceholderPlace } = require('../lib/placeholder-place');
  *
  * **准入按用途分两级**（2026-10-13 修正，见 lib/authz.js）：
  *   · `tripNodeAllowed`    —— 有名称与坐标即可，外部检索回来的 POI 也能用；
- *   · `meetingPointAllowed`—— 还要求实地核验（§7.1 可达性、辨识度、停留条件）。
+ *   · `meetingPointAllowed`—— 无需实地核验；排除缺资料、低可信度及明确不适合集合的地点。
  *
  * 界面拿这两个字段判断"这个地点能做什么"，而不是一个含糊的 `usable`。
  */
@@ -338,7 +338,7 @@ function toPlaceDoc(item, now) {
     address: item.address || null,
     dataSource: 'tencent-poi',
     poiId: item.poiId,
-    /** 未核验：可安排进游览顺序，不能作集合点 */
+    /** 核验状态仅作资料记录，集合点无需实地核验。 */
     verifiedAt: null,
     verifiedBy: null,
     confidence: 'low',
@@ -632,6 +632,7 @@ async function search(ctx) {
             visitDurationMin: surveyed.visitDurationMin,
             visitDurationSource: surveyed.visitDurationSource || null,
             verified: Boolean(surveyed.verifiedAt) && surveyed.confidence !== 'low',
+            meetingPointAllowed: canBeMeetingPoint(surveyed),
             dataSource: surveyed.dataSource,
             /** 已入库（踏勘过）—— 前端可以直接传 placeId */
             saved: true,
@@ -660,6 +661,7 @@ async function search(ctx) {
             visitDurationMin: Object.assign({}, DEFAULT_VISIT_DURATION),
             visitDurationSource: 'default-untuned',
             verified: false,
+            meetingPointAllowed: canBeMeetingPoint({ name: item.title, location: item.location }),
             dataSource: 'tencent-poi',
             saved: false,
             matchedSurveyed: false,

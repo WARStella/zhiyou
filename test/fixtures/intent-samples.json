@@ -246,7 +246,7 @@
       "text": "坐地铁去中央大街",
       "source": "synthetic-travel-mode",
       "expected": {
-        "preferredMode": "transit",
+        "preferredMode": "subway",
         "searchKeywordsContain": ["中央大街"]
       }
     },

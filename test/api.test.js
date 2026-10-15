@@ -590,7 +590,7 @@ test('业务异常不受影响：错误码与提示原样返回，且不带堆�
   assert.doesNotMatch(err.message, /stack|RangeError/i);
 });
 
-test('地点准入分级：未核验可作行程节点，但不能作集合点', async () => {
+test('未核验状态仅作资料信息，不提示实地核验前置条件', async () => {
   const w = await makeWorld();
 
   // ① 未核验地点**允许**进入行程。
@@ -602,8 +602,9 @@ test('地点准入分级：未核验可作行程节点，但不能作集合点',
   assert.equal(planned.saved, true, '未核验地点应可作行程节点');
   assert.ok(planned.unverifiedNotice, '必须随结果标注，不得静默');
   assert.equal(planned.unverifiedNotice.count, 1);
-  assert.equal(planned.unverifiedNotice.scope, 'tripNodeOnly', '要说明使用边界');
-  assert.match(planned.unverifiedNotice.warning, /不能作为集合点/);
+  assert.equal(planned.unverifiedNotice.scope, 'sourceInfo', '核验状态只作资料信息');
+  assert.match(planned.unverifiedNotice.warning, /无需实地核验/);
+  assert.equal(planned.warnings.some(w => w.code === 'PLACE_UNVERIFIED'), false);
   assert.equal(planned.unverifiedNotice.places[0].placeId, 'p_unverified');
 
   // ② 全部已核验时不得无端报警
@@ -636,7 +637,7 @@ test('place.list 按用途分别标注准入，而不是一个含糊的 usable',
 
   const unverified = res.places.find((x) => x.placeId === 'p_unverified');
   assert.equal(unverified.tripNodeAllowed, true, '未核验地点可作行程节点');
-  assert.equal(unverified.meetingPointAllowed, false, '未核验地点不可作集合点');
+  assert.equal(unverified.meetingPointAllowed, false, '明确为低可信度的地点不进入集合推荐');
   assert.equal(unverified.verified, false);
 
   const verified = res.places.find((x) => x.placeId === 'p_zhongyang');
@@ -654,17 +655,18 @@ test('place.list 按用途分别标注准入，而不是一个含糊的 usable',
   assert.equal(onlyMeet.places.every((x) => x.meetingPointAllowed), true);
 });
 
-test('集合点推荐必须排除未核验地点，并说明它可作为游览节点', async () => {
+test('集合点推荐排除明确低可信度地点，不能归因于未实地核验', async () => {
   const w = await makeWorld();
   const { crewId } = await makeCrew(w);
 
   const res = expectOk(await w.A('meet.recommend', { crewId }));
   const excludedIds = (res.excluded || []).map((x) => x.placeId);
-  assert.equal(excludedIds.includes('p_unverified'), true, '未核验地点不得作集合点');
+  assert.equal(excludedIds.includes('p_unverified'), true, '夹具明确为低可信度，不进入推荐');
 
   const why = (res.excluded || []).find((x) => x.placeId === 'p_unverified');
   assert.equal(why.reason, 'PLACE_NOT_MEETING_POINT');
-  assert.match(why.message, /可安排为游览节点/, '要说清它还能用来做什么，而不是只说不合格');
+  assert.match(why.message, /可信度较低/);
+  assert.doesNotMatch(why.message, /实地核验/);
 });
 
 test('行程页设的结束时间会成为硬约束：ISO 字符串 + confirmedAt 即生效', async () => {

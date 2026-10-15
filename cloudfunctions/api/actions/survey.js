@@ -358,11 +358,8 @@ function describeEligibility(place) {
   if (elig.verificationLevel === 'aggregated') {
     return '未实地核验（三方聚合），可作集合点；界面与接口必须标注这一点，不得当成已核验';
   }
-  if (elig.tripNode) {
-    return `可作行程节点，但**不能作集合点**（${
-      elig.confidence === 'low' ? 'confidence 为 low' : '既没有 verifiedAt，也没有 meetingPointEligible'
-    }）`;
-  }
+  if (elig.meetingPoint) return '可作集合点，也可作行程节点，无需实地核验';
+  if (elig.tripNode) return '可作行程节点；资料可信度较低或已标记为不适合集合';
   return '既不能作行程节点也不能作集合点：缺名称或坐标（坐标缺失会让步行时间失真）';
 }
 

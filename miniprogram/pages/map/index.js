@@ -21,6 +21,7 @@
  */
 
 const api = require('../../utils/api')
+const { isValidPoint } = require('../../utils/coordinates')
 
 /** 与后端 lib/geo.js 保持一致，避免同一段路算出两个时间 */
 const DETOUR_FACTOR = 1.3
@@ -131,6 +132,7 @@ Page({
     meetTask: null,
     /** 我有没有开启位置共享 */
     sharing: false,
+    isInitiator: false,
     /** 集合时间输入（HH:MM） */
     meetTime: '17:00',
     /** 集合点名称 */
@@ -140,6 +142,9 @@ Page({
     /** 本页自己的操作提示与错误 —— 不复用 team-panel 的 */
     teamNote: '',
     teamError: '',
+    locationError: '',
+    coordinateError: '',
+    teamTripId: null,
     teamBusy: false,
     /**
      * 照片：`{ [placeId]: { photos, note, level, verification } }`。
@@ -251,6 +256,12 @@ Page({
      *    这类"少画了东西但不报错"的错最难发现。
      */
     this.refreshTeamLocations()
+    this.stopTeamRefresh()
+    this.teamRefreshTimer = setInterval(() => {
+      this.loadCrew()
+      this.refreshTeamLocations()
+    }, 15000)
+    if (this.teamRefreshTimer.unref) this.teamRefreshTimer.unref()
     if (!focused) {
       /**
        * ⚠️ 这里原来还会调 `loadActiveTrip()` 读回路线并画在地图上，
@@ -344,7 +355,7 @@ Page({
     } catch (e) {
       return false
     }
-    if (!focus || typeof focus.latitude !== 'number' || typeof focus.longitude !== 'number') {
+    if (!isValidPoint(focus)) {
       return false
     }
 
@@ -400,6 +411,10 @@ Page({
         wx.getLocation({
           type: 'gcj02',
           success(res) {
+            if (!isValidPoint(res)) {
+              that.setData({ note: '定位返回的坐标异常，请重新定位' })
+              return
+            }
             that.setData({
               myPoint: { latitude: res.latitude, longitude: res.longitude },
               mySource: 'gps',
@@ -451,16 +466,32 @@ Page({
    *    两个都改完了，本页才真正**不依赖面板的存在**。
    */
 
-  /** 读一次队伍状态：成员、我的共享开关、进行中的集合 */
+  /** 页面隐藏后停止轮询。 */
+  stopTeamRefresh() {
+    if (this.teamRefreshTimer) clearInterval(this.teamRefreshTimer)
+    this.teamRefreshTimer = null
+  },
+
+  onHide() { this.stopTeamRefresh() },
+  onUnload() { this.stopTeamRefresh() },
+
+  /** 读取成员、个人共享开关及当前集合。 */
   loadCrew() {
     const crewId = this.readCrewId()
     if (!crewId) {
-      this.setData({ crewId: '', crew: null, members: [], meetTask: null, sharing: false })
+      this.setData({ crewId: '', crew: null, members: [], meetTask: null, sharing: false, teamTripId: null, me: '', isOwner: false, isInitiator: false })
+      this.teamLocations = []
+      this.refreshMarkers()
       return
+    }
+    if (this.data.crewId !== crewId) {
+      this.teamLocations = []
+      this.setData({ meetTask: null, teamTripId: null, departureCheck: null, me: '' })
+      this.refreshMarkers()
     }
     this.setData({ crewId: crewId })
     const that = this
-    api
+    const infoRequest = api
       .callApi('crew.get', { crewId: crewId })
       .then(function (res) {
         if (!res || res.ok !== true) {
@@ -472,24 +503,60 @@ Page({
           return
         }
         const d = res.data || {}
+        if (that.data.crewId !== crewId) return
+        const me = (d.members || []).find(m => m.userId === d.me)
         that.setData({
           crew: d.crew || null,
-          isOwner: d.crew && d.crew.ownerUserId === d.me,
+          me: d.me || '',
+          isOwner: d.myRole === 'owner',
           members: d.members || [],
-          sharing: Boolean(d.crew && d.crew.shareLocationDefault),
+          sharing: Boolean(me && me.locationSharing !== false),
           teamError: '',
         })
+        that.refreshMarkers()
       })
       .catch(function (err) {
         that.setData({ teamError: (err && err.errMsg) || '队伍信息读取失败' })
       })
     /** 集合任务单独取 —— 它可能不存在，不该让整块队伍信息跟着失败 */
-    api
-      .callApi('meet.get', { crewId: crewId })
+    const meetingRequest = api
+      .callApi('team.current', { crewId: crewId })
       .then(function (res) {
+        if (that.data.crewId !== crewId) return null
+        if (!res || !res.ok) throw new Error((res && res.error && res.error.message) || '集合读取失败')
+        that.setData({ teamTripId: res.data.tripId || null })
+        return res.data.meetTaskId
+          ? api.callApi('meet.get', { meetTaskId: res.data.meetTaskId })
+          : { ok: true, data: { meetTask: null } }
+      })
+      .then(async function (res) {
+        await infoRequest
+        if (that.data.crewId !== crewId) return
         if (res && res.ok === true) {
-          const t = res.data && res.data.task
+          let t = res.data && res.data.meetTask
+          if (t && ['cancelled', 'departed'].includes(t.status)) t = null
+          if (t) {
+            const localClock = value => {
+              if (!value) return '--:--'
+              const d = new Date(value)
+              return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0')
+            }
+            t.timeLabel = localClock(t.plannedMeetAt)
+            t.arrivedLabel = localClock(t.allArrivedAt)
+            t.departedLabel = localClock(t.departedAt)
+            const labels = { proposed: '等待确认', confirmed: '已确认', arrived_all: '全员到齐', invited: '待确认', arrived: '已到达', declined: '暂不参加' }
+            t.statusLabel = labels[t.status] || t.status
+            t.participants = (t.participants || []).map((m, i) => Object.assign({}, m, {
+              label: m.userId === that.data.me ? '我' : '队员 ' + (i + 1),
+              statusLabel: labels[m.status] || m.status,
+            }))
+          }
           that.setData({ meetTask: t || null })
+          that.setData({ isInitiator: Boolean(t && t.initiatorUserId === that.data.me) })
+          if (!t && that.data.meetingPoint && that.data.meetingPoint.fromTeamTask) {
+            that.setData({ meetingPoint: null })
+            that.refreshMarkers()
+          }
           /** 已有集合点时把它画到地图上，用户才知道"我们约在哪儿" */
           if (t && t.point) {
             that.setAutoMeetingPoint({
@@ -500,11 +567,14 @@ Page({
               fromTeamTask: true,
             })
           }
+        } else if (res) {
+          throw new Error((res.error && res.error.message) || '集合读取失败')
         }
       })
-      .catch(function () {
-        /** 集合任务取不到不影响队伍信息本身 */
+      .catch(function (err) {
+        that.setData({ teamError: err.message || '集合读取失败，请刷新重试' })
       })
+    return Promise.all([infoRequest, meetingRequest])
   },
 
   /** 从本地读 crewId —— 与 team-panel 用同一个 key（组队处写的） */
@@ -518,9 +588,8 @@ Page({
 
   /** 开关位置共享 */
   toggleSharing() {
-    const that = this
     const next = !this.data.sharing
-    this.doTeam('loc.' + (next ? 'report' : 'stopSharing'), next ? {} : {}, next ? '已开启位置共享' : '已关闭位置共享')
+    this.doTeam('loc.stopSharing', { sharing: next }, next ? '已开启位置共享，请共享一次当前位置' : '已关闭位置共享')
   },
 
   /**
@@ -531,12 +600,18 @@ Page({
    *    没有位置时如实提示先取位置 —— 不拿一个编出来的坐标上报。
    */
   reportMyLocation() {
-    if (!this.data.myPoint) {
-      this.setData({ teamError: '还没有你的位置：先点 ◎ 取一次，或拖 ✛ 选一个' })
+    if (!isValidPoint(this.data.myPoint)) {
+      this.setData({ teamError: '还没有你的位置：先点 ◎ 获取当前位置' })
       return
     }
     const that = this
-    this.doTeam(
+    if (!this.data.sharing) {
+      return this.doTeam('loc.stopSharing', { sharing: true }, '', function () {
+        that.setData({ sharing: true })
+        return that.reportMyLocation()
+      })
+    }
+    return this.doTeam(
       'loc.report',
       { point: this.data.myPoint, source: this.data.mySource || 'manual' },
       '位置已共享给队伍',
@@ -552,24 +627,43 @@ Page({
     const crewId = this.data.crewId
     if (!crewId) return
     const that = this
-    api
+    return api
       .callApi('loc.list', { crewId: crewId })
       .then(function (res) {
-        if (!res || res.ok !== true) return
+        if (that.data.crewId !== crewId) return
+        if (!res || res.ok !== true) {
+          that.teamLocations = []
+          that.refreshMarkers()
+          that.setData({ locationError: (res && res.error && res.error.message) || '队员位置读取失败' })
+          return
+        }
         const list = (res.data && res.data.members) || []
+        that.invalidTeamLocations = list.filter(m => m.invalidLocation ||
+          (m.hasLocation && !m.sharingOff && !isValidPoint(m.point))).length
         /**
          * 地图只认 `this.teamLocations` 这一个字段 —— 面板已从本页删掉，
          * 现在只有这一条写入路径（见本段开头对 `teamMeeting` 的说明）。
          */
         that.teamLocations = list.filter(function (m) {
-          return m.hasLocation && !m.stale && !m.sharingOff
+          return m.hasLocation && isValidPoint(m.point) && !m.sharingOff
         })
-        that.setData({ members: list })
+        that.setData({ locationError: '' })
         that.refreshMarkers()
       })
       .catch(function () {
-        /** 队员位置取不到不影响其它功能 */
+        that.setData({ locationError: '队员位置读取失败，请刷新重试' })
       })
+  },
+
+  showTeamOnMap() {
+    const points = (this.teamLocations || []).map(m => m.point).filter(isValidPoint)
+    if (isValidPoint(this.data.myPoint)) points.push(this.data.myPoint)
+    if (isValidPoint(this.data.meetingPoint)) points.push(this.data.meetingPoint)
+    if (!points.length) {
+      this.setData({ locationError: '还没有可显示的位置，请先共享一次当前位置' })
+      return
+    }
+    wx.createMapContext('tripmap', this).includePoints({ points, padding: [60, 40, 60, 40] })
   },
 
   onMeetTimeChange(e) {
@@ -609,6 +703,10 @@ Page({
         }
         const d = res.data || {}
         const top = (d.candidates || [])[0] || null
+        if (top && !isValidPoint(top.point)) {
+          that.setData({ teamBusy: false, teamError: '推荐集合点的坐标异常，请重新推荐或手动选点' })
+          return
+        }
         if (!top || !top.point) {
           /**
            * ⚠️ 推荐不出来时**说清为什么**，不给一个编出来的点。
@@ -664,7 +762,7 @@ Page({
              *    "它可能是个商场，但南门还是北门得自己确认"。
              */
             (d.candidateSource === 'poi-search'
-              ? '这个位置来自地图检索，未实地核验，请确认入口在哪。'
+              ? '这个位置来自地图检索。'
               : '') +
             '拖动 ✛ 可以微调，确认后点「② 发起集合」。',
         })
@@ -682,7 +780,7 @@ Page({
    */
   createMeeting() {
     const that = this
-    if (!this.data.meetingPoint) {
+    if (!isValidPoint(this.data.meetingPoint)) {
       this.setData({ teamError: '还没有集合点：点「推荐」或拖 ✛ 自己选一个' })
       return
     }
@@ -691,7 +789,12 @@ Page({
       this.setData({ teamError: '请填一个便于辨认的集合点名称，如「南门指示牌旁」' })
       return
     }
-    const parts = String(this.data.meetTime || '').split(':').map(Number)
+    const text = String(this.data.meetTime || '')
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(text)) {
+      this.setData({ teamError: '请选择有效的集合时间' })
+      return
+    }
+    const parts = text.split(':').map(Number)
     const at = new Date()
     at.setHours(parts[0] || 0, parts[1] || 0, 0, 0)
     if (at <= new Date()) {
@@ -701,21 +804,8 @@ Page({
     this.doTeam(
       'meet.create',
       {
-        /**
-         * ⚠️ 集合可以关联一条行程（`tripId`），本页不再读路线，
-         * 所以从 storage 取"当前是哪一条"—— 只取 id，不取内容。
-         *
-         * 与 `rememberActiveTrip` 的约定一致：storage 只回答"是哪一个"。
-         * 取不到就传 null（`meet.create` 允许集合不挂在行程上）。
-         */
-        tripId: (function () {
-          try {
-            const saved = wx.getStorageSync('zhiyou-active-trip')
-            return saved && saved.tripId ? saved.tripId : null
-          } catch (e) {
-            return null
-          }
-        })(),
+        // 只关联本队共同路线，个人路线不能挂到集合任务上。
+        tripId: this.data.teamTripId || null,
         point: {
           latitude: this.data.meetingPoint.latitude,
           longitude: this.data.meetingPoint.longitude,
@@ -748,7 +838,7 @@ Page({
     const payload = { meetTaskId: task.meetTaskId }
     if (kind === 'confirm' || kind === 'decline') payload.decision = kind
     const labels = { confirm: '已确认集合', decline: '已回复暂不参加', arrive: '已记录：你到了' }
-    this.doTeam('meet.' + kind, payload, labels[kind] || '已提交')
+    this.doTeam('meet.' + (kind === 'decline' ? 'confirm' : kind), payload, labels[kind] || '已提交')
   },
 
   /** 准备出发：先检查后续行程会不会受影响 */
@@ -788,21 +878,24 @@ Page({
     const that = this
     const full = Object.assign({ crewId: this.data.crewId }, payload || {})
     this.setData({ teamBusy: true, teamError: '' })
-    api
-      .callApi(action, full)
+    const task = this.data.meetTask
+    const needsVersion = ['meet.confirm', 'meet.arrive', 'meet.prepareDepart', 'meet.depart', 'team.cancelMeeting'].includes(action)
+    return api
+      .callApi(action, full, needsVersion && task ? { expectedVersion: task.version } : undefined)
       .then(function (res) {
         if (!res || res.ok !== true) {
           that.setData({
             teamBusy: false,
             teamError: (res && res.error && res.error.message) || '操作失败',
           })
+          if (res && res.error && res.error.code === 'VERSION_CONFLICT') that.loadCrew()
           return
         }
         that.setData({ teamBusy: false, teamNote: okMessage || '' })
-        if (typeof onData === 'function') onData(res.data)
         /** 动作完成后重读状态 —— 服务端才是权威 */
         that.loadCrew()
         that.refreshTeamLocations()
+        if (typeof onData === 'function') return onData(res.data)
       })
       .catch(function (err) {
         that.setData({ teamBusy: false, teamError: (err && err.errMsg) || '操作失败' })
@@ -972,7 +1065,7 @@ Page({
       })
       that.setData({
         pickMode: false,
-        note: '已把地图上的这个点作为集合点（未实地核验）。可切到「我的」发起集合。',
+        note: '已选为集合点，可在本页发起集合。',
       })
     })
   },
@@ -985,6 +1078,10 @@ Page({
    *    一条 `myPoint`），于是"集合点"这个概念在页面里有了两个来源。
    */
   setAutoMeetingPoint(point) {
+    if (!isValidPoint(point)) {
+      this.setData({ coordinateError: '集合点坐标异常，请重新选择集合点' })
+      return false
+    }
     this.setData({
       meetingPoint: point,
       photoNote: '',
@@ -1012,7 +1109,7 @@ Page({
     } catch (e) {
       return false
     }
-    if (!s || typeof s.latitude !== 'number' || typeof s.longitude !== 'number') return false
+    if (!isValidPoint(s)) return false
     if (s.at && Date.now() - s.at > 2 * 60 * 1000) return false
 
     this.setAutoMeetingPoint({
@@ -1064,7 +1161,7 @@ Page({
       }
       ctx.getCenterLocation({
         success(res) {
-          if (typeof res.latitude === 'number' && typeof res.longitude === 'number') {
+          if (isValidPoint(res)) {
             if (cb) cb({ latitude: res.latitude, longitude: res.longitude })
           } else if (cb) cb(null)
         },
@@ -1109,6 +1206,10 @@ Page({
       isHighAccuracy: true,
       highAccuracyExpireTime: 4000,
       success(res) {
+        if (!isValidPoint(res)) {
+          that.setData({ note: '定位返回的坐标异常，请重新定位' })
+          return
+        }
         that.setData({
           myPoint: { latitude: res.latitude, longitude: res.longitude },
           mySource: 'gps',
@@ -1241,10 +1342,10 @@ Page({
   /** 计算到各集合点候选的步行估算，按最耗时的成员（此处即本人）排序 */
   computeNearby() {
     const my = this.data.myPoint
-    if (!my) return
+    if (!isValidPoint(my)) return
 
     const rows = this.data.places
-      .filter((p) => MEET_CATEGORIES.indexOf(p.category) >= 0)
+      .filter((p) => MEET_CATEGORIES.indexOf(p.category) >= 0 && isValidPoint(p))
       .map((p) => {
         const est = walkEstimate(my, p)
         return {
@@ -1427,7 +1528,7 @@ Page({
      * 现在无论它在不在库里，**都画**。
      */
     const mp = this.data.meetingPoint
-    if (mp) {
+    if (isValidPoint(mp)) {
       const photoUrl = (this.data.photoUrls || {})[mp.placeId] || {}
       const firstUrl = Object.keys(photoUrl).map(function (k) {
         return photoUrl[k]
@@ -1456,7 +1557,7 @@ Page({
       })
     }
 
-    if (this.data.myPoint) {
+    if (isValidPoint(this.data.myPoint)) {
       markers.push({
         id: 999,
         latitude: this.data.myPoint.latitude,
@@ -1507,7 +1608,7 @@ Page({
      */
     const polyline = []
 
-    if (this.data.myPoint && this.data.meetingPoint) {
+    if (isValidPoint(this.data.myPoint) && isValidPoint(this.data.meetingPoint)) {
       polyline.push({
         points: [
           this.data.myPoint,
@@ -1520,10 +1621,10 @@ Page({
       })
     }
 
-    ;(this.teamLocations || []).forEach((m, i) => markers.push({
+    ;(this.teamLocations || []).filter(m => m.userId !== this.data.me && isValidPoint(m.point)).forEach((m, i) => markers.push({
       id: 2000 + i, latitude: m.point.latitude, longitude: m.point.longitude,
       iconPath: '/assets/dot-me.png', width: 24, height: 24,
-      callout: { content: '队员 ' + (i + 1) + (m.source === 'gps' ? ' · 定位' : ' · 手动'), display: 'BYCLICK' },
+      callout: { content: '队员 ' + (i + 1) + (m.stale ? ' · 上次位置（已过期）' : '') + (m.source === 'gps' ? ' · 定位' : ' · 手动'), display: 'ALWAYS' },
     }))
     /**
      * ⚠️ 这里**不再**单独为 `teamMeeting` 画一个图钉（2026-10-14 去掉）。
@@ -1533,6 +1634,10 @@ Page({
      * 两处都画会在同一坐标上叠两个针 —— 看起来像一个画重了的 bug，
      * 而且下面的针永远点不到。
      */
-    this.setData({ markers, polyline, markerPlaceIndex })
+    const invalid = [this.data.myPoint, this.data.meetingPoint].filter(p => p && !isValidPoint(p)).length +
+      (this.teamLocations || []).filter(m => !isValidPoint(m.point)).length + (this.invalidTeamLocations || 0)
+    this.setData({ markers, polyline, markerPlaceIndex,
+      coordinateError: invalid ? '部分位置坐标异常，已跳过显示，请重新定位或选择集合点' : '',
+    })
   },
 })

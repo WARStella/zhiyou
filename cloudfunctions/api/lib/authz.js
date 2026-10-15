@@ -11,6 +11,7 @@
 
 const { CODES, fail, assert } = require('./errors');
 const C = require('./repo/collections');
+const { coord } = require('./geo');
 
 /** 返回 active 成员记录，非成员返回 null。 */
 async function getMembership(repo, crewId, userId) {
@@ -55,7 +56,7 @@ async function loadPlace(repo, placeId) {
  * 这是错的，因为"核验"对不同用途的意义完全不同：
  *
  *   · **行程节点**只要知道"有这么个地方、在哪、大概待多久" —— 外部 POI 的数据质量够用；
- *   · **集合点**还要考察入口位置、可达性、辨识度、开放条件（§7.1）—— 必须实地踏勘。
+ *   · **集合点**同样无需实地核验；仅排除低可信度和被明确标记为不适合集合的地点。
  *
  * 而首版的全有或全无会让**地点检索回来的 POI 一个都用不了**，
  * 与「外部检索保证覆盖度、实地踏勘保证可信度」的设计目标直接矛盾。
@@ -66,10 +67,7 @@ async function loadPlace(repo, placeId) {
 
 /** 判断一条地点记录是否携带可用坐标（两种坐标写法都接受） */
 function hasCoordinate(place) {
-  if (!place || !place.location) return false;
-  const lat = place.location.latitude !== undefined ? place.location.latitude : place.location.lat;
-  const lng = place.location.longitude !== undefined ? place.location.longitude : place.location.lng;
-  return typeof lat === 'number' && typeof lng === 'number';
+  return Boolean(place && coord(place.location));
 }
 
 /**
@@ -101,7 +99,7 @@ function canBeTripNode(place) {
  *                          可信度最高，`verifiedAt` 非空。
  *   level 1 `aggregated`   三方聚合 —— 上游 POI 数据 + 上游照片，**可达性与入口未经实地确认**。
  *                          可作集合点，但**必须标注"未实地核验"**。
- *   level 2 `none`         仅够作行程节点 —— 有名称与坐标，不能当集合点。
+ *   level 2 `none`         无核验资料 —— 核验状态不影响集合点准入。
  *
  * ⚠️ **不可违背的一条**：`fieldVerified` 与 `verificationLevel` 由 `verifiedAt` 与
  * `meetingPointEligible` **推导**，不接受调用方自报。§6.6 的原话是
@@ -194,7 +192,7 @@ const isPlaceUsable = canBeMeetingPoint;
 
 function assertPlaceUsable(place) {
   if (!canBeMeetingPoint(place)) {
-    throw fail(CODES.INSUFFICIENT_DATA, '该地点尚未完成实地核验，不能作为集合点', {
+    throw fail(CODES.INSUFFICIENT_DATA, '该地点资料不完整、可信度较低或已标记为不适合集合，请选择其他地点', {
       placeId: place && place._id,
       verifiedAt: place ? place.verifiedAt : null,
       confidence: place ? place.confidence : null,

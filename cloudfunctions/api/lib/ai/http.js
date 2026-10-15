@@ -58,7 +58,7 @@ const SYSTEM_PROMPT = `你是一个城市徒步游览的需求解析器。把用
   "pace": "relaxed" | "normal" | "packed",
   "mustVisitTexts": ["一定要去的地方"],
   "avoidTexts": ["明确不想去的地方"],
-  "preferredMode": "walking" | "bicycling" | "driving" | "transit" 或 null,
+  "preferredMode": "walking" | "bicycling" | "driving" | "transit" | "subway" 或 null,
   "preferredModeByText": {"去了哪儿的地名": "该程的出行方式"},
   "modeIsGlobal": true|false,
   "stayMinutes": 每个地点都待同样久时的分钟数（整数）或 null,
@@ -93,6 +93,7 @@ const SYSTEM_PROMPT = `你是一个城市徒步游览的需求解析器。把用
   **每一个都要进 searchKeywords**（["哈工大", "冰雪大世界"]），
   系统会逐个搜索 —— 只给一个会导致另一个地方完全搜不到。
 - searchKeywords 里**不要**放动词、时间、数量（不要"哈工大玩一小时"，只要"哈工大"）。
+- searchKeywords 必须按用户要求的游览先后排列，保留「先去、再去、最后去」的顺序，不按距离或路线便利性重排。
 - 用户明确不想去的地方**不要**放进 searchKeywords。
 - ⚠️ **出行方式的词不要混进 searchKeywords**。用户说「我想骑车去哈工大」，
   检索词只有「哈工大」，**不是**「骑车去哈工大」也不是「骑车」——
@@ -101,7 +102,7 @@ const SYSTEM_PROMPT = `你是一个城市徒步游览的需求解析器。把用
 关于 preferredMode（出行方式）：
 - 用户明确说了怎么去时填它：
   「骑车 / 骑行 / 自行车」→ "bicycling"；「步行 / 走路 / 走过去」→ "walking"；
-  「开车 / 自驾 / 打车」→ "driving"；「公交 / 地铁 / 坐车」→ "transit"。
+  「开车 / 自驾 / 打车」→ "driving"；「公交 / 坐车」→ "transit"；「地铁 / 轻轨」→ "subway"。
 - **没说就填 null** —— 这是正常情况，不要进 uncertainties，系统会用默认值。
 - ⚠️ **只有当它是"怎么去"时才填**。用户说「我想去**地铁站**」时，
   「地铁」是**目的地名字的一部分**，preferredMode 必须是 null，
@@ -144,7 +145,7 @@ const SYSTEM_PROMPT = `你是一个城市徒步游览的需求解析器。把用
 - 这个数组会直接显示给用户看"我理解到了什么"，**留空会让用户以为什么都没听懂**。`;
 
 /** 提示词版本 —— 改了提示词就必须改它，否则评测结果无法归因 */
-const PROMPT_VERSION = 'intent-v6';
+const PROMPT_VERSION = 'intent-v7';
 
 function createHttpParser(opts) {
   opts = opts || {};

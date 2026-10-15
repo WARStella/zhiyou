@@ -444,7 +444,8 @@ const TRAVEL_MODE_RES = [
   { re: /骑车|骑行|单车|自行车|脚踏车/, mode: 'bicycling' },
   { re: /步行|走路|走过去|徒步/, mode: 'walking' },
   { re: /开车|驾车|自驾|打车|出租车|网约车|拼车/, mode: 'driving' },
-  { re: /公交|地铁|轻轨|坐车|乘车|巴士/, mode: 'transit' },
+  { re: /地铁|轻轨/, mode: 'subway' },
+  { re: /公交|坐车|乘车|巴士/, mode: 'transit' },
 ];
 
 /**
@@ -462,7 +463,8 @@ const PREFERRED_MODE_ALIASES = {
   walking: ['walking', 'walk', 'foot', 'onfoot', '步行', '走路', '徒步', '走'],
   bicycling: ['bicycling', 'bicycle', 'bike', 'cycling', 'cycle', '单车', '自行车', '骑车', '骑行'],
   driving: ['driving', 'drive', 'car', 'taxi', '驾车', '开车', '自驾', '打车', '出租车'],
-  transit: ['transit', 'bus', 'subway', 'metro', '公交', '地铁', '轻轨', '坐车', '乘车'],
+  transit: ['transit', 'bus', '公交', '坐车', '乘车'],
+  subway: ['subway', 'metro', '地铁', '轻轨'],
 };
 
 function normalizePreferredMode(v) {

@@ -59,6 +59,7 @@
   </view>
 
   <view class="body">
+    <view wx:if="{{coordinateError}}" class="err">{{coordinateError}}</view>
     <!--
       聚焦提示条（2026-10-14 用户要求）。
       从行程页点「到了」跳过来时，这里说明"现在看的是哪一站"，
@@ -115,10 +116,13 @@
       <view class="acts">
         <view class="act" bindtap="toggleSharing">{{sharing ? '关闭位置共享' : '开启位置共享'}}</view>
         <view class="act" bindtap="reportMyLocation">共享一次当前位置</view>
+        <view class="act" bindtap="showTeamOnMap">查看全队位置</view>
       </view>
       <view class="sub">
-        主动上报一次位置，不持续定位。共享前请先点 ◎ 取位置或拖 ✛ 选点。
+        主动上报一次位置，不持续定位。共享前请先点 ◎ 取位置；拖 ✛ 用于选择集合点。
       </view>
+      <view class="sub">队员位置每 15 秒刷新；过期位置会标注为上次位置。</view>
+      <view wx:if="{{locationError}}" class="err">{{locationError}}</view>
 
       <!-- 集合：先推荐，再拖动微调 -->
       <view wx:if="{{!meetTask}}" class="meet-setup">
@@ -164,7 +168,7 @@
         </view>
 
         <!-- 出发前必须检查后续行程；checkId 是服务端给的凭据 -->
-        <view wx:if="{{meetTask.status === 'arrived_all' && isOwner}}">
+        <view wx:if="{{meetTask.status === 'arrived_all' && isInitiator}}">
           <view class="acts">
             <view class="act act-primary" bindtap="prepareDepart">准备出发 · 检查后续行程</view>
           </view>
@@ -292,7 +296,7 @@
 
     <view wx:if="{{!places.length && !loading}}" class="card">
       <view class="hint">
-        数据库里暂时没有地点数据。可先手动选点，核验地点将在踏勘后录入。
+        暂无已保存的地点。可以推荐集合点，或拖动地图手动选点。
       </view>
     </view>
 

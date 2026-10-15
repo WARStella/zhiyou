@@ -96,12 +96,12 @@ async function legTravelTimes(p) {
   // ── 1) 先看缓存：每种方式有没有已记录的耗时 ──
   const cached = {};
   if (cacheHolder) {
-    for (const mode of [TRAVEL_MODE.WALKING, TRAVEL_MODE.BICYCLING, TRAVEL_MODE.DRIVING, TRAVEL_MODE.TRANSIT]) {
+    for (const mode of [TRAVEL_MODE.WALKING, TRAVEL_MODE.BICYCLING, TRAVEL_MODE.DRIVING, TRAVEL_MODE.TRANSIT, TRAVEL_MODE.SUBWAY]) {
       const rec = findLegRecord(cacheHolder, toPlace._id, mode);
-      if (rec) {
+      if (rec && (!['transit', 'subway'].includes(mode) || rec.transit)) {
         cached[mode] = rec;
         fromCache.push(mode);
-        candidates.push({ mode, minutes: rec.minutes, meters: rec.meters, provider: 'cache', source: rec.source });
+        candidates.push({ mode, minutes: rec.minutes, meters: rec.meters, provider: 'cache', source: rec.source, transit: rec.transit });
       }
     }
   }
@@ -197,7 +197,7 @@ async function legTravelTimes(p) {
 
   // ── 3) 公交（含地铁）：高德，逐段一次请求 ──
   const wantTransit = opts.allowTransit !== false;
-  const transitNeedsFetch = wantTransit && !cached[TRAVEL_MODE.TRANSIT];
+  const transitNeedsFetch = wantTransit && (!cached[TRAVEL_MODE.TRANSIT] || !cached[TRAVEL_MODE.SUBWAY]);
   /**
    * ⚠️ 没配 `AMAP_KEY` 时**连请求都不发**（2026-10-14）。
    *
@@ -233,6 +233,10 @@ async function legTravelTimes(p) {
           : '公交未查询：本次没有传入城市 citycode',
       excludedBy: 'TRANSIT_NOT_QUERIED',
     });
+    if (!cached[TRAVEL_MODE.SUBWAY]) candidates.push({
+      mode: TRAVEL_MODE.SUBWAY, ok: false, provider: 'amap-transit',
+      reason: '地铁服务不可用：' + candidates[candidates.length - 1].reason,
+    });
   }
 
   if (transitNeedsFetch && transitReady && opts.transitCity) {
@@ -251,6 +255,9 @@ async function legTravelTimes(p) {
     }
 
     if (tr && tr.ok && tr.best && tr.best.durationMinutes !== null) {
+      // 已有公交缓存时，这次请求仅用于补齐地铁候选，避免出现重复选项。
+      const cachedIndex = candidates.findIndex(c => c.mode === TRAVEL_MODE.TRANSIT)
+      if (cachedIndex >= 0) candidates.splice(cachedIndex, 1)
       candidates.push({
         mode: TRAVEL_MODE.TRANSIT,
         minutes: tr.best.durationMinutes,
@@ -261,6 +268,7 @@ async function legTravelTimes(p) {
         transit: {
           lineNames: (tr.best.steps || []).filter((s) => s.kind === 'transit').map((s) => s.lineName).filter(Boolean),
           hasSubway: Boolean(tr.best.hasSubway),
+          hasBus: Boolean(tr.best.hasBus),
           entranceName: pickStep(tr.best.steps, 'entrance-exit', 'entranceName'),
           exitName: pickStep(tr.best.steps, 'entrance-exit', 'exitName'),
           costYuan: tr.best.costYuan,
@@ -268,6 +276,22 @@ async function legTravelTimes(p) {
           transferCount: tr.best.transferCount,
         },
       });
+      const metro = tr.bestSubway
+      if (metro && Number.isFinite(metro.durationMinutes) && !cached[TRAVEL_MODE.SUBWAY]) {
+        candidates.push({
+          mode: TRAVEL_MODE.SUBWAY,
+          minutes: metro.durationMinutes,
+          meters: metro.walkingMeters,
+          provider: 'amap-transit', source: 'upstream',
+          transit: {
+            lineNames: metro.lineNames || [], hasSubway: true, hasBus: Boolean(metro.hasBus),
+            costYuan: metro.costYuan, walkingMeters: metro.walkingMeters,
+            transferCount: metro.transferCount,
+          },
+        })
+      } else if (!cached[TRAVEL_MODE.SUBWAY]) {
+        candidates.push({ mode: TRAVEL_MODE.SUBWAY, ok: false, reason: '当前返回方案中没有可用的地铁路线', provider: 'amap-transit' })
+      }
     } else {
       candidates.push({
         mode: TRAVEL_MODE.TRANSIT,
@@ -277,6 +301,10 @@ async function legTravelTimes(p) {
           tr && tr.emptyReason === 'NO_TRANSIT_ROUTE'
             ? '这两点之间没有公交方案'
             : (tr && (tr.hint || tr.message)) || '公交方案取不到',
+      });
+      if (!cached[TRAVEL_MODE.SUBWAY]) candidates.push({
+        mode: TRAVEL_MODE.SUBWAY, ok: false, provider: 'amap-transit',
+        reason: (tr && (tr.hint || tr.message)) || '未取得可用的地铁方案',
       });
     }
   }
@@ -515,7 +543,7 @@ async function persistLegTimes(repo, C, entries) {
       list = withLegRecord(
         { walkableTo: list },
         entry.toPlace._id,
-        { minutes: c.minutes, meters: c.meters, mode: c.mode, source: 'upstream' }
+        { minutes: c.minutes, meters: c.meters, mode: c.mode, source: 'upstream', transit: c.transit || null }
       );
       touched = true;
     }

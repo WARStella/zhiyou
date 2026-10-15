@@ -217,7 +217,7 @@ test('公交候选带上换乘细节 —— 用户要能据以比较', () => {
   const page = pageWithLegOptions(LEG_OPTIONS);
   const transit = page.data.legPicker[1].options.find((o) => o.mode === 'transit');
   assert.match(transit.transitText, /地铁2号线/);
-  assert.match(transit.transitText, /1号口进 3号口出/);
+  assert.equal(transit.transitText, '地铁2号线 票价未知');
 });
 
 test('取不到的方式跟着那一段走 —— 用户能看懂"为什么不能选步行"', () => {

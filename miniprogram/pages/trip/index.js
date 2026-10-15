@@ -21,6 +21,8 @@
 
 const api = require('../../utils/api')
 const { requestMinutes } = require('../../utils/stay-duration')
+const { suggestOrder } = require('../../utils/route-order')
+const { isValidPoint } = require('../../utils/coordinates')
 
 /**
  * 用户可以选的出行方式 —— **与后端 `lib/mode-choice.js` 的 MODE_OPTIONS 同一份口径**。
@@ -36,6 +38,7 @@ const MODE_OPTIONS = [
   { value: 'bicycling', label: '骑行' },
   { value: 'driving', label: '驾车' },
   { value: 'transit', label: '公交地铁' },
+  { value: 'subway', label: '地铁优先' },
 ]
 
 const MODE_HINT = {
@@ -44,6 +47,7 @@ const MODE_HINT = {
   bicycling: '优先骑行 —— 雨雪天可能不适合',
   driving: '优先驾车 —— 打车或自驾',
   transit: '优先公交地铁 —— 需要高德 Key 已配置',
+  subway: '优先选择含地铁的路线，可能需要公交接驳',
 }
 
 const STATUS_LABEL = {
@@ -71,10 +75,14 @@ const MODE_LABEL = {
   bicycling: { name: '骑行', icon: '🚲' },
   driving: { name: '驾车', icon: '🚗' },
   transit: { name: '公交', icon: '🚇' },
+  subway: { name: '地铁', icon: '🚇' },
 }
 
 /** 换算成人能读的出行方式说明；取不到就如实说"未知"，不留空 */
-function modeInfo(mode) {
+function modeInfo(mode, transit) {
+  if ((mode === 'transit' || mode === 'subway') && transit && transit.hasSubway) {
+    return { name: transit.hasBus ? '公交＋地铁' : '地铁', icon: '🚇' }
+  }
   return MODE_LABEL[mode] || { name: '', icon: '' }
 }
 
@@ -92,22 +100,15 @@ const SOURCE_LABEL = {
   none: '',
 }
 
-/**
- * 公交的换乘细节说成一句人话。
- *
- * 「地铁2号线 · 1号口进 3号口出 · 2 元」比「公交 63 分钟」有用得多 ——
- * 后者在**集合协同**里帮不上忙（同伴问"在哪个口等"，答不上来）。
- *
- * 出入口是实测发现上游会给的字段（文档示例里没提），对集合点最实用。
- */
+/** 公共交通摘要：保留线路号与总票价，省略方向、站点和出入口。 */
 function describeTransit(t) {
   if (!t) return ''
   const parts = []
-  if (t.lineNames && t.lineNames.length) parts.push(t.lineNames.join(' → '))
-  if (t.entranceName && t.exitName) parts.push(`${t.entranceName}进 ${t.exitName}出`)
-  else if (t.entranceName) parts.push(`${t.entranceName}进`)
-  if (typeof t.costYuan === 'number') parts.push(`${t.costYuan} 元`)
-  return parts.join(' · ')
+  if (t.lineNames && t.lineNames.length) {
+    parts.push(t.lineNames.map(name => String(name).replace(/[（(].*$/, '').replace(/路$/, '').trim()).filter(Boolean).join('/'))
+  }
+  parts.push(typeof t.costYuan === 'number' ? `总价${t.costYuan}元` : '票价未知')
+  return parts.join(' ')
 }
 
 /**
@@ -421,7 +422,7 @@ Page({
         isHighAccuracy: true,
         highAccuracyExpireTime: 4000,
         success: function (res) {
-          resolve({ latitude: res.latitude, longitude: res.longitude })
+          resolve(isValidPoint(res) ? { latitude: res.latitude, longitude: res.longitude } : null)
         },
         fail: function () {
           resolve(null)
@@ -623,8 +624,7 @@ Page({
       reasonOf[x.itemId] = x.reason
     })
 
-    const selected = candidates
-      .filter((x) => ids.indexOf(x.itemId) >= 0)
+    const selected = ids.map(id => candidates.find(x => x.itemId === id)).filter(Boolean)
       .map((x) => selectedOf(x, reasonOf[x.itemId] || ''))
 
     const missingNote = (picked.keywordsMissing || []).length
@@ -715,7 +715,7 @@ Page({
                * 规划时随请求带上地点数据即可（有名称与坐标就够）。
                */
               tripNodeAllowed: Boolean(c.name && c.location),
-              meetingPointAllowed: false,
+              meetingPointAllowed: c.meetingPointAllowed !== false && Boolean(c.name && c.location),
               /** 数据来自实地踏勘还是检索 —— 界面要能区分可信与未核验 */
               matchedSurveyed: Boolean(c.matchedSurveyed),
               distanceText:
@@ -850,6 +850,24 @@ Page({
 
   // ══════════ 行程 ══════════
 
+  chooseRouteOrder(startPoint) {
+    const requested = this.data.selected.slice()
+    const optimized = suggestOrder(requested, startPoint)
+    if (optimized.every((x, i) => x.itemId === requested[i].itemId)) return Promise.resolve(requested)
+    return new Promise(resolve => {
+      wx.showModal({
+        title: '请选择游览顺序',
+        content: '你的顺序：' + requested.map(x => x.name).join(' → ') +
+          '\n少绕路顺序：' + optimized.map(x => x.name).join(' → ') +
+          '\n少绕路方案按地点距离估算，实际交通耗时以生成结果为准。',
+        confirmText: '需求顺序',
+        cancelText: '优化顺序',
+        success: r => resolve(r.confirm ? requested : r.cancel ? optimized : null),
+        fail: () => resolve(null),
+      })
+    })
+  },
+
   createTrip() {
     const that = this
     const ids = this.data.selected.map((x) => x.itemId)
@@ -860,7 +878,12 @@ Page({
     // 行程默认从**当前位置**出发。
     // 不给起点的话，行程会假装人已经在第一个景点门口 ——
     // 计划出发时间、总步行量与"能不能赶上结束时间"都会偏乐观。
-    this.tryLocate().then(function (startPoint) {
+    return this.tryLocate().then(async function (startPoint) {
+      const selected = await that.chooseRouteOrder(startPoint)
+      if (!selected) {
+        that.setData({ loading: false, note: '未选择游览顺序，请重新生成' })
+        return
+      }
       /**
        * 出发时间：用户（或解析结果）指定过就用它；否则用**此刻**。
        * 不能用 onLoad 时的那个"现在" —— 页面开着十分钟，行程就从十分钟前开始了。
@@ -873,7 +896,7 @@ Page({
         note: startPoint ? '' : '未取得当前位置，行程将从第一个地点开始计时（总时间会偏乐观）',
       })
 
-      api
+      return api
         .callApi('trip.plan', {
           /**
            * ⚠️ **传内嵌的地点数据，而不是 placeIds**（2026-10-13 改）。
@@ -882,7 +905,7 @@ Page({
            * 回库按 placeId 读是读不到的。有 `placeId` 的（踏勘过的）
            * 一并带上 —— 服务端会用库里那份覆盖，从而获得核验待遇。
            */
-          places: that.data.selected.map(function (x) {
+          places: selected.map(function (x) {
             return {
               placeId: x.placeId || undefined,
               poiId: x.poiId || undefined,
@@ -1076,13 +1099,14 @@ Page({
         toName: leg.toPlaceName || '这一站',
         fromName: leg.isFirstLeg ? '我的位置' : leg.fromPlaceName || '上一站',
         selected: chosen,
-        selectedLabel: modeInfo(chosen).name || '',
+        selectedLabel: modeInfo(chosen, ((leg.options || []).find(o => o.mode === chosen) || {}).transit).name || '',
         options: (leg.options || []).map(function (o) {
           return {
             mode: o.mode,
-            name: modeInfo(o.mode).name || o.mode,
-            icon: modeInfo(o.mode).icon,
+            name: modeInfo(o.mode, o.transit).name || o.mode,
+            icon: modeInfo(o.mode, o.transit).icon,
             minutes: o.minutes,
+            transit: o.transit || null,
             /** ⚠️ 系统的推荐（不受用户偏好影响）—— 界面据此打"推荐"字样 */
             recommended: o.isRecommended === true,
             isCurrent: o.mode === chosen,
@@ -1139,7 +1163,7 @@ Page({
       if (row.toPlaceId !== toPlaceId) return row
       return Object.assign({}, row, {
         selected: mode,
-        selectedLabel: modeInfo(mode).name || '',
+        selectedLabel: modeInfo(mode, (row.options.find(o => o.mode === mode) || {}).transit).name || '',
         changed: true,
         /**
          * ⚠️ 来源也要跟着改成 `'user'`（2026-10-14 补）。
@@ -1235,8 +1259,8 @@ Page({
         legToNext: next
           ? {
               mode: next.travelMode || '',
-              modeName: modeInfo(next.travelMode).name,
-              modeIcon: modeInfo(next.travelMode).icon,
+              modeName: modeInfo(next.travelMode, next.travelTransit).name,
+              modeIcon: modeInfo(next.travelMode, next.travelTransit).icon,
               minutes: next.travelFromPrevMin,
               meters: next.travelFromPrevMeters,
               // 只有"直线估算"需要提醒 —— 它与真实路线在短距离下能差 7 倍
@@ -1366,8 +1390,9 @@ Page({
       ? {
           label: (d.startPoint && d.startPoint.label) || '我的位置',
           /** 出行方式 —— 与"这个数可不可信"是两个维度 */
-          mode: modeInfo(d.startLeg.mode).name,
-          modeIcon: modeInfo(d.startLeg.mode).icon,
+          mode: modeInfo(d.startLeg.mode, d.startLeg.transit).name,
+          rawMode: d.startLeg.mode,
+          modeIcon: modeInfo(d.startLeg.mode, d.startLeg.transit).icon,
           minutes: d.startLeg.minutes,
           meters: d.startLeg.meters,
           warn: d.startLeg.source === 'estimated' ? '（估算）' : '',
@@ -1377,6 +1402,7 @@ Page({
           reason: d.startLeg.reason || '',
           /** 公交换乘细节（几号线、几号口） */
           transitText: describeTransit(d.startLeg.transit),
+          transit: d.startLeg.transit || null,
           provider: d.startLeg.provider || null,
           toName: d.startLeg.toPlaceName,
         }
@@ -1617,7 +1643,7 @@ Page({
    */
   goToMapFocus(node) {
     const loc = node && node.location
-    if (!loc || typeof loc.latitude !== 'number') {
+    if (!isValidPoint(loc)) {
       /**
        * 没有坐标就不跳 —— 跳过去看到一个没聚焦的地图，
        * 用户会以为按钮坏了。
@@ -1675,12 +1701,7 @@ Page({
    * 解码规则需以官方文档为准，不靠观察猜。
    */
   buildRouteMap(nodes, startPoint, navLeg) {
-    const located = (nodes || []).filter(
-      (n) =>
-        n.location &&
-        typeof n.location.latitude === 'number' &&
-        typeof n.location.longitude === 'number'
-    )
+    const located = (nodes || []).filter(n => isValidPoint(n.location))
     if (!located.length) return null
 
     /**
@@ -1691,13 +1712,14 @@ Page({
      * `decoded: false` 时**什么都不画**，并如实说明 —— 宁可没有线，
      * 也不能拿示意图冒充真实路线。
      */
-    if (navLeg && navLeg.route && navLeg.route.decoded && navLeg.route.points.length >= 2) {
-      const path = navLeg.route.points;
+    if (navLeg && navLeg.route && navLeg.route.decoded && Array.isArray(navLeg.route.points) && navLeg.route.points.length >= 2) {
+      const path = navLeg.route.points.every(isValidPoint) ? navLeg.route.points : [];
+      const endpoints = [startPoint, navLeg.toLocation].filter(isValidPoint)
       const focus = navLeg.fromIndex != null ? navLeg.route.points : path;
       return {
-        center: path[0],
-        includePoints: path,
-        polyline: [
+        center: path[0] || endpoints[0] || located[0].location,
+        includePoints: path.length ? path : endpoints,
+        polyline: path.length ? [
           {
             points: path,
             color: '#0B3C6E',
@@ -1706,9 +1728,9 @@ Page({
             borderColor: '#FFFFFF',
             borderWidth: 2,
           },
-        ],
+        ] : [],
         markers: [startPoint, navLeg.toLocation]
-          .filter((p) => p && typeof p.latitude === 'number')
+          .filter(isValidPoint)
           .map((p, i) => ({
             id: i,
             latitude: p.latitude,
@@ -1731,13 +1753,13 @@ Page({
         totalCount: 0,
         nextName: navLeg.placeName || null,
         navMode: true,
-        legend:
+        legend: !path.length ? '导航路径坐标异常，请重新获取路线' :
           `真实步行路径（上游返回 ${path.length} 个点），不是顺序示意` +
           (focus === path ? '' : ''),
       };
     }
 
-    const startPt = startPoint && typeof startPoint.latitude === 'number' ? startPoint : null
+    const startPt = isValidPoint(startPoint) ? startPoint : null
 
     /**
      * 已走过 = 最后一个**真正到过**的节点（含）之前的部分。
@@ -1870,12 +1892,7 @@ Page({
    * `wx.openLocation` / 步行路线规划直接用得上，不必再回查一遍。
    */
   buildCurrentLeg(nodes, startLeg) {
-    const located = (nodes || []).filter(
-      (n) =>
-        n.location &&
-        typeof n.location.latitude === 'number' &&
-        typeof n.location.longitude === 'number'
-    )
+    const located = (nodes || []).filter(n => isValidPoint(n.location))
     if (!located.length) return null
 
     let lastReached = -1
@@ -1899,14 +1916,14 @@ Page({
        *
        * 数据来自 `startLeg`（`trip.plan` 的起点段，由 `leg-times` 选出方式）。
        */
-      const startMode = startLeg && startLeg.mode ? startLeg.mode : 'walking'
+      const startMode = startLeg && (startLeg.rawMode || startLeg.mode) ? (startLeg.rawMode || startLeg.mode) : 'walking'
       return {
         from: (startLeg && startLeg.label) || '我的位置',
         to: first.placeName,
-        mode: modeInfo(startMode).name,
-        modeIcon: modeInfo(startMode).icon,
+        mode: modeInfo(startMode, startLeg && startLeg.transit).name,
+        modeIcon: modeInfo(startMode, startLeg && startLeg.transit).icon,
         reason: (startLeg && startLeg.reason) || '',
-        transitText: describeTransit(startLeg && startLeg.transit),
+        transitText: (startLeg && startLeg.transitText) || describeTransit(startLeg && startLeg.transit),
         provider: (startLeg && startLeg.provider) || null,
         candidateReason: (startLeg && startLeg.candidateReason) || null,
         minutes: startLeg ? startLeg.minutes : null,
@@ -1938,8 +1955,8 @@ Page({
        * —— **非步行的一律兜底成"步行"**。接入公交/驾车后那是错的：
        * 一段 63 分钟的 126 路会被显示成"步行 63 分钟"。
        */
-      mode: next.travelMode === 'none' ? '' : modeInfo(next.travelMode).name,
-      modeIcon: next.travelMode === 'none' ? '' : modeInfo(next.travelMode).icon,
+      mode: next.travelMode === 'none' ? '' : modeInfo(next.travelMode, next.travelTransit).name,
+      modeIcon: next.travelMode === 'none' ? '' : modeInfo(next.travelMode, next.travelTransit).icon,
       /** 为什么选这个方式（"公交比步行省 78 分钟"）—— 只给结论不给理由，用户没法判断 */
       reason: next.travelReason || '',
       /** 公交的换乘细节 */
@@ -2055,7 +2072,7 @@ Page({
   /** 交给微信内置地图（有语音播报，但要跳出小程序） */
   openInWechatMap() {
     const leg = this.data.currentLeg
-    if (!leg || !leg.toLocation) {
+    if (!leg || !isValidPoint(leg.toLocation)) {
       wx.showToast({ title: '这一段还没有目的地坐标', icon: 'none' })
       return
     }

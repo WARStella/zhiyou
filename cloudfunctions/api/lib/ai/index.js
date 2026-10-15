@@ -19,7 +19,7 @@
 const { createHttpParser, PROMPT_VERSION } = require('./http');
 const rulebased = require('./rulebased');
 
-const RULE_PROMPT_VERSION = 'rulebased-v1';
+const RULE_PROMPT_VERSION = 'rulebased-v2';
 
 /** 规则解析器包装成统一接口。 */
 function createRuleParser() {

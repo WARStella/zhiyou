@@ -29,13 +29,14 @@
 
 /** 增量单位：1e-6 度 */
 const DELTA_SCALE = 1e6;
+const { coord } = require('../geo');
 
 /** 这条折线是否是差分压缩格式（首两个绝对、其余为增量） */
 function isCompressed(flat) {
-  if (!Array.isArray(flat) || flat.length < 2) return false;
+  if (!Array.isArray(flat) || flat.length < 2 || flat.length % 2 !== 0) return false;
   const [lat, lng] = flat;
   // 首点必须是合法的经纬度
-  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
+  if (!coord({ latitude: lat, longitude: lng })) return false;
   // 第二对之后必须是整数增量（腾讯返回的就是整数）
   for (let i = 2; i < flat.length; i++) {
     if (!Number.isInteger(flat[i])) return false;
@@ -54,13 +55,13 @@ function decodePolyline(flat) {
 
   // 已经是点数组（`[{latitude, longitude}]` 或 `[[lat,lng]]`）→ 直接规整
   if (typeof flat[0] === 'object') {
-    return flat
+    const points = flat
       .map((p) =>
         Array.isArray(p)
           ? { latitude: p[0], longitude: p[1] }
-          : { latitude: p.latitude, longitude: p.longitude }
+          : p && { latitude: p.latitude, longitude: p.longitude }
       )
-      .filter((p) => typeof p.latitude === 'number' && typeof p.longitude === 'number');
+    return points.every(p => coord(p)) ? points : [];
   }
 
   if (!isCompressed(flat)) return [];
@@ -71,6 +72,7 @@ function decodePolyline(flat) {
   for (let i = 2; i + 1 < flat.length; i += 2) {
     lat += flat[i] / DELTA_SCALE;
     lng += flat[i + 1] / DELTA_SCALE;
+    if (!coord({ latitude: lat, longitude: lng })) return [];
     points.push({ latitude: lat, longitude: lng });
   }
   return points;

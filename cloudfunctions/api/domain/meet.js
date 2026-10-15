@@ -252,14 +252,14 @@ function recommendMeetPoints(p) {
   const candidates = [];
 
   for (const place of p.candidatePlaces || []) {
-    // 集合点准入：两级核验（实地踏勘／三方聚合）都放行，但等级不同、必须能被区分（lib/authz.js）
+    // 集合点无需实地核验，按名称、坐标及显式可用状态判断。
     if (!authz.canBeMeetingPoint(place)) {
       excluded.push({
         placeId: place._id,
         /** 界面要把排除原因挂在地点上；缺了 name 就只能显示一串 id（10/14 修） */
         placeName: place.name,
         reason: 'PLACE_NOT_MEETING_POINT',
-        message: '该地点不具备集合点准入（需实地核验，或三方数据支持并显式标注），可安排为游览节点',
+        message: '该地点资料不完整、可信度较低或已标记为不适合集合，请选择其他地点',
       });
       continue;
     }

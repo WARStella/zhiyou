@@ -146,8 +146,8 @@ test('偏好优先级高于雨雪天的 safety —— 用户的选择在前', ()
 
 // ── 选项表本身 ─────────────────────────────────────────────
 
-test('选项表含 auto 与四种方式，且值域自洽', () => {
-  assert.equal(MODE_OPTIONS.length, 5);
+test('选项表含 auto、四种方式与地铁优先，且值域自洽', () => {
+  assert.equal(MODE_OPTIONS.length, 6);
   assert.equal(MODE_OPTIONS[0].value, 'auto');
   for (const o of MODE_OPTIONS) {
     assert.ok(PREFERRED_MODE_AUTO_CHECK(o.value), `选项值 ${o.value} 必须被 isPreferredMode 接受`);

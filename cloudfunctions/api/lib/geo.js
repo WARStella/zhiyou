@@ -12,7 +12,7 @@ function coord(p) {
   if (!p) return null;
   const lat = p.latitude !== undefined ? p.latitude : p.lat;
   const lng = p.longitude !== undefined ? p.longitude : p.lng;
-  if (typeof lat !== 'number' || typeof lng !== 'number') return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
   return { latitude: lat, longitude: lng };
 }
 
@@ -101,6 +101,7 @@ const TRAVEL_MODE = {
   BICYCLING: 'bicycling',
   DRIVING: 'driving',
   TRANSIT: 'transit',
+  SUBWAY: 'subway',
 };
 
 /** 缺省方式 —— 历史记录的 `mode` 字段为空时按它解释 */
@@ -117,6 +118,7 @@ function normalizeLegRecord(rec) {
     mode: rec.mode || DEFAULT_TRAVEL_MODE,
     source: rec.source || WALK_SOURCE.SURVEY,
     verifiedAt: rec.verifiedAt || null,
+    transit: rec.transit || null,
   };
 }
 
@@ -168,6 +170,7 @@ function withLegRecord(place, targetId, rec) {
     source: rec.source || WALK_SOURCE.UPSTREAM,
     verifiedAt: rec.verifiedAt || null,
     measuredAt: rec.measuredAt || null,
+    transit: rec.transit || null,
   });
   return list;
 }

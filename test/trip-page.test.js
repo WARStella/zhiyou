@@ -517,11 +517,11 @@ test('时间轴上要显示真实出行方式，不是一律"步行"', () => {
   /** 为什么选它 —— 只给结论不给理由，用户没法判断该不该接受 */
   assert.match(leg.reason, /省 78 分钟/);
   /** 换乘细节：几号线、票价 */
-  assert.match(leg.transitText, /126路/);
-  assert.match(leg.transitText, /2 元/);
+  assert.equal(leg.transitText, '126 总价2元');
+  assert.ok(!leg.transitText.includes('号口'));
 });
 
-test('公交有出入口时要说清"几号口进、几号口出"—— 集合协同最需要这句', () => {
+test('地铁摘要只显示线路与总价，线路方向和出入口不占摘要', () => {
   const page = pageWithTrip({
     tripData: {
       nodes: [
@@ -544,7 +544,8 @@ test('公交有出入口时要说清"几号口进、几号口出"—— 集合�
 
   const leg = page.data.timeline[0].legToNext;
   assert.match(leg.transitText, /地铁2号线/);
-  assert.match(leg.transitText, /1号口进 3号口出/, '同伴问"在哪个口等"时要答得上');
+  assert.equal(leg.transitText, '地铁2号线 总价3元');
+  assert.equal(leg.modeName, '地铁');
 });
 
 test('直线估算必须标出来 —— 它与真实路线在短距离下能差 7 倍', () => {
@@ -609,7 +610,7 @@ test('出发段（我的位置 → 第一站）要显示真实方式 —— 它�
   assert.equal(sl.meters, 14426);
 });
 
-test('出发段是公交时，线路与出入口也要显示', () => {
+test('出发段公共交通使用精简摘要', () => {
   const page = pageWithTrip({
     tripData: {
       startLeg: {
@@ -632,7 +633,7 @@ test('出发段是公交时，线路与出入口也要显示', () => {
   const sl = page.data.startLeg;
   assert.equal(sl.mode, '公交');
   assert.match(sl.transitText, /地铁2号线/, '出发段同样要给出线路名');
-  assert.match(sl.transitText, /1号口进 3号口出/, '集合协同最需要这句');
+  assert.equal(sl.transitText, '地铁2号线 总价3元');
 });
 
 test('出发段没取到方案时，不说"步行"，而是给出原因', () => {

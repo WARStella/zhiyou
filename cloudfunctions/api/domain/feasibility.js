@@ -47,17 +47,11 @@ function checkFeasibility(p) {
     }
   });
   Object.values(placesById).forEach((pl) => {
-    // 分级提示：未核验**不阻止**它作为行程节点，但要说清它的使用边界
+    // 路线只检查地点资料是否完整，实地核验不是游览或集合的前置条件。
     if (!authz.canBeTripNode(pl)) {
       warnings.push({
         code: 'PLACE_NOT_LOCATABLE',
         message: `「${pl.name}」缺少坐标，无法计算步行时间`,
-        placeId: pl._id,
-      });
-    } else if (!authz.canBeMeetingPoint(pl)) {
-      warnings.push({
-        code: 'PLACE_UNVERIFIED',
-        message: `「${pl.name}」尚未实地核验：可安排进游览顺序，但不能作为集合点`,
         placeId: pl._id,
       });
     }

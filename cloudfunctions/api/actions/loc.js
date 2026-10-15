@@ -5,6 +5,7 @@ const { CODES, require_fields, assert } = require('../lib/errors');
 const { requireCrewMember, canReadLocation } = require('../lib/authz');
 const time = require('../lib/time');
 const C = require('../lib/repo/collections');
+const { coord } = require('../lib/geo');
 
 /** 允许的位置来源。降级路径的关键：算法不关心坐标怎么来的（docs/01 §0 决定 3）。 */
 const SOURCES = ['gps', 'manual', 'poi', 'fuzzy'];
@@ -24,6 +25,8 @@ async function report(ctx) {
   require_fields(p, ['point', 'source']);
 
   assert(SOURCES.includes(p.source), CODES.INVALID_PARAM, `位置来源必须是 ${SOURCES.join('/')}`);
+  const point = coord(p.point);
+  assert(point, CODES.INVALID_PARAM, '位置坐标无效：纬度须在 [-90, 90]、经度须在 [-180, 180] 范围内');
 
   const now = new Date(ctx.now ? ctx.now : Date.now());
 
@@ -43,7 +46,7 @@ async function report(ctx) {
     crewId: p.crewId || null,
     tripId: p.tripId || null,
     meetTaskId: p.meetTaskId || null,
-    point: p.point,
+    point,
     accuracyM: typeof p.accuracyM === 'number' ? p.accuracyM : null,
     source: p.source,
     reportedAt: now,
@@ -97,7 +100,7 @@ async function list(ctx) {
       { sort: { reportedAt: -1 }, limit: 1 }
     );
 
-    if (!latest) {
+    if (!latest || !coord(latest.point)) {
       out.push({
         userId: m.userId,
         role: m.role,
@@ -105,6 +108,7 @@ async function list(ctx) {
         hasLocation: false,
         source: null,
         reporting: 'none',
+        invalidLocation: Boolean(latest),
       });
       continue;
     }
@@ -113,7 +117,7 @@ async function list(ctx) {
     out.push({
       userId: m.userId,
       role: m.role,
-      point: latest.point,
+      point: coord(latest.point),
       accuracyM: latest.accuracyM,
       source: latest.source, // 界面必须显示来源：GPS 还是手动选点
       reportedAt: time.toISO( latest.reportedAt),

@@ -9,12 +9,6 @@
     见 `rememberActiveTrip` 的注释），加回来只会让顶部又变长。
   -->
 
-  <!-- 含未核验地点时必须显著提示：说明它能做什么、不能做什么 -->
-  <view wx:if="{{unverifiedNotice}}" class="warn">
-    ⚠️ 本次路线含 {{unverifiedNotice.count}} 个**未核验**地点。
-    可以安排进游览顺序，但**不能作为集合点** —— 集合点要求实地核验（入口位置、可达性、辨识度）。
-  </view>
-
   <view wx:if="{{error}}" class="err">{{error}}</view>
   <view wx:if="{{note}}" class="note">{{note}}</view>
 
@@ -145,7 +139,7 @@
 
       <view wx:if="{{loading && !candidates.length}}" class="hint">正在加载…</view>
       <view wx:if="{{!loading && !candidates.length}}" class="hint">
-        没有可选地点。可以搜索外部地点，或等待实地核验的地点录入。
+        没有可选地点，请输入地点名称搜索。
       </view>
 
       <view
@@ -160,7 +154,7 @@
           <view class="place-text">
             <text class="place-name">{{item.name}}</text>
             <text class="place-meta">
-              {{item.category}}{{item.verified ? '' : ' · 未核验（可游览·不可集合）'}}
+              {{item.category}}
               <block wx:if="{{item.distanceText}}"> · {{item.distanceText}}</block>
               <block wx:if="{{item.durationText}}"> · {{item.durationText}}</block>
             </text>
@@ -377,14 +371,14 @@
           看起来像界面坏了。远距离又取不到公交/驾车时就是这种情况。
         -->
         <text wx:if="{{currentLeg.minutes}}" class="fig-strong">{{currentLeg.minutes}} 分钟</text>
-        <text wx:if="{{currentLeg.meters}}" class="fig">{{currentLeg.meters}} 米</text>
-        <text wx:if="{{currentLeg.sourceLabel}}" class="leg-src">{{currentLeg.sourceLabel}}</text>
+        <text wx:if="{{currentLeg.meters && !currentLeg.transitText}}" class="fig">{{currentLeg.meters}} 米</text>
+        <text wx:if="{{currentLeg.sourceLabel && !currentLeg.transitText}}" class="leg-src">{{currentLeg.sourceLabel}}</text>
         <text wx:if="{{currentLeg.estimated}}" class="leg-warn">估算</text>
         <text wx:if="{{!currentLeg.minutes}}" class="leg-warn">没取到出行方案</text>
       </view>
       <!-- 为什么没有方案 —— 说清原因，别让人以为界面坏了 -->
-      <view wx:if="{{currentLeg.reason}}" class="leg-reason-line">{{currentLeg.reason}}</view>
-      <!-- 公交换乘细节：几号线、1 号口进 3 号口出 -->
+      <view wx:if="{{currentLeg.reason && !currentLeg.transitText}}" class="leg-reason-line">{{currentLeg.reason}}</view>
+      <!-- 公共交通摘要：线路号与总票价 -->
       <view wx:if="{{currentLeg.transitText}}" class="leg-transit-line">{{currentLeg.transitText}}</view>
       <view class="leg-actions">
         <button wx:if="{{!navLeg}}" class="btn small" bindtap="startNavigation" disabled="{{navLoading}}">
@@ -467,14 +461,14 @@
           </text>
           <text wx:if="{{startLeg.minutes}}" class="leg-time">{{startLeg.minutes}} 分钟</text>
           <text wx:if="{{!startLeg.minutes}}" class="leg-warn">没取到出行方案</text>
-          <text wx:if="{{startLeg.meters}}" class="leg-dist">{{startLeg.meters}} 米</text>
-          <text wx:if="{{startLeg.sourceLabel}}" class="leg-src">{{startLeg.sourceLabel}}</text>
+          <text wx:if="{{startLeg.meters && !startLeg.transitText}}" class="leg-dist">{{startLeg.meters}} 米</text>
+          <text wx:if="{{startLeg.sourceLabel && !startLeg.transitText}}" class="leg-src">{{startLeg.sourceLabel}}</text>
           <text wx:if="{{startLeg.warn}}" class="leg-warn">{{startLeg.warn}}</text>
           <text class="leg-to">{{startLeg.toName}}</text>
-          <!-- 公交换乘细节：几号线、1 号口进 3 号口出 -->
+          <!-- 公共交通摘要：线路号与总票价 -->
           <text wx:if="{{startLeg.transitText}}" class="leg-transit">{{startLeg.transitText}}</text>
           <!-- 为什么选它 / 为什么没有方案 -->
-          <text wx:if="{{startLeg.reason}}" class="leg-reason">{{startLeg.reason}}</text>
+          <text wx:if="{{startLeg.reason && !startLeg.transitText}}" class="leg-reason">{{startLeg.reason}}</text>
         </view>
       </view>
 
@@ -552,16 +546,16 @@
             </text>
             <text wx:if="{{item.legToNext.minutes}}" class="leg-time">{{item.legToNext.minutes}} 分钟</text>
             <text wx:else class="leg-warn">没取到出行方案</text>
-            <text class="leg-dist">{{item.legToNext.meters}} 米</text>
+            <text wx:if="{{!item.legToNext.transitText}}" class="leg-dist">{{item.legToNext.meters}} 米</text>
             <!--
               来源与方式是两个维度，**都要显示**：
               方式说"怎么走"，来源说"这个数可不可信"。
               直线估算与真实路线在短距离下能差 7 倍，必须能区分。
             -->
-            <text wx:if="{{item.legToNext.sourceLabel}}" class="leg-src">{{item.legToNext.sourceLabel}}</text>
+            <text wx:if="{{item.legToNext.sourceLabel && !item.legToNext.transitText}}" class="leg-src">{{item.legToNext.sourceLabel}}</text>
             <text wx:if="{{item.legToNext.warn}}" class="leg-warn">{{item.legToNext.warn}}</text>
             <text wx:if="{{item.legToNext.visited}}" class="leg-done">已走过</text>
-            <!-- 公交换乘细节：几号线、1 号口进 3 号口出 -->
+            <!-- 公共交通摘要：线路号与总票价 -->
             <text wx:if="{{item.legToNext.transitText}}" class="leg-transit">{{item.legToNext.transitText}}</text>
             <!--
               为什么选它 —— 只给结论不给理由，用户没法判断该不该接受。
@@ -570,7 +564,7 @@
               会以为系统没理他。
             -->
             <text
-              wx:if="{{item.legToNext.reason}}"
+              wx:if="{{item.legToNext.reason && !item.legToNext.transitText}}"
               class="leg-reason {{item.legToNext.matchedPreference === false ? 'leg-reason-miss' : ''}}"
             >{{item.legToNext.reason}}</text>
           </view>

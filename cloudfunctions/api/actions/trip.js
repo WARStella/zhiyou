@@ -3,7 +3,7 @@
 const resp = require('../lib/resp');
 const { randomUUID } = require('node:crypto');
 const { CODES, require_fields, assert, fail } = require('../lib/errors');
-const { requireCrewMember, requireCrewOwner, getMembership, canBeTripNode, canBeMeetingPoint } = require('../lib/authz');
+const { requireCrewMember, requireCrewOwner, getMembership, canBeTripNode } = require('../lib/authz');
 const { resolveParams } = require('../lib/params');
 const timelineMod = require('../domain/timeline');
 const { checkFeasibility } = require('../domain/feasibility');
@@ -819,7 +819,7 @@ async function plan(ctx) {
    *
    * 正确的分级见 `lib/authz.js`：
    *   · 行程节点：有名称与坐标即可（外部 POI 够用）
-   *   · 集合点：还必须实地核验（§7.1 可达性、辨识度、停留条件）
+   *   · 集合点：无需实地核验，可从地图搜索或手动选点
    *
    * 这里只拒绝**真正无法使用**的地点 —— 缺坐标会让时间线失真。
    */
@@ -860,11 +860,10 @@ async function plan(ctx) {
   }
 
   /**
-   * 未核验地点：**允许安排进路线，但必须随结果标注**，不得静默。
-   * 标注同时说明它的使用边界（不能作为集合点），让界面能如实提示用户。
+   * 核验状态仅作为资料信息，不能据此推断是否可作集合点。
    */
   const unverifiedPlaces = Object.values(placesById)
-    .filter((pl) => !canBeMeetingPoint(pl))
+    .filter((pl) => !pl.verifiedAt)
     .map((pl) => ({
       placeId: pl._id,
       name: pl.name,
@@ -878,9 +877,9 @@ async function plan(ctx) {
         count: unverifiedPlaces.length,
         placeIds: unverifiedPlaces.map((pl) => pl.placeId),
         places: unverifiedPlaces,
-        scope: 'tripNodeOnly',
+        scope: 'sourceInfo',
         warning:
-          '本次路线含未核验地点：可以安排进游览顺序，但**不能作为集合点**（集合点要求实地核验）。',
+          '集合点可通过地图搜索或手动选择，无需实地核验。',
       }
     : null;
 
@@ -906,8 +905,9 @@ async function plan(ctx) {
    * 起点是**移动的**，所以不进 `walkableTo` 缓存（缓存是地点↔地点的，
    * 存一个每次都不同的位置没有意义），每次都实时取或估算。
    */
+  assert(spec.startPoint == null || geo.coord(spec.startPoint), CODES.INVALID_PARAM, '出发位置坐标无效：纬度须在 [-90, 90]、经度须在 [-180, 180] 范围内');
   const startPoint =
-    spec.startPoint && typeof spec.startPoint.latitude === 'number' && typeof spec.startPoint.longitude === 'number'
+    geo.coord(spec.startPoint)
       ? {
           latitude: spec.startPoint.latitude,
           longitude: spec.startPoint.longitude,

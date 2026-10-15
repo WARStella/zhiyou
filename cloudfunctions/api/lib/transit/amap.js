@@ -443,6 +443,7 @@ function parseTransit(body) {
       /** `walking_distance` 是米，要转成人类可读的公里时前端处理 */
       transferCount: Math.max(0, rideSteps.length - 1),
       hasSubway: rideSteps.some((s) => s.isSubway),
+      hasBus: rideSteps.some((s) => !s.isSubway),
       lineNames: rideSteps.map((s) => s.lineName).filter(Boolean),
       /** 首末班时间（取第一条线路的，供界面提示） */
       firstLineStartTime: rideSteps.length ? rideSteps[0].startTime : null,
@@ -451,10 +452,14 @@ function parseTransit(body) {
   }
 
   const bestSteps = stepsOf(first);
+  const subwayRoutes = transits.filter(t => summaryOf(t).hasSubway && toNumber(t.duration) !== null)
+    .sort((a, b) => Number(a.duration) - Number(b.duration));
+  const subway = subwayRoutes[0];
 
   return {
     /** 上游可能给 5 个方案；全部给出来，"最少换乘/最少步行"才有比较依据 */
     routes: transits.slice(0, 5).map(summaryOf),
+    bestSubway: subway ? Object.assign(summaryOf(subway), { steps: stepsOf(subway) }) : null,
     best: Object.assign(summaryOf(first), {
       steps: bestSteps,
       /** 有几步是坐车 —— 0 表示"其实全靠走"，那就不该推荐公交 */

@@ -207,7 +207,7 @@ async function collectMemberLocations(repo, crewId, ctx) {
     );
     out.push({
       userId: m.userId,
-      point: latest ? latest.point : null,
+      point: latest ? geo.coord(latest.point) : null,
       reportedAt: latest ? latest.reportedAt : null,
       source: latest ? latest.source : null,
       locationId: latest ? latest._id : null,
@@ -364,6 +364,10 @@ async function create(ctx) {
   const p = ctx.payload;
   const now = new Date(ctx.now ? ctx.now : Date.now());
 
+  if (p.point != null) {
+    assert(geo.coord(p.point), CODES.INVALID_PARAM, '集合点坐标无效：纬度须在 [-90, 90]、经度须在 [-180, 180] 范围内');
+  }
+
   await requireCrewMember(repo, p.crewId, openid);
   await requireCrew(repo, p.crewId);
 
@@ -439,7 +443,7 @@ async function create(ctx) {
     revision: 0,
     method,
     placeId: p.placeId || null,
-    point: p.point || null,
+    point: geo.coord(p.point),
     placeName: p.placeName || null,
     candidatePlaceIds: p.candidatePlaceIds || [],
     walkEstimates: p.walkEstimates || [],

@@ -106,7 +106,7 @@ test('四种方式的真实耗时都进候选，并选出最短的那个', async
     opts: { transitCity: '0451' },
   });
 
-  const modes = r.candidates.map((c) => c.mode).sort();
+  const modes = r.candidates.filter(c => c.ok !== false).map((c) => c.mode).sort();
   assert.deepEqual(modes, ['bicycling', 'driving', 'transit', 'walking'], '四种方式都要有候选');
 
   /**

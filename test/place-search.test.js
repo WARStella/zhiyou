@@ -849,10 +849,10 @@ test('**未入库**的检索结果可以直接排进路线（不必先入库）'
   }
 });
 
-test('未核验的地点不能作集合点，且排除原因要说明它还能用在哪', async () => {
+test('低可信度地点不进入集合推荐，原因不要求实地核验', async () => {
   /**
    * 库里那条「未核验的某处」（夹具）代表**已入库但尚未踏勘**的地点。
-   * 它可作行程节点，不可作集合点 —— 这就是准入分级的意义。
+   * 它被明确标为 confidence: low，因此不进入集合推荐。
    */
   const w = await makeWorld();
   const listed = expectOk(await w.A('place.list', {}));
@@ -862,15 +862,16 @@ test('未核验的地点不能作集合点，且排除原因要说明它还能�
   assert.ok(target.placeId);
 
   // 设成可作集合点的类别（MEET_CATEGORIES 里的值），
-  // 排除原因才会走到"未核验"这一支，而不是被类目筛掉
+  // 排除原因才会走到低可信度这一支，而不是被类目筛掉
   await w.repo.update(C.PLACES, target.placeId, { category: 'meeting' });
 
   const { crewId } = await makeCrewSafe(w);
   const rec = expectOk(await w.A('meet.recommend', { crewId }));
   const why = (rec.excluded || []).find((x) => x.placeId === target.placeId);
-  assert.ok(why, '未核验地点必须出现在排除原因里');
+  assert.ok(why, '低可信度地点必须出现在排除原因里');
   assert.equal(why.reason, 'PLACE_NOT_MEETING_POINT');
-  assert.match(why.message, /可安排为游览节点/);
+  assert.match(why.message, /可信度较低/);
+  assert.doesNotMatch(why.message, /实地核验/);
 });
 
 /** 复用 helpers 的建队逻辑（避免各测试文件重复实现） */
