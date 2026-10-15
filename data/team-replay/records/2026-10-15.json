@@ -1,0 +1,1851 @@
+{
+  "kind": "teamReplayRecord",
+  "datasetVersion": "team-replay-v1",
+  "sourceFile": "data/team-replay/cases.v1.json",
+  "sourceSha256": "7cbbc497eeca78248acf0de7e2f8ab499afd55e4b50b460d7d3e5a4ec49a4a50",
+  "executedAt": "2026-10-15T03:59:34.513Z",
+  "evidenceLevelNote": "室内/合成/回放三种级别必须分别报告；室内点击只能证明状态流转，不能证明真实步行时间与集合效率",
+  "runner": "test/replay-runner.js",
+  "environment": {
+    "repository": "memory（本地内存仓储）",
+    "invoke": "cloudfunctions/api/lib/invoke.js",
+    "note": "与线上同一条 invoke/actions 路径，只有仓储实现不同；初始状态由夹具直接写库（fixtureInjected），步骤全部走真实 action"
+  },
+  "cases": [
+    {
+      "caseId": "replay-001",
+      "category": "全员到齐但尚未出发",
+      "evidenceLevel": "indoor_device",
+      "status": "passed",
+      "fixtureInjected": true,
+      "fixtureNotes": [
+        "crew_members：3 条，按案例给的 role/status/locationSharing 注入（joinedAt 案例未给则写 null）",
+        "trips：原样注入，**version=3 直接写库、不经任何 action**（案例未给的字段如 params/title/generatedBy 一律不补）",
+        "meet_tasks：原样注入，version=1、participants 的 confirmedVersion 与案例一致",
+        "locations：3 条；补了 crewId=crew-a（案例未给，读取路径按 {userId,crewId} 查），未落 `stale` 键（README §五.1：它是服务端按 reportedAt 现算的标注，不是存储字段）",
+        "世界不铺默认地点夹具（seedPlaces: []）——避免\"夹具形状决定测试在测什么\""
+      ],
+      "environment": {
+        "repository": "memory（lib/repo/memory.js，本地内存仓储）",
+        "invoke": "cloudfunctions/api/lib/invoke.js（与同一份 actions 代码）",
+        "clock": "2026-10-20T01:05:00.000Z",
+        "mapProvider": "假地图 provider（未连外网）；本案例实际调用地图 0 次"
+      },
+      "steps": [
+        {
+          "step": 1,
+          "actor": "member-b",
+          "action": "meet.arrive",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "status": "active",
+            "arrivedCount": 1,
+            "participantCount": 3,
+            "allArrivedAt": null,
+            "tripUpdated": false
+          },
+          "requestId": "replay-001:step:1",
+          "now": "2026-10-20T01:05:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "status=\"active\" arrivedCount=1 allArrivedAt=null tripUpdated=false；案例 expectedState 写的是 step1.status=confirmed，但文档状态机没有\"已有人到达却仍是 confirmed\"这一档（见 caseDefects）",
+          "note": "member-b 标记已到达：arrivedCount 由 0 变 1，allArrivedAt 必须仍为 null（尚未全员）"
+        },
+        {
+          "step": 2,
+          "actor": "member-c",
+          "action": "meet.arrive",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "status": "active",
+            "arrivedCount": 2,
+            "participantCount": 3,
+            "allArrivedAt": null,
+            "tripUpdated": false
+          },
+          "requestId": "replay-001:step:2",
+          "now": "2026-10-20T01:05:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "status=\"active\" arrivedCount=2 allArrivedAt=null tripUpdated=false",
+          "note": "member-c 标记已到达：arrivedCount 变 2，仍未全员"
+        },
+        {
+          "step": 3,
+          "actor": "owner-a",
+          "action": "meet.arrive",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "status": "arrived_all",
+            "arrivedCount": 3,
+            "participantCount": 3,
+            "allArrivedAt": "2026-10-20T01:05:00.000Z",
+            "tripUpdated": false,
+            "message": "全员已到齐。后续安排暂不调整，请确认后点击\"前往下一站\"。"
+          },
+          "requestId": "replay-001:step:3",
+          "now": "2026-10-20T01:05:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "status=arrived_all allArrivedAt=2026-10-20T01:05:00.000Z tripUpdated=false arrivedCount=3 message=「全员已到齐。后续安排暂不调整，请确认后点击\"前往下一站\"。」",
+          "note": "最后一人到达：此刻才写 allArrivedAt，状态转 arrived_all；响应必须是 tripUpdated=false"
+        },
+        {
+          "step": 4,
+          "actor": "owner-a",
+          "action": "meet.get",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "meetTask.status": "arrived_all",
+            "meetTask.version": 1,
+            "meetTask.plannedMeetAt": "2026-10-20T01:00:00.000Z",
+            "meetTask.allArrivedAt": "2026-10-20T01:05:00.000Z",
+            "meetTask.departedAt": null,
+            "meetTask.participants[].status": [
+              "arrived",
+              "arrived",
+              "arrived"
+            ],
+            "meetTask.participants[].arrivedAt": [
+              "2026-10-20T01:05:00.000Z",
+              "2026-10-20T01:05:00.000Z",
+              "2026-10-20T01:05:00.000Z"
+            ]
+          },
+          "requestId": "replay-001:step:4",
+          "now": "2026-10-20T01:05:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "plannedMeetAt=2026-10-20T01:00:00.000Z（①不变）allArrivedAt=2026-10-20T01:05:00.000Z（②已写）departedAt=null（③未写）",
+          "note": "读三时间：plannedMeetAt 保持原值、allArrivedAt 非空、departedAt 仍为 null"
+        },
+        {
+          "step": 5,
+          "actor": "owner-a",
+          "action": "trip.get",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "trip.version": 3,
+            "trip.plannedEndAt": "2026-10-20T05:00:00.000Z",
+            "trip.nodes[].status": [
+              "pending",
+              "pending",
+              "pending"
+            ],
+            "trip.nodes[].plannedStayMin": [
+              60,
+              45,
+              60
+            ],
+            "trip.nodes[].seq": [
+              0,
+              1,
+              2
+            ]
+          },
+          "requestId": "replay-001:step:5",
+          "now": "2026-10-20T01:05:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "version=3 plannedEndAt=2026-10-20T05:00:00.000Z nodes 全为 pending（3 个）",
+          "note": "核对路线未被改写：version、plannedEndAt 与三个节点都应与初始一致"
+        }
+      ],
+      "probes": [],
+      "invariants": [
+        {
+          "text": "allArrivedAt 非空时 departedAt 必须仍为 null（② 到齐 ≠ ③ 出发）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 4 步后] meet.get 读回三时间 + 存储层复核：存储与响应一致：allArrivedAt=2026-10-20T01:05:00.000Z，departedAt=null",
+          "checks": 1
+        },
+        {
+          "text": "meet.arrive 不得改变 trip.version、trip.nodes 或 trip.plannedEndAt，响应 tripUpdated 必须为 false",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 第 1 次 meet.arrive 之后行程逐字段未变：第 1 次到达之后：trip 与夹具逐字段一致（version=3，nodes 3 个）\n✓ [第 2 步后] 第 2 次 meet.arrive 之后行程逐字段未变：第 2 次到达之后：trip 与夹具逐字段一致（version=3，nodes 3 个）\n✓ [第 3 步后] 第 3 次 meet.arrive 之后行程逐字段未变：第 3 次到达之后：trip 与夹具逐字段一致（version=3，nodes 3 个）\n✓ [第 3 步后] 三次到达响应的 tripUpdated：tripUpdated=[false, false, false]（三次都是 false）",
+          "checks": 4
+        },
+        {
+          "text": "plannedMeetAt 全程不变：它只在 meet.create 时写入，不得被到达事件改写",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 3 步后] 三次到达之后存储层 plannedMeetAt：plannedMeetAt=2026-10-20T01:00:00.000Z 与夹具一致（到达事件没有碰它）\n✓ [第 3 步后] ① 与 ② 是两个不同的时刻，不得互相顶替：①=2026-10-20T01:00:00.000Z ≠ ②=2026-10-20T01:05:00.000Z（两者独立记录）",
+          "checks": 2
+        },
+        {
+          "text": "只有全部未退出参与者都到达时才写 allArrivedAt；arrivedCount 应等于参与人数减去 declined 人数",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 第一人到齐前不得写 ②：1/3 到达：arrivedCount=1，allArrivedAt 仍为 null\n✓ [第 2 步后] 第二人到齐前不得写 ②：2/3 到达：arrivedCount=2，allArrivedAt 仍为 null\n✓ [第 3 步后] 全员到达才写 ②，且 arrivedCount = 参与人数 − declined 人数：3/3 到达（declined=0）：arrivedCount=3，allArrivedAt=2026-10-20T01:05:00.000Z",
+          "checks": 3
+        },
+        {
+          "text": "trip.version 在到齐前后都等于 3（无调整时版本不涨）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 第 1 步之后 trip.version：第 1 步之后 trip.version=3\n✓ [第 2 步后] 第 2 步之后 trip.version：第 2 步之后 trip.version=3\n✓ [第 3 步后] 第 3 步之后 trip.version：第 3 步之后 trip.version=3\n✓ [第 5 步后] 第 5 步之后 trip.version：第 5 步之后 trip.version=3",
+          "checks": 4
+        }
+      ],
+      "mustNotHappenChecks": [
+        {
+          "text": "把 allArrivedAt 当作出发时间写进线路或 linkToTrip",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 5 步后] linkToTrip 是否被写入到齐时间：linkToTrip 与夹具逐字段一致，没有被写入到齐时间",
+          "checks": 1
+        },
+        {
+          "text": "到齐后自动重算可行性、改写 trip.nodes 或 plannedEndAt",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 5 步后] 三次到齐之后的行程：三次到齐之后：trip 与夹具逐字段一致（version=3，nodes 3 个）",
+          "checks": 1
+        },
+        {
+          "text": "用 plannedMeetAt 顶替 allArrivedAt，或反过来用 allArrivedAt 顶替 plannedMeetAt",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 5 步后] ① ② 各自保持自己的值：①=2026-10-20T01:00:00.000Z（原值）②=2026-10-20T01:05:00.000Z（服务端时刻），两者未互相顶替",
+          "checks": 1
+        }
+      ],
+      "expectedStateChecks": [
+        {
+          "text": "expectedState.meetTask：status=arrived_all、version=1、plannedMeetAt 不变、allArrivedAt 非空、departedAt=null、三人 status=arrived 且 arrivedAt 非空",
+          "at": 4,
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "arrived_all / version=1 / plannedMeetAt 不变 / allArrivedAt 非空 / departedAt=null / 三人 arrived 且 arrivedAt 非空"
+        }
+      ],
+      "machineInvariants": {
+        "total": 5,
+        "passed": 5,
+        "failed": 0,
+        "checks": 14
+      },
+      "mustNotHappen": {
+        "total": 3,
+        "passed": 3,
+        "failed": 0,
+        "checks": 3
+      },
+      "manualInvariants": {
+        "total": 0,
+        "note": "人工项不计入\"通过\""
+      },
+      "caseDefects": [
+        {
+          "where": "expectedState.response.step1.status = \"confirmed\"",
+          "observed": "\"active\"（第一位成员标记到达后，集合任务由 confirmed 进入 active）",
+          "basis": "docs/01_数据模型_v1.md §2.10 的状态机是 `proposed → confirmed → active → arrived_all → departed → completed`，计划书 §7.2 的流程亦为「… 生效 → 前往 → 到达 → 到齐 → 出发 …」。既然\"已经有人在标记到达\"，状态就已经不在 confirmed 了；实现（domain/meet.js `applyArrive`：未全员到齐且原状态为 confirmed 时置 active）与文档一致。",
+          "impact": "只是案例 expectedState 里的一处取值写错，不影响该案例的核心主张（三时间分离、到齐不改路线）：案例自己的 step1 note 只要求 arrivedCount=1 且 allArrivedAt 仍为 null，两处实现都满足。"
+        }
+      ],
+      "finding": null
+    },
+    {
+      "caseId": "replay-005",
+      "category": "集合延误导致后续超时",
+      "evidenceLevel": "indoor_device",
+      "status": "passed",
+      "fixtureInjected": true,
+      "fixtureNotes": [
+        "crew_members：2 条，按案例给的 role/status/locationSharing 注入（joinedAt 案例未给则写 null）",
+        "trips：原样注入，**version=5 直接写库、不经任何 action**（案例未给的字段如 params/title/generatedBy 一律不补）",
+        "meet_tasks：原样注入，version=1、participants 的 confirmedVersion 与案例一致（案例未给 revision → 不写该字段，与\"字段缺失\"这一事实保持一致）",
+        "locations：2 条；补了 crewId=crew-b（案例未给，读取路径按 {userId,crewId} 查），未落 `stale` 键（README §五.1：它是服务端按 reportedAt 现算的标注，不是存储字段）",
+        "世界不铺默认地点夹具（seedPlaces: []）——避免\"夹具形状决定测试在测什么\""
+      ],
+      "environment": {
+        "repository": "memory（lib/repo/memory.js，本地内存仓储）",
+        "invoke": "cloudfunctions/api/lib/invoke.js（与同一份 actions 代码）",
+        "clock": "2026-10-20T02:20:00.000Z",
+        "mapProvider": "假地图 provider（未连外网）；本案例实际调用地图 0 次"
+      },
+      "steps": [
+        {
+          "step": 1,
+          "actor": "owner-a",
+          "action": "meet.prepareDepart",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "canDepart": false,
+            "checkId": "19f1fe57-e734-4912-8553-27c3f50c7f03",
+            "expiresAt": "2026-10-20T02:22:00.000Z",
+            "delayMin": 80,
+            "tripImpact.conflicts[].code": [
+              "END_TIME_EXCEEDED"
+            ],
+            "tripImpact.remainingEndAt": "2026-10-20T04:42:00.000Z",
+            "proposal.proposalId": "change_proposals_mv90fcqw_t",
+            "proposal.feasibleCount": 2,
+            "proposal.candidates[].candidateId": [
+              "c_minimal_change",
+              "c_reoptimize"
+            ],
+            "proposal.candidates[].feasible": [
+              true,
+              true
+            ]
+          },
+          "requestId": "replay-005:step:1",
+          "now": "2026-10-20T02:20:00.000Z",
+          "expectedVersion": 1,
+          "expectationPassed": true,
+          "expectationEvidence": "canDepart=false checkId=19f1fe57-e734-4912-8553-27c3f50c7f03 expiresAt=2026-10-20T02:22:00.000Z delayMin=80 conflicts=[\"END_TIME_EXCEEDED\"] proposal=change_proposals_mv90fcqw_t（可行候选 2 个）",
+          "note": "发起人检查能否出发：此时已延误，预期 canDepart=false，服务端应生成变更提案并返回 checkId"
+        },
+        {
+          "step": 2,
+          "actor": "owner-a",
+          "action": "meet.depart",
+          "ok": false,
+          "errorCode": "INVALID_PARAM",
+          "observed": {
+            "error.code": "INVALID_PARAM",
+            "error.message": "请先检查后续行程"
+          },
+          "requestId": "replay-005:step:2",
+          "now": "2026-10-20T02:20:00.000Z",
+          "expectedVersion": 1,
+          "expectationPassed": true,
+          "expectationEvidence": "被拒：INVALID_PARAM — 请先检查后续行程",
+          "note": "没有 checkId 就直接出发（负向探针）：必须被拒 INVALID_PARAM，departedAt 保持 null"
+        },
+        {
+          "step": 3,
+          "actor": "owner-a",
+          "action": "trip.get",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "trip.version": 5,
+            "trip.nodes[].plannedStayMin": [
+              60,
+              45,
+              60
+            ],
+            "trip.nodes[].status": [
+              "done",
+              "pending",
+              "pending"
+            ]
+          },
+          "requestId": "replay-005:step:3",
+          "now": "2026-10-20T02:20:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "version=5 nodes=3 个（检查过程没有落库改路线）",
+          "note": "核对检查过程没有落库改路线：version 与 nodes 必须仍是初始值"
+        },
+        {
+          "step": 4,
+          "actor": "owner-a",
+          "action": "trip.confirmChange",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "applied": true,
+            "version": 6,
+            "candidateId": "c_minimal_change",
+            "changes[].code": [
+              "STAY_TRIMMED",
+              "STAY_TRIMMED",
+              "STAY_TRIMMED",
+              "STAY_TRIMMED",
+              "STAY_TRIMMED",
+              "STAY_TRIMMED",
+              "STAY_TRIMMED",
+              "STAY_TRIMMED",
+              "STAY_TRIMMED",
+              "NODE_DROPPED"
+            ],
+            "plannedEndAt": "2026-10-20T03:06:00.000Z"
+          },
+          "requestId": "replay-005:step:4",
+          "now": "2026-10-20T02:20:00.000Z",
+          "expectedVersion": 5,
+          "expectationPassed": true,
+          "expectationEvidence": "applied=true version=6；一次确认只涨一版：5 → 6",
+          "note": "发起人确认一个可行候选：这是唯一能让调整生效的路径"
+        },
+        {
+          "step": 5,
+          "actor": "owner-a",
+          "action": "meet.prepareDepart",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "canDepart": true,
+            "checkId": "06dfdbc9-e1e8-4778-9847-44fa5fd7fd58",
+            "expiresAt": "2026-10-20T02:22:00.000Z",
+            "delayMin": 80,
+            "proposal": null,
+            "tripImpact.conflicts[].code": []
+          },
+          "requestId": "replay-005:step:5",
+          "now": "2026-10-20T02:20:00.000Z",
+          "expectedVersion": 1,
+          "expectationPassed": true,
+          "expectationEvidence": "canDepart=true checkId=06dfdbc9-e1e8-4778-9847-44fa5fd7fd58 expiresAt=2026-10-20T02:22:00.000Z proposal=null",
+          "note": "路线调整后重新检查：预期 canDepart=true，并返回新的 checkId"
+        },
+        {
+          "step": 6,
+          "actor": "owner-a",
+          "action": "meet.depart",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "status": "departed",
+            "departedAt": "2026-10-20T02:20:00.000Z",
+            "delayMin": 80,
+            "tripImpact.delayMin": 80
+          },
+          "requestId": "replay-005:step:6",
+          "now": "2026-10-20T02:20:00.000Z",
+          "expectedVersion": 1,
+          "expectationPassed": true,
+          "expectationEvidence": "status=\"departed\"；写 ③ 实际出发时间",
+          "note": "携带本次检查的 checkId 出发：写 ③ departedAt"
+        }
+      ],
+      "probes": [
+        {
+          "id": "P1",
+          "at": 0,
+          "why": "invariant#3：只有发起人可以 prepareDepart / depart",
+          "actor": "member-b",
+          "action": "meet.prepareDepart",
+          "ok": false,
+          "errorCode": "FORBIDDEN_NOT_MEMBER",
+          "observed": {
+            "error.code": "FORBIDDEN_NOT_MEMBER",
+            "error.message": "只有发起人可以检查和确认出发"
+          },
+          "requestId": "replay-005:probe:P1",
+          "now": "2026-10-20T02:20:00.000Z",
+          "verdictPassed": true,
+          "verdictEvidence": "meet.prepareDepart：FORBIDDEN_NOT_MEMBER"
+        },
+        {
+          "id": "P2",
+          "at": 0,
+          "why": "invariant#3：只有发起人可以 prepareDepart / depart",
+          "actor": "member-b",
+          "action": "meet.depart",
+          "ok": false,
+          "errorCode": "FORBIDDEN_NOT_MEMBER",
+          "observed": {
+            "error.code": "FORBIDDEN_NOT_MEMBER",
+            "error.message": "只有发起人可以检查和确认出发"
+          },
+          "requestId": "replay-005:probe:P2",
+          "now": "2026-10-20T02:20:00.000Z",
+          "verdictPassed": true,
+          "verdictEvidence": "meet.depart：FORBIDDEN_NOT_MEMBER"
+        },
+        {
+          "id": "P3",
+          "at": 1,
+          "why": "invariant#1：canDepart=false 时不得出发（带上这次的 checkId 也必须被拒）",
+          "actor": "owner-a",
+          "action": "meet.depart",
+          "ok": false,
+          "errorCode": "INFEASIBLE_HARD_CONSTRAINT",
+          "observed": {
+            "error.code": "INFEASIBLE_HARD_CONSTRAINT",
+            "error.message": "请先处理行程冲突，再重新检查"
+          },
+          "requestId": "replay-005:probe:P3",
+          "now": "2026-10-20T02:20:00.000Z",
+          "verdictPassed": true,
+          "verdictEvidence": "meet.depart：INFEASIBLE_HARD_CONSTRAINT；被拒且存储层 departedAt 仍为 null、status 仍为 arrived_all"
+        },
+        {
+          "id": "P4",
+          "at": 5,
+          "why": "invariant#4：check 有有效期，expiresAt 之后必须重新检查",
+          "actor": "owner-a",
+          "action": "meet.depart",
+          "ok": false,
+          "errorCode": "VERSION_CONFLICT",
+          "observed": {
+            "error.code": "VERSION_CONFLICT",
+            "error.message": "检查已过期，请重新检查"
+          },
+          "requestId": "replay-005:probe:P4",
+          "now": "2026-10-20T02:23:00.000Z",
+          "verdictPassed": true,
+          "verdictEvidence": "meet.depart：VERSION_CONFLICT；now=2026-10-20T02:23:00.000Z（> expiresAt）：被拒且 departedAt 仍为 null"
+        }
+      ],
+      "invariants": [
+        {
+          "text": "canDepart=false 时不得出发：meet.depart 必须被拒且 departedAt 保持 null",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 带上 canDepart=false 的 checkId 再试一次（探针 P3）：被拒 INFEASIBLE_HARD_CONSTRAINT：请先处理行程冲突，再重新检查；checkId 就是 step1 那次的\n✓ [第 2 步后] 不带 checkId 的 depart（案例第 2 步）：被拒 INVALID_PARAM（缺少本次检查），且 departedAt 仍为 null",
+          "checks": 2
+        },
+        {
+          "text": "检查不可行不得自动改路线：提案生成后 trip.version 与 trip.nodes 必须保持不变，直到 trip.confirmChange 成功",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 第 1 步（prepareDepart，不可行）之后：prepareDepart 生成提案之后：trip 与夹具逐字段一致（version=5，nodes 3 个）\n✓ [第 3 步后] 第 3 步（trip.get 复核）时：被拒的 depart 之后仍然未变：trip 与夹具逐字段一致（version=5，nodes 3 个）",
+          "checks": 2
+        },
+        {
+          "text": "只有发起人（initiatorUserId）可以 prepareDepart / depart，成员调用必须 FORBIDDEN_NOT_MEMBER",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 0 步后] 成员 member-b 调 prepareDepart / depart（探针 P1 / P2）：member-b 调 prepareDepart 与 depart 都返回 FORBIDDEN_NOT_MEMBER",
+          "checks": 1
+        },
+        {
+          "text": "出发必须携带 prepareDepart 返回的 checkId，且该检查未过期（check.expiresAt 之后必须重新检查）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 2 步后] 缺 checkId → 拒绝：缺 checkId 被拒：请先检查后续行程\n✓ [第 5 步后] check 过期（P4 把时钟推到 expiresAt+1min）→ 拒绝：过期检查被拒：检查已过期，请重新检查（now=2026-10-20T02:23:00.000Z）\n✓ [第 6 步后] 携带本次有效的 checkId → 放行：携带 step5 的 checkId 出发成功：departedAt=2026-10-20T02:20:00.000Z",
+          "checks": 3
+        },
+        {
+          "text": "delayMin 由「当前时刻 − plannedMeetAt」计算且不小于 0；不得由 allArrivedAt 推出",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 第 1 步的 delayMin：delayMin=80 = now(02:20) − plannedMeetAt(01:00)；不是 now − allArrivedAt(45)",
+          "checks": 1
+        },
+        {
+          "text": "trip.version 必须由 5 变为 6（一次确认只涨一版）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 4 步后] 确认之后：trip.version=6（第 3 步时还是 5，一次确认 +1）",
+          "checks": 1
+        }
+      ],
+      "mustNotHappenChecks": [
+        {
+          "text": "把提案自动生效（未经 trip.confirmChange 就改写 trip.nodes）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 3 步后] 确认之前：行程未变 + 提案仍是 proposed：确认之前行程逐字段未变、提案仍是 proposed —— 生效只有 confirmChange 一条路",
+          "checks": 1
+        },
+        {
+          "text": "在 canDepart=false 或缺少 checkId 时写入 departedAt",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 探针 P3（带 canDepart=false 的 checkId）之后：被拒之后 departedAt 仍为 null\n✓ [第 2 步后] 第 2 步（缺 checkId）之后：departedAt 仍为 null",
+          "checks": 2
+        },
+        {
+          "text": "让成员绕过发起人确认出发",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 0 步后] member-b 的两次尝试（探针 P1/P2）：两次尝试都被 FORBIDDEN_NOT_MEMBER 挡住，出发只能由发起人触发",
+          "checks": 1
+        },
+        {
+          "text": "用 allArrivedAt 当作 departedAt（② 与 ③ 混为一谈）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 6 步后] 最终 ② 与 ③：②=2026-10-20T01:35:00.000Z ③=2026-10-20T02:20:00.000Z —— 两个独立时刻，相差 45 分钟",
+          "checks": 1
+        }
+      ],
+      "expectedStateChecks": [
+        {
+          "text": "expectedState.meetTask：status=departed、version=1、plannedMeetAt 与 allArrivedAt 不变、departedAt 非空且晚于 allArrivedAt",
+          "at": 6,
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "status=departed version=1 ①=2026-10-20T01:00:00.000Z ②=2026-10-20T01:35:00.000Z ③=2026-10-20T02:20:00.000Z（③ 晚于 ②）"
+        },
+        {
+          "text": "expectedState.proposal：status=confirmed、baseVersion=5、selectedCandidateId=<step4 确认的 candidateId>",
+          "at": 4,
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "提案 status=confirmed baseVersion=5 selectedCandidateId=c_minimal_change trigger.type=meet_delay"
+        },
+        {
+          "text": "expectedState.response.step5：canDepart=true，且 checkId 是**新的一次**检查",
+          "at": 5,
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "canDepart=true，新 checkId=06dfdbc9-e1e8-4778-9847-44fa5fd7fd58（第 1 步是 19f1fe57-e734-4912-8553-27c3f50c7f03）"
+        }
+      ],
+      "machineInvariants": {
+        "total": 6,
+        "passed": 6,
+        "failed": 0,
+        "checks": 10
+      },
+      "mustNotHappen": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "checks": 5
+      },
+      "manualInvariants": {
+        "total": 0,
+        "note": "人工项不计入\"通过\""
+      },
+      "caseDefects": [],
+      "finding": null
+    },
+    {
+      "caseId": "replay-009",
+      "category": "第二次修改继承第一次要求",
+      "evidenceLevel": "synthetic",
+      "status": "passed",
+      "fixtureInjected": true,
+      "fixtureNotes": [
+        "crew_members：3 条，按案例给的 role/status/locationSharing 注入（joinedAt 案例未给则写 null）",
+        "trips：原样注入，**version=3 直接写库、不经任何 action**（案例未给的字段如 params/title/generatedBy 一律不补）",
+        "meet_tasks：原样注入，version=1、participants 的 confirmedVersion 与案例一致（案例未给 revision → 不写该字段，与\"字段缺失\"这一事实保持一致）",
+        "locations：2 条；补了 crewId=crew-a（案例未给，读取路径按 {userId,crewId} 查），未落 `stale` 键（README §五.1：它是服务端按 reportedAt 现算的标注，不是存储字段）",
+        "世界不铺默认地点夹具（seedPlaces: []）——避免\"夹具形状决定测试在测什么\""
+      ],
+      "environment": {
+        "repository": "memory（lib/repo/memory.js，本地内存仓储）",
+        "invoke": "cloudfunctions/api/lib/invoke.js（与同一份 actions 代码）",
+        "clock": "2026-10-20T02:00:00.000Z",
+        "mapProvider": "假地图 provider（未连外网）；本案例实际调用地图 0 次"
+      },
+      "steps": [
+        {
+          "step": 1,
+          "actor": "owner-a",
+          "action": "trip.adjust",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "proposalId": "change_proposals_mv90fcr7_1h",
+            "baseVersion": 3,
+            "feasibleCount": 1,
+            "candidates[].candidateId": [
+              "c_minimal_change"
+            ],
+            "candidates[].strategy": [
+              "minimal_change"
+            ],
+            "candidates[].feasible": [
+              true
+            ],
+            "candidates[].impact.changedEndAt": [
+              "2026-10-20T04:41:00.000Z"
+            ],
+            "candidates[].notes[].code": [
+              "STAY_EXTENDED"
+            ]
+          },
+          "requestId": "replay-009:step:1",
+          "now": "2026-10-20T02:00:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "baseVersion=3 applied=false；trip.adjust 不落库改路线，只出提案",
+          "note": "第一次修改：把 node-b 的停留延长。trip.adjust 不消费信封版本，它按当时的 trip.version（3）记录 baseVersion"
+        },
+        {
+          "step": 2,
+          "actor": "owner-a",
+          "action": "trip.confirmChange",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "applied": true,
+            "version": 4,
+            "candidateId": "c_minimal_change",
+            "changes[].code": [
+              "STAY_EXTENDED"
+            ],
+            "plannedEndAt": "2026-10-20T04:41:00.000Z"
+          },
+          "requestId": "replay-009:step:2",
+          "now": "2026-10-20T02:00:00.000Z",
+          "expectedVersion": 3,
+          "expectationPassed": true,
+          "expectationEvidence": "applied=true version=4 changes=[\"STAY_EXTENDED\"]",
+          "note": "确认第一次修改：版本 3 → 4，走向与写入路径与自动生效完全相同"
+        },
+        {
+          "step": 3,
+          "actor": "owner-a",
+          "action": "trip.adjust",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "proposalId": "change_proposals_mv90fcra_1q",
+            "baseVersion": 4,
+            "feasibleCount": 1,
+            "candidates[].candidateId": [
+              "c_minimal_change"
+            ],
+            "candidates[].strategy": [
+              "minimal_change"
+            ],
+            "candidates[].feasible": [
+              true
+            ],
+            "candidates[].impact.changedEndAt": [
+              "2026-10-20T04:21:00.000Z"
+            ],
+            "candidates[].notes[].code": [
+              "STAY_SHORTENED"
+            ]
+          },
+          "requestId": "replay-009:step:3",
+          "now": "2026-10-20T02:00:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "baseVersion=4 applied=false；第二次修改必须基于第一次确认后的版本 4",
+          "note": "第二次修改：必须发生在第一次确认之后，服务端记录的 baseVersion 应为 4"
+        },
+        {
+          "step": 4,
+          "actor": "owner-a",
+          "action": "trip.confirmChange",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "applied": true,
+            "version": 5,
+            "candidateId": "c_minimal_change",
+            "changes[].code": [
+              "STAY_SHORTENED"
+            ],
+            "plannedEndAt": "2026-10-20T04:21:00.000Z"
+          },
+          "requestId": "replay-009:step:4",
+          "now": "2026-10-20T02:00:00.000Z",
+          "expectedVersion": 4,
+          "expectationPassed": true,
+          "expectationEvidence": "applied=true version=5 changes=[\"STAY_SHORTENED\"]",
+          "note": "确认第二次修改：版本 4 → 5"
+        },
+        {
+          "step": 5,
+          "actor": "owner-a",
+          "action": "trip.get",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "trip.version": 5,
+            "trip.plannedEndAt": "2026-10-20T04:21:00.000Z",
+            "trip.constraints[].key": [],
+            "trip.constraints[].hardness": [],
+            "trip.constraints[].confirmedAt": [],
+            "trip.nodes[].placeId": [
+              "place-b",
+              "place-c"
+            ],
+            "trip.nodes[].plannedStayMin": [
+              55,
+              60
+            ],
+            "trip.nodes[].status": [
+              "pending",
+              "pending"
+            ]
+          },
+          "requestId": "replay-009:step:5",
+          "now": "2026-10-20T02:00:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "trip.version=5；两次修改各 +1 版：3 → 4 → 5",
+          "note": "核对：两次修改的净效果、硬约束仍在、node-c 仍在行程里"
+        }
+      ],
+      "probes": [
+        {
+          "id": "P1",
+          "at": 3,
+          "why": "invariant#4：trip.confirmChange 必须携带**信封** expectedVersion",
+          "actor": "owner-a",
+          "action": "trip.confirmChange",
+          "ok": false,
+          "errorCode": "INVALID_PARAM",
+          "observed": {
+            "error.code": "INVALID_PARAM",
+            "error.message": "缺少 expectedVersion：确认变更必须基于明确的版本号（它属于请求信封，不在 payload 里）"
+          },
+          "requestId": "replay-009:probe:P1",
+          "now": "2026-10-20T02:00:00.000Z",
+          "verdictPassed": true,
+          "verdictEvidence": "trip.confirmChange：INVALID_PARAM；缺信封版本被拒，且 trip.version 仍为 4（没有静默按当前版本执行）"
+        },
+        {
+          "id": "P2",
+          "at": 5,
+          "why": "invariant#5：不可行候选必须被拒（用案例白名单里的 skip_node 命中 mustVisit，构造出不可行候选）",
+          "actor": "owner-a",
+          "action": "trip.adjust",
+          "ok": true,
+          "errorCode": null,
+          "observed": {},
+          "requestId": "replay-009:probe:P2",
+          "now": "2026-10-20T02:00:00.000Z",
+          "verdictPassed": true,
+          "verdictEvidence": "trip.adjust：ok；候选 1 个、其中不可行 1 个，冲突码=[\"MUST_VISIT_MISSING\",\"NO_ARRANGEMENT_LEFT\"]"
+        },
+        {
+          "id": "P3",
+          "at": 5,
+          "why": "invariant#5：可行候选才能生效 —— 确认不可行候选必须 INFEASIBLE_HARD_CONSTRAINT",
+          "actor": "owner-a",
+          "action": "trip.confirmChange",
+          "ok": false,
+          "errorCode": "INFEASIBLE_HARD_CONSTRAINT",
+          "observed": {
+            "error.code": "INFEASIBLE_HARD_CONSTRAINT",
+            "error.message": "该候选方案不满足硬约束，不能生效"
+          },
+          "requestId": "replay-009:probe:P3",
+          "now": "2026-10-20T02:00:00.000Z",
+          "verdictPassed": true,
+          "verdictEvidence": "trip.confirmChange：INFEASIBLE_HARD_CONSTRAINT；确认不可行候选被拒，且 trip.version / nodes / constraints 全部未变"
+        }
+      ],
+      "invariants": [
+        {
+          "text": "第二次 trip.adjust 记录的 baseVersion 必须等于第一次确认后的 trip.version（4），不得回落到 3",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 3 步后] 第 3 步响应与存储的提案：第二次 adjust 的 baseVersion=4（响应与存储一致），未回落到 3",
+          "checks": 1
+        },
+        {
+          "text": "两次确认各使 trip.version 恰好 +1（3 → 4 → 5），不得跳版或原地不动",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 第一次 adjust 之后（未确认）：提案生成后仍是 version=3\n✓ [第 2 步后] 第一次确认之后：3 → 4\n✓ [第 4 步后] 第二次确认之后：4 → 5（每次确认恰好 +1）",
+          "checks": 3
+        },
+        {
+          "text": "两次修改后 trip.constraints 必须仍含 endAt 与 mustVisit，且 hardness=hard、confirmedAt 非空",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 5 步后] 存储层 constraints：constraints 仍含 [\"endAt\",\"mustVisit\"]，hardness 均为 hard 且 confirmedAt 非空",
+          "checks": 1
+        },
+        {
+          "text": "trip.confirmChange 必须携带信封 expectedVersion，且等于提案的 baseVersion 与当时的 trip.version",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 2 步后] 第一次确认：信封 3 = 提案 baseVersion 3 = 当时 trip.version 3：信封 expectedVersion=3 = 提案 baseVersion=3，确认后 version=4\n✓ [第 3 步后] 缺信封版本必须被拒（探针 P1）——这是\"版本校验真的生效\"的反证：缺 expectedVersion 被拒：缺少 expectedVersion：确认变更必须基于明确的版本号（它属于请求信封，不在 payload 里）\n✓ [第 4 步后] 第二次确认：信封 4 = 提案 baseVersion 4：信封 expectedVersion=4 = 提案 baseVersion=4\n✓ [第 5 步后] 所有步骤的 payload 都不含 expectedVersion（它只属于信封）：六条案例的全部步骤 payload 都没有 expectedVersion 这个键",
+          "checks": 4
+        },
+        {
+          "text": "只有 feasible=true 的候选可以生效；不可行候选必须被拒（INFEASIBLE_HARD_CONSTRAINT）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 5 步后] 已生效的候选必须是可行的：两次生效的候选 feasible 均为 true、提案均为 confirmed\n✓ [第 5 步后] 不可行候选被拒（探针 P2 造出不可行候选，P3 尝试确认）：skip_node 命中 mustVisit=place-c 产生不可行候选（conflicts=[\"MUST_VISIT_MISSING\",\"NO_ARRANGEMENT_LEFT\"]），确认时被拒：该候选方案不满足硬约束，不能生效",
+          "checks": 2
+        },
+        {
+          "text": "每个候选必须带 impact 与 notes（改了什么必须可解释）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 4 步后] 两次 adjust 的提案候选：2 个候选都带 impact（含 changedEndAt）与非空 notes",
+          "checks": 1
+        },
+        {
+          "text": "trip.adjust 本身不落库改路线：提案生成后 trip.version 与 trip.nodes 不变，直到 confirmChange 成功",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 第一次 adjust 之后：第一次 adjust 生成提案之后：trip 与夹具逐字段一致（version=3，nodes 3 个）\n✓ [第 3 步后] 第二次 adjust（第一次已确认）之后：第二次 adjust 没有改动 trip（与第一次确认后的快照逐字段一致）",
+          "checks": 2
+        }
+      ],
+      "mustNotHappenChecks": [
+        {
+          "text": "第二次修改回到第一次之前的版本基线（把已确认的改动丢掉）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 3 步后] 第二次提案的 baseVersion：第二次提案基于 4（第一次确认后的版本），没有回落到 3",
+          "checks": 1
+        },
+        {
+          "text": "第二次修改静默丢弃 endAt 或 mustVisit 硬约束",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 5 步后] 最终 constraints 与夹具逐字段比对：两次修改之后 constraints 与夹具逐字段一致（endAt / mustVisit 都还在，hardness 与 confirmedAt 未变）",
+          "checks": 1
+        },
+        {
+          "text": "把两次修改合并成一次未经确认的写入",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 4 步后] 两次确认各自独立的提案与版本：两个独立提案各自 confirmed、各自有确认记录与已选候选；版本 3 → 4 → 5（没有被合并成一次写入）",
+          "checks": 1
+        },
+        {
+          "text": "用 payload 里的 expectedVersion 代替信封字段",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 5 步后] 步骤 payload 不含该键；且缺信封版本时被拒：payload 里没有 expectedVersion；缺信封版本时 confirmChange 被拒（校验没有静默失效）",
+          "checks": 1
+        }
+      ],
+      "expectedStateChecks": [
+        {
+          "text": "expectedState.trip：version=5、node-b 的 plannedStayMin 等于两次修改的净效果（45+30−20=55）、node-c 仍在行程里",
+          "at": 5,
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "version=5 node-b.plannedStayMin=55（45+30−20）node-c 仍在（place-c）"
+        },
+        {
+          "text": "expectedState.proposal：两次提案 status=confirmed，baseVersion 分别为 3 与 4",
+          "at": 4,
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "提案1 confirmed/baseVersion=3，提案2 confirmed/baseVersion=4"
+        }
+      ],
+      "machineInvariants": {
+        "total": 7,
+        "passed": 7,
+        "failed": 0,
+        "checks": 14
+      },
+      "mustNotHappen": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "checks": 4
+      },
+      "manualInvariants": {
+        "total": 0,
+        "note": "人工项不计入\"通过\""
+      },
+      "caseDefects": [],
+      "finding": null
+    },
+    {
+      "caseId": "replay-013",
+      "category": "成员确认旧版本",
+      "evidenceLevel": "indoor_device",
+      "status": "passed",
+      "fixtureInjected": true,
+      "fixtureNotes": [
+        "crew_members：3 条，按案例给的 role/status/locationSharing 注入（joinedAt 案例未给则写 null）",
+        "trips：原样注入，**version=3 直接写库、不经任何 action**（案例未给的字段如 params/title/generatedBy 一律不补）",
+        "meet_tasks：原样注入，version=2、participants 的 confirmedVersion 与案例一致（案例未给 revision → 不写该字段，与\"字段缺失\"这一事实保持一致）",
+        "locations：2 条；补了 crewId=crew-a（案例未给，读取路径按 {userId,crewId} 查），未落 `stale` 键（README §五.1：它是服务端按 reportedAt 现算的标注，不是存储字段）",
+        "世界不铺默认地点夹具（seedPlaces: []）——避免\"夹具形状决定测试在测什么\""
+      ],
+      "environment": {
+        "repository": "memory（lib/repo/memory.js，本地内存仓储）",
+        "invoke": "cloudfunctions/api/lib/invoke.js（与同一份 actions 代码）",
+        "clock": "2026-10-20T01:30:00.000Z",
+        "mapProvider": "假地图 provider（未连外网）；本案例实际调用地图 0 次"
+      },
+      "steps": [
+        {
+          "step": 1,
+          "actor": "member-b",
+          "action": "meet.get",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "myConfirmationValid": false,
+            "staleConfirmations[].userId": [
+              "owner-a",
+              "member-b",
+              "member-c"
+            ],
+            "meetTask.version": 2,
+            "meetTask.status": "confirmed"
+          },
+          "requestId": "replay-013:step:1",
+          "now": "2026-10-20T01:30:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "myConfirmationValid=false，失效名单=[\"owner-a\",\"member-b\",\"member-c\"]",
+          "note": "member-b 打开集合页（设备 2）：必须看到「我的确认已失效」"
+        },
+        {
+          "step": 2,
+          "actor": "member-b",
+          "action": "meet.confirm",
+          "ok": false,
+          "errorCode": "VERSION_CONFLICT",
+          "observed": {
+            "error.code": "VERSION_CONFLICT",
+            "error.message": "确认基于版本 1，当前已是版本 2，需要重新确认"
+          },
+          "requestId": "replay-013:step:2",
+          "now": "2026-10-20T01:30:00.000Z",
+          "expectedVersion": 1,
+          "expectationPassed": true,
+          "expectationEvidence": "被拒：VERSION_CONFLICT — 确认基于版本 1，当前已是版本 2，需要重新确认",
+          "note": "member-b 用旧版本确认（负向探针）：必须被拒 VERSION_CONFLICT，不得写入 confirmedVersion"
+        },
+        {
+          "step": 3,
+          "actor": "member-b",
+          "action": "meet.confirm",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "version": 2,
+            "status": "confirmed",
+            "myStatus": "confirmed",
+            "confirmedCount": 1,
+            "participantCount": 3,
+            "allConfirmed": false
+          },
+          "requestId": "replay-013:step:3",
+          "now": "2026-10-20T01:30:00.000Z",
+          "expectedVersion": 2,
+          "expectationPassed": true,
+          "expectationEvidence": "version=2 status=\"confirmed\" myStatus=\"confirmed\" allConfirmed=false；其余两人仍是旧版本",
+          "note": "刷新后按当前版本重新确认：写入 confirmedVersion=2"
+        },
+        {
+          "step": 4,
+          "actor": "owner-a",
+          "action": "meet.get",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "staleConfirmations[].userId": [
+              "owner-a",
+              "member-c"
+            ],
+            "meetTask.version": 2,
+            "meetTask.participants[].confirmedVersion": [
+              1,
+              2,
+              1
+            ]
+          },
+          "requestId": "replay-013:step:4",
+          "now": "2026-10-20T01:30:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "失效名单=[\"owner-a\",\"member-c\"]（含 owner-a/member-c，不含 member-b）",
+          "note": "发起人（设备 1）读取：失效名单里应不再有 member-b，但仍含 owner-a 与 member-c"
+        }
+      ],
+      "probes": [
+        {
+          "id": "P1",
+          "at": 0,
+          "why": "invariant#2：确认必须携带**信封** expectedVersion（本项目真实缺陷的回归点）",
+          "actor": "member-b",
+          "action": "meet.confirm",
+          "ok": false,
+          "errorCode": "INVALID_PARAM",
+          "observed": {
+            "error.code": "INVALID_PARAM",
+            "error.message": "确认必须携带 expectedVersion"
+          },
+          "requestId": "replay-013:probe:P1",
+          "now": "2026-10-20T01:30:00.000Z",
+          "verdictPassed": true,
+          "verdictEvidence": "meet.confirm：INVALID_PARAM；缺信封版本被拒，且没有写入任何 confirmedVersion / confirmedAt"
+        }
+      ],
+      "invariants": [
+        {
+          "text": "夹具初始状态必须原样注入（meetTask.version=2 且三名参与者 confirmedVersion=1）；不得用允许的 action 伪造该版本",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 0 步后] 步骤开始前读存储层：version=2，三名参与者 confirmedVersion 均为 1，且存储层与注入的夹具逐字段一致 （`actionVocabulary` 里没有任何 action 能产生\"已升版 + 旧确认\"这个状态 —— 只能夹具注入）",
+          "checks": 1
+        },
+        {
+          "text": "确认必须携带信封 expectedVersion；与任务当前版本不一致时必须 VERSION_CONFLICT，且不得写入任何 confirmedVersion",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 0 步后] 缺信封版本也必须被拒（探针 P1）：缺 expectedVersion 被拒：确认必须携带 expectedVersion\n✓ [第 2 步后] 旧版本确认（信封 1 vs 任务 version 2）与存储层复核：被拒 VERSION_CONFLICT：确认基于版本 1，当前已是版本 2，需要重新确认；存储层三名参与者 confirmedVersion 仍全为 1、confirmedAt 未刷新",
+          "checks": 2
+        },
+        {
+          "text": "有效确认只统计 confirmedVersion === version 的参与者，确认版本不等于当前版本者一律不算",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 3 步后] 第 3 步之后按存储层现算有效确认：有效确认=1（member-b，confirmedVersion=2=version）；失效=2（owner-a/member-c，confirmedVersion=1）",
+          "checks": 1
+        },
+        {
+          "text": "meet.get 必须如实告知失效：myConfirmationValid=false、staleConfirmations 非空",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] member-b 打开集合页（第 1 步）：myConfirmationValid=false，staleConfirmations=[\"owner-a\",\"member-b\",\"member-c\"]\n✓ [第 4 步后] 发起人读取（第 4 步）：staleConfirmations=[\"owner-a\",\"member-c\"]",
+          "checks": 2
+        },
+        {
+          "text": "确认本身不改变 meetTask.version（版本由集合内容变化驱动，不由确认驱动）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 2 步后] 被拒的确认之后：被拒之后 version 仍为 2\n✓ [第 3 步后] 成功的确认之后：确认前后 version 都是 2（revision 1 → 确认只推进 revision，不推进 version）",
+          "checks": 2
+        },
+        {
+          "text": "部分成员重新确认后 allConfirmed 仍为 false，集合状态不得提前推进",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 3 步后] 第 3 步响应 + 存储层状态：allConfirmed=false，status 仍为 confirmed，② ③ 都未写（没有提前推进集合状态）",
+          "checks": 1
+        }
+      ],
+      "mustNotHappenChecks": [
+        {
+          "text": "把旧版本的确认算作有效确认（旧确认不得用于新版本）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 3 步后] 有效确认清单：有效确认只有 member-b（owner-a / member-c 的 version=1 确认没有被算进去）",
+          "checks": 1
+        },
+        {
+          "text": "在版本不匹配时静默按当前版本执行",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 2 步后] 被拒之后的任务版本：version 仍为 2、revision 未被写入 —— 没有被\"按当前版本执行\"",
+          "checks": 1
+        },
+        {
+          "text": "确认被拒后仍写入 confirmedAt 或改变参与者状态",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 2 步后] 三名参与者与夹具逐字段比对：participants 与夹具逐字段一致（confirmedVersion / confirmedAt / status 都没被动过）",
+          "checks": 1
+        }
+      ],
+      "expectedStateChecks": [
+        {
+          "text": "expectedState.meetTask/trip：member-b confirmedVersion=2 且 confirmedAt=第 3 步时刻；owner-a/member-c 仍为 1；departedAt=null；plannedMeetAt 不变；trip.version=3",
+          "at": 4,
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "member-b confirmedVersion=2（confirmedAt=第 3 步时刻），owner-a/member-c 仍为 1，departedAt=null，trip.version=3"
+        }
+      ],
+      "machineInvariants": {
+        "total": 6,
+        "passed": 6,
+        "failed": 0,
+        "checks": 9
+      },
+      "mustNotHappen": {
+        "total": 3,
+        "passed": 3,
+        "failed": 0,
+        "checks": 3
+      },
+      "manualInvariants": {
+        "total": 0,
+        "note": "人工项不计入\"通过\""
+      },
+      "caseDefects": [],
+      "finding": null
+    },
+    {
+      "caseId": "replay-017",
+      "category": "成员退出、位置过期",
+      "evidenceLevel": "indoor_device",
+      "status": "passed",
+      "fixtureInjected": true,
+      "fixtureNotes": [
+        "crew_members：3 条，按案例给的 role/status/locationSharing 注入（joinedAt 案例未给则写 null）",
+        "trips：原样注入，**version=3 直接写库、不经任何 action**（案例未给的字段如 params/title/generatedBy 一律不补）",
+        "meet_tasks：原样注入，version=1、participants 的 confirmedVersion 与案例一致（案例未给 revision → 不写该字段，与\"字段缺失\"这一事实保持一致）",
+        "locations：3 条；补了 crewId=crew-a（案例未给，读取路径按 {userId,crewId} 查），未落 `stale` 键（README §五.1：它是服务端按 reportedAt 现算的标注，不是存储字段）",
+        "世界不铺默认地点夹具（seedPlaces: []）——避免\"夹具形状决定测试在测什么\""
+      ],
+      "environment": {
+        "repository": "memory（lib/repo/memory.js，本地内存仓储）",
+        "invoke": "cloudfunctions/api/lib/invoke.js（与同一份 actions 代码）",
+        "clock": "2026-10-20T02:00:00.000Z",
+        "mapProvider": "假地图 provider（未连外网）；本案例实际调用地图 0 次"
+      },
+      "steps": [
+        {
+          "step": 1,
+          "actor": "member-c",
+          "action": "crew.leave",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "revoked": true,
+            "memberCount": 2,
+            "leftAt": "2026-10-20T02:00:00.000Z"
+          },
+          "requestId": "replay-017:step:1",
+          "now": "2026-10-20T02:00:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "revoked=true memberCount=2 leftAt=2026-10-20T02:00:00.000Z",
+          "note": "member-c 退出小队（设备 2）：应立即停止其位置共享并递减成员数"
+        },
+        {
+          "step": 2,
+          "actor": "member-c",
+          "action": "crew.get",
+          "ok": false,
+          "errorCode": "FORBIDDEN_NOT_MEMBER",
+          "observed": {
+            "error.code": "FORBIDDEN_NOT_MEMBER",
+            "error.message": "你不是该小队成员，或已退出"
+          },
+          "requestId": "replay-017:step:2",
+          "now": "2026-10-20T02:00:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "被拒：FORBIDDEN_NOT_MEMBER — 你不是该小队成员，或已退出",
+          "note": "退出后读队伍（负向探针）：必须 FORBIDDEN_NOT_MEMBER"
+        },
+        {
+          "step": 3,
+          "actor": "member-c",
+          "action": "loc.list",
+          "ok": false,
+          "errorCode": "FORBIDDEN_NOT_MEMBER",
+          "observed": {
+            "error.code": "FORBIDDEN_NOT_MEMBER",
+            "error.message": "你不是该小队成员，或已退出"
+          },
+          "requestId": "replay-017:step:3",
+          "now": "2026-10-20T02:00:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "被拒：FORBIDDEN_NOT_MEMBER — 你不是该小队成员，或已退出",
+          "note": "退出后读位置（负向探针）：必须 FORBIDDEN_NOT_MEMBER，不得返回任何坐标"
+        },
+        {
+          "step": 4,
+          "actor": "member-c",
+          "action": "loc.report",
+          "ok": false,
+          "errorCode": "FORBIDDEN_NOT_MEMBER",
+          "observed": {
+            "error.code": "FORBIDDEN_NOT_MEMBER",
+            "error.message": "你不是该小队成员，或已退出"
+          },
+          "requestId": "replay-017:step:4",
+          "now": "2026-10-20T02:00:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "被拒：FORBIDDEN_NOT_MEMBER — 你不是该小队成员，或已退出",
+          "note": "退出后继续上报位置（负向探针）：必须被拒，不得接受写入"
+        },
+        {
+          "step": 5,
+          "actor": "owner-a",
+          "action": "crew.get",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "crew.memberCount": 2,
+            "members[].userId": [
+              "owner-a",
+              "member-b"
+            ],
+            "members[].role": [
+              "owner",
+              "member"
+            ],
+            "members[].locationSharing": [
+              true,
+              true
+            ]
+          },
+          "requestId": "replay-017:step:5",
+          "now": "2026-10-20T02:00:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "memberCount=2，成员=[member-b, owner-a]",
+          "note": "发起人读队伍（设备 1）：成员名单与人数应已更新"
+        },
+        {
+          "step": 6,
+          "actor": "owner-a",
+          "action": "loc.list",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "members[].userId": [
+              "owner-a",
+              "member-b"
+            ],
+            "members[].hasLocation": [
+              true,
+              true
+            ],
+            "members[].stale": [
+              false,
+              false
+            ]
+          },
+          "requestId": "replay-017:step:6",
+          "now": "2026-10-20T02:00:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "loc.list 成员=[owner-a, member-b]（无 member-c）",
+          "note": "发起人读位置：不得再看到 member-c"
+        },
+        {
+          "step": 7,
+          "actor": "member-c",
+          "action": "crew.join",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "joined": true,
+            "role": "member",
+            "memberCount": 3
+          },
+          "requestId": "replay-017:step:7",
+          "now": "2026-10-20T02:00:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "joined=true role=\"member\" memberCount=3；复用原成员记录重新加入",
+          "note": "member-c 用邀请码重新加入（设备 2）：复用原成员记录，且位置共享重置为队伍默认值，不继承退出前的设置"
+        },
+        {
+          "step": 8,
+          "actor": "owner-a",
+          "action": "crew.get",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "crew.memberCount": 3,
+            "members[].userId": [
+              "owner-a",
+              "member-b",
+              "member-c"
+            ],
+            "members[].locationSharing": [
+              true,
+              true,
+              true
+            ]
+          },
+          "requestId": "replay-017:step:8",
+          "now": "2026-10-20T02:00:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "memberCount=3，member-c 回到名单（role=member, locationSharing=true）",
+          "note": "发起人再读队伍（设备 1）：成员数应回到 3，member-c 重新为 active"
+        },
+        {
+          "step": 9,
+          "actor": "owner-a",
+          "action": "meet.get",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "meetTask.status": "confirmed",
+            "meetTask.version": 1,
+            "meetTask.participants[].userId": [
+              "owner-a",
+              "member-b",
+              "member-c"
+            ],
+            "meetTask.participants[].status": [
+              "confirmed",
+              "confirmed",
+              "confirmed"
+            ]
+          },
+          "requestId": "replay-017:step:9",
+          "now": "2026-10-20T02:00:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "meetTask.status=\"confirmed\" meetTask.version=1；重新加入不等于回到该次集合的参与名单",
+          "note": "重新加入不等于重新回到该次集合的参与名单：集合任务不得被 crew.join 改写"
+        }
+      ],
+      "probes": [
+        {
+          "id": "P1",
+          "at": 0,
+          "why": "invariant#4：退出者不得再出现在 loc.list 里 —— 先证明\"退出前是看得到的\"，否则第 6 步可能是空列表带来的假通过",
+          "actor": "owner-a",
+          "action": "loc.list",
+          "ok": true,
+          "errorCode": null,
+          "observed": {},
+          "requestId": "replay-017:probe:P1",
+          "now": "2026-10-20T02:00:00.000Z",
+          "verdictPassed": true,
+          "verdictEvidence": "loc.list：ok；退出前 loc.list 返回 3 人且都有坐标：[\"owner-a\",\"member-b\",\"member-c\"]"
+        }
+      ],
+      "invariants": [
+        {
+          "text": "退出立即生效：该成员之后的任何队伍读取/写入必须 FORBIDDEN_NOT_MEMBER（成员身份不得缓存）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 4 步后] 退出后的 crew.get / loc.list / loc.report（第 2、3、4 步）：crew.get / loc.list / loc.report 三个调用全部 FORBIDDEN_NOT_MEMBER\n✓ [第 4 步后] 退出后的位置上报没有落库：member-c 的位置记录仍是夹具那 1 条，没有新增",
+          "checks": 2
+        },
+        {
+          "text": "crew.memberCount 必须等于 status === 'active' 的成员数",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 退出之后：memberCount=2 = active 成员数 2\n✓ [第 8 步后] 重新加入之后：memberCount=3 = active 成员数 3",
+          "checks": 2
+        },
+        {
+          "text": "退出即停止位置共享（存储层 locationSharing=false 且 status='left'），不得等用户手动关闭",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 存储层的 member-c 记录：status=left locationSharing=false leftAt=2026-10-20T02:00:00.000Z（退出即撤销，不需要额外动作）",
+          "checks": 1
+        },
+        {
+          "text": "退出者不得再出现在 loc.list 的返回里",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 6 步后] 发起人读取队伍位置（第 6 步）+ 退出前的基线（探针 P1）：退出前=[owner-a, member-b, member-c] → 退出后=[owner-a, member-b]（member-c 消失，其余仍在）\n✓ [第 6 步后] 退出者即使还有历史坐标也不得返回：member-c 仍有 1 条历史位置记录，但 loc.list 不再返回它（按 active 成员遍历）",
+          "checks": 2
+        },
+        {
+          "text": "重新加入复用原成员记录（不新增重复成员），且位置共享重置为队伍默认值，不继承退出前的设置",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 7 步后] 成员记录条数与主键：crew_members 仍为 3 条，member-c 复用原记录 crew_members_mv90fcrk_2r\n✓ [第 7 步后] 位置共享按队伍默认值重置（退出前为 false）：重新加入后 locationSharing=true（退出时是 false，队伍默认 shareLocationDefault=true）、leftAt=null、status=active",
+          "checks": 2
+        },
+        {
+          "text": "退出与重新加入都不得改写既有集合任务的 participants（重新加入不等于回到该次集合的参与名单）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 退出之后：退出没有改动集合任务的 participants\n✓ [第 9 步后] 重新加入之后（第 9 步 meet.get 也复核一次）：退出与重新加入之后，集合任务的 participants 与 version 仍与夹具一致",
+          "checks": 2
+        },
+        {
+          "text": "退出不得改写集合任务或行程（不得顺手改 meet / trip）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 退出之后的 meet 与 trip：exit 只动了 crew 与 crew_members，meet_tasks / trips 逐字段一致\n✓ [第 7 步后] 重新加入之后的 meet 与 trip：重新加入同样没有碰 meet_tasks / trips",
+          "checks": 2
+        }
+      ],
+      "mustNotHappenChecks": [
+        {
+          "text": "退出后仍能读到队伍或位置",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 4 步后] 第 2、3 步的响应：crew.get 与 loc.list 都被 FORBIDDEN_NOT_MEMBER 拒绝",
+          "checks": 1
+        },
+        {
+          "text": "memberCount 不递减（把已退出者算作成员）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 退出之后的 memberCount：memberCount 由 3 递减到 2",
+          "checks": 1
+        },
+        {
+          "text": "需要额外的「失效」动作才撤销访问",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 4 步后] 退出之后的第一个调用就被拒：退出后的调用序列 [crew.get → loc.list → loc.report] 全部立即被拒，期间没有任何\"失效/注销\"类 action",
+          "checks": 1
+        },
+        {
+          "text": "重新加入时保留退出前关闭共享的设置（应当回到队伍默认值）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 7 步后] 退出时被置为 false → 重新加入后是否按队伍默认值重置：退出时存储层 false → 重新加入后 true = 队伍默认值（shareLocationDefault=true），没有继承退出前的设置",
+          "checks": 1
+        }
+      ],
+      "expectedStateChecks": [
+        {
+          "text": "expectedState.crew（退出后）：memberCount=2，成员只含 owner-a 与 member-b 且均为 active",
+          "at": 6,
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "memberCount=2，active 成员=[member-b, owner-a]"
+        },
+        {
+          "text": "expectedState.crew（重新加入后）：memberCount=3，member-c 回到名单且 active/role=member/locationSharing=true",
+          "at": 8,
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "memberCount=3，member-c 在名单里（role=member，locationSharing=true）"
+        },
+        {
+          "text": "expectedState.meetTask：status=confirmed、version=1、participants 与初始一致",
+          "at": 9,
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "status=confirmed version=1 participants 与初始一致"
+        }
+      ],
+      "machineInvariants": {
+        "total": 7,
+        "passed": 7,
+        "failed": 0,
+        "checks": 13
+      },
+      "mustNotHappen": {
+        "total": 4,
+        "passed": 4,
+        "failed": 0,
+        "checks": 4
+      },
+      "manualInvariants": {
+        "total": 0,
+        "note": "人工项不计入\"通过\""
+      },
+      "caseDefects": [],
+      "finding": null
+    },
+    {
+      "caseId": "replay-021",
+      "category": "地图或 AI 失败",
+      "evidenceLevel": "replay",
+      "status": "blocked",
+      "fixtureInjected": true,
+      "fixtureNotes": [
+        "crew_members：2 条，按案例给的 role/status/locationSharing 注入（joinedAt 案例未给则写 null）",
+        "trips：原样注入，**version=5 直接写库、不经任何 action**（案例未给的字段如 params/title/generatedBy 一律不补）",
+        "meet_tasks：原样注入，version=1、participants 的 confirmedVersion 与案例一致（案例未给 revision → 不写该字段，与\"字段缺失\"这一事实保持一致）",
+        "locations：1 条；补了 crewId=crew-b（案例未给，读取路径按 {userId,crewId} 查），未落 `stale` 键（README §五.1：它是服务端按 reportedAt 现算的标注，不是存储字段）",
+        "places：2 条，按案例给的 _id/name/location 注入（本世界不铺默认地点夹具）",
+        "世界不铺默认地点夹具（seedPlaces: []）——避免\"夹具形状决定测试在测什么\""
+      ],
+      "environment": {
+        "repository": "memory（lib/repo/memory.js，本地内存仓储）",
+        "invoke": "cloudfunctions/api/lib/invoke.js（与同一份 actions 代码）",
+        "clock": "2026-10-20T02:10:00.000Z",
+        "mapProvider": "回放夹具（lib/map/replay.js，recordings: []，strict: true）+ 回放公交（无录音）"
+      },
+      "steps": [
+        {
+          "step": 1,
+          "actor": "owner-a",
+          "action": "trip.legRoute",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "ok": false,
+            "reason": "UPSTREAM_FAILED",
+            "message": "没有对应的录音：kind=direction-walking keyword=(无) from=45.7756,126.6175 to=45.781,126.6185",
+            "legs": [],
+            "status": null,
+            "mapApiCalls": 1
+          },
+          "requestId": "replay-021:step:1",
+          "now": "2026-10-20T02:10:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "信封 ok=true，data.ok=false reason=UPSTREAM_FAILED legs=[] message=「没有对应的录音：kind=direction-walking keyword=(无) from=45.7756,126.6175 to=45.781,126.6185」，且没有 distanceMeters/durationMinutes/route",
+          "note": "读取到下一段的导航，而地图服务此时不可用（用回放夹具让这次调用显式失败）：结果必须是结构化的失败，不得给出一条编造的路线"
+        },
+        {
+          "step": 2,
+          "actor": "owner-a",
+          "action": "trip.plan",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "tripId": "trips_mv90fcry_3m",
+            "feasible": true,
+            "saved": true,
+            "walkTimes.bySource": {
+              "estimated": 2
+            },
+            "walkTimes.upstreamFailed": 1,
+            "walkTimes.failures[].from": [
+              "防洪纪念塔"
+            ],
+            "walkTimes.failures[].to": [
+              "圣索菲亚教堂"
+            ],
+            "walkTimes.failures[].reason": [
+              "UPSTREAM_FAILED"
+            ],
+            "walkTimes.note": "有 1 段没能从地图服务取到路线，已回落为**直线估算**（时间可能明显偏小）",
+            "nodes[].travelSource": [
+              "estimated",
+              "estimated"
+            ],
+            "nodes[].travelMode": [
+              "walking",
+              "walking"
+            ]
+          },
+          "requestId": "replay-021:step:2",
+          "now": "2026-10-20T02:10:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "tripId=trips_mv90fcry_3m failures=[\"防洪纪念塔→圣索菲亚教堂:UPSTREAM_FAILED\"] bySource={\"estimated\":2} note=「有 1 段没能从地图服务取到路线，已回落为**直线估算**（时间可能明显偏小）」",
+          "note": "规划时同样取不到真实路线：必须回落为直线估算，并在结果里标注来源"
+        },
+        {
+          "step": 3,
+          "actor": "owner-a",
+          "action": "trip.get",
+          "ok": true,
+          "errorCode": null,
+          "observed": {
+            "trip.version": 1,
+            "trip.nodes[].placeId": [
+              "place-b",
+              "place-c"
+            ],
+            "trip.nodes[].travelSource": [
+              "estimated",
+              "estimated"
+            ],
+            "trip.nodes[].plannedStayMin": [
+              30,
+              30
+            ]
+          },
+          "requestId": "replay-021:step:3",
+          "now": "2026-10-20T02:10:00.000Z",
+          "expectedVersion": null,
+          "expectationPassed": true,
+          "expectationEvidence": "nodes 共 2 个，travelSource=[estimated, estimated]（估算可识别）",
+          "note": "读回新行程：每段的出行来源必须可区分，估算不得被标成真实路线"
+        }
+      ],
+      "probes": [],
+      "invariants": [
+        {
+          "text": "地图接口失败时 trip.legRoute 的 data.ok 必须为 false 且 legs 为空：不得返回任何 distanceMeters / durationMinutes / route",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 第 1 步响应逐字段核对：data.ok=false、legs=[]，且没有任何距离/耗时/路径字段",
+          "checks": 1
+        },
+        {
+          "text": "规划中取不到真实路线的路段必须计入 walkTimes.failures，其 travelSource 不得为 upstream / survey（估算必须可识别）",
+          "checkedBy": "machine",
+          "passed": false,
+          "evidence": "✓ [第 2 步后] 第 2 步（trip.plan）的 walkTimes.failures：failures=[\"防洪纪念塔→圣索菲亚教堂(UPSTREAM_FAILED)\"]\n✗ [第 2 步后] 每一段\"取不到真实路线\"的行程段都必须出现在 walkTimes.failures 里：有 1 段回落为直线估算却没有计入 walkTimes.failures：[{\"placeId\":\"place-b\",\"placeName\":\"防洪纪念塔\",\"travelFromStart\":true}]；而 bySource.estimated=2、upstreamFailed=1、failures=1 条、note=「有 1 段没能从地图服务取到路线，已回落为**直线估算**（时间可能明显偏小）」 —— 同一响应里\"估算段数\"与\"失败段数\"互相矛盾（实现侧漏计，见 finding）\n✓ [第 3 步后] 新行程每个节点的 travelSource：nodes[].travelSource=[estimated, estimated]，没有一段被标成 upstream/survey",
+          "checks": 3
+        },
+        {
+          "text": "失败不得静默：响应必须带 reason 与 message",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 第 1 步的 reason / message：reason=UPSTREAM_FAILED，message=「没有对应的录音：kind=direction-walking keyword=(无) from=45.7756,126.6175 to=45.781,126.6185」\n✓ [第 2 步后] 规划响应的 walkTimes.note 必须说明回落：walkTimes.note=「有 1 段没能从地图服务取到路线，已回落为**直线估算**（时间可能明显偏小）」",
+          "checks": 2
+        },
+        {
+          "text": "回放夹具找不到对应录音时必须显式失败，不得静默返回空结果",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 失败原因如实透出（不是空结果冒充成功）：结构性失败如实透出：reason=UPSTREAM_FAILED message 含「没有对应的录音」\n✓ [第 3 步后] 注入的回放传输层确实因为\"没有录音\"而失败：回放夹具（recordings: []，strict: true）被调用 7 次，每次都以「没有对应的录音」显式失败：kinds=[\"direction-walking\",\"unknown\"]",
+          "checks": 2
+        },
+        {
+          "text": "读取导航失败不得改写任何已存在的行程数据",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 第 1 步之后既有行程 trip-b：读导航失败之后：trip 与夹具逐字段一致（version=5，nodes 3 个）\n✓ [第 3 步后] 整个案例跑完之后既有行程 trip-b：trip-b 逐字段未变（version=5，nodes 3 个），新计划落在 trips_mv90fcry_3m",
+          "checks": 2
+        }
+      ],
+      "mustNotHappenChecks": [
+        {
+          "text": "把直线估算标成 upstream（真实路线）",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 3 步后] 新行程每段的 travelSource：每段 travelSource=[estimated, estimated]，估算没有被标成真实路线",
+          "checks": 1
+        },
+        {
+          "text": "接口失败时返回一条编造的路线或距离",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 1 步后] 第 1 步响应里有没有编造出来的数：失败时只回 ok=false + legs=[]，没有任何距离/耗时/路径",
+          "checks": 1
+        },
+        {
+          "text": "吞掉失败后给出「看起来可行」的结论而不留痕",
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "✓ [第 3 步后] 可行结论与留痕是否并存：规划 feasible=true 但留了痕：failures 1 条、note 非空、2 段标为 estimated（注：留痕的**完整性**由 invariant#2 单独判定）",
+          "checks": 1
+        }
+      ],
+      "expectedStateChecks": [
+        {
+          "text": "expectedState.response.step3：新行程 nodes[].travelSource 只能是 estimated 或 none",
+          "at": 3,
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "travelSource=[estimated, estimated] 全在 {estimated, none} 内"
+        },
+        {
+          "text": "expectedState.response.step2：walkTimes.bySource 含 estimated、failures 非空、note 非空、tripId 非空",
+          "at": 2,
+          "checkedBy": "machine",
+          "passed": true,
+          "evidence": "tripId=trips_mv90fcry_3m bySource={\"estimated\":2} failures=1 段 note 非空"
+        }
+      ],
+      "machineInvariants": {
+        "total": 5,
+        "passed": 4,
+        "failed": 1,
+        "checks": 10
+      },
+      "mustNotHappen": {
+        "total": 3,
+        "passed": 3,
+        "failed": 0,
+        "checks": 3
+      },
+      "manualInvariants": {
+        "total": 0,
+        "note": "人工项不计入\"通过\""
+      },
+      "caseDefects": [],
+      "finding": {
+        "kind": "implementationDefect",
+        "caseAssertion": "replay-021 invariant#2：「规划中取不到真实路线的路段必须计入 walkTimes.failures，其 travelSource 不得为 upstream / survey」",
+        "symptom": "带 startPoint 的 trip.plan 在\"起点段\"取不到真实路线时，这一段回落成了直线估算（travelSource=estimated），但**没有**计入 walkTimes.failures：同一条响应里 `bySource.estimated = 2`（两段都是估算）、`upstreamFailed = 1`、`failures` 只有 1 条（防洪纪念塔→圣索菲亚教堂），`note` 也写成「有 1 段没能从地图服务取到路线」——**\"估算段数\"与\"失败段数\"自相矛盾**。起点段（我的位置→防洪纪念塔）的失败只出现在 legOptions[0].unavailable 与 startLeg.candidateReason 里，没有进入 walkTimes 的失败账。",
+        "expected": "按案例 invariant#2 的字面要求，凡是\"取不到真实路线\"的行程段（含起点段）都必须计入 walkTimes.failures；按项目自己的既有约定（test/api.test.js:819-820「失败段数要如实报告」同时断言 upstreamFailed === 1 与 bySource.estimated === 1，即**失败段数 == 估算段数**），这条响应应当是 failures 2 条 / upstreamFailed 2；至少不该出现 bySource.estimated(2) > upstreamFailed(1) 这种\"看起来有一段是真实路线\"的读数。",
+        "location": [
+          "cloudfunctions/api/actions/trip.js:80 —— `fillMissingWalkTimes` 的循环 `for (let i = 1; i < placeIds.length; i++)`：只遍历\"上一站→下一站\"，起点段（`startPoint` → 第一站）不在其中，它的失败永远进不了 `failures`。",
+          "cloudfunctions/api/actions/trip.js:991 / :1016 / :1100 —— 起点段的失败记账只在\"`travelResolve.legTimes[第一站]` **没有**数值\"这条 `else if` 分支里；而本案例里它**有**估算值（来自 lib/leg-times.js 的兜底），于是这段分支被绕过，`walkFill.failed++` 一次都没执行。",
+          "lib/leg-times.js:326-339 —— 兜底估算只把 `provider: \"estimate\" / source: \"estimated\"` 写进候选与 `legOptions`，不上报给 `walkTimes.failures`。",
+          "cloudfunctions/api/actions/trip.js:1159 / :1176-1177 —— `upstreamFailed: walkFill.failed` 与 `note` 里的段数都取自这个漏计的计数。"
+        ],
+        "rawResponse": {
+          "walkTimes": {
+            "bySource": {
+              "estimated": 2
+            },
+            "fetchedFromMap": 0,
+            "fromCache": 0,
+            "upstreamFailed": 1,
+            "failures": [
+              {
+                "from": "防洪纪念塔",
+                "to": "圣索菲亚教堂",
+                "reason": "UPSTREAM_FAILED",
+                "message": "没有对应的录音：kind=direction-walking keyword=(无) from=45.781,126.6185 to=45.7703,126.6206"
+              }
+            ],
+            "mapApiCalls": 1,
+            "note": "有 1 段没能从地图服务取到路线，已回落为**直线估算**（时间可能明显偏小）"
+          },
+          "nodes": [
+            {
+              "placeId": "place-b",
+              "placeName": "防洪纪念塔",
+              "travelSource": "estimated",
+              "travelFromStart": true,
+              "travelFromPrevMin": 11
+            },
+            {
+              "placeId": "place-c",
+              "placeName": "圣索菲亚教堂",
+              "travelSource": "estimated",
+              "travelFromPrevMin": 21
+            }
+          ],
+          "startLeg": {
+            "source": "estimated",
+            "provider": "estimate",
+            "candidateReason": "取不到真实耗时，按直线距离估算（短距离下偏差可能很大）",
+            "minutes": 11
+          },
+          "legOptions[0].unavailable": [
+            {
+              "mode": "walking",
+              "reason": "没有对应的录音：kind=unknown … from=45.7756,126.6175 to=45.781,126.6185"
+            },
+            {
+              "mode": "bicycling",
+              "reason": "没有对应的录音：kind=unknown …"
+            },
+            {
+              "mode": "transit",
+              "reason": "没有对应的录音：kind=transit"
+            }
+          ]
+        },
+        "whyBlocked": "案例的断言与实现冲突，按项目纪律先判断是哪一边错：这里**实现**与它自己的另一处约定（test/api.test.js:819-820）以及案例 invariant#2 的字面要求都不一致，属于实现侧的漏计（起点段走了与其余段不同的记账路径）。不改实现（那是另一件事），也不放宽断言 —— 因此这一条停在 blocked。",
+        "nextStep": "修实现时注意：起点段的失败记账要与其余段走同一条路径（例如在 leg-times 的兜底分支里回传失败原因，或让 `plan` 把 `travelResolve.calls`/失败一并并入 `walkFill`）。修好之后删掉这条裁决，本执行器会自动把该案例恢复为 passed/failed。"
+      }
+    }
+  ],
+  "additionalFindings": [
+    {
+      "id": "obs-001",
+      "seenIn": "replay-021",
+      "title": "规划响应的地图调用计数漏计距离矩阵与公交调用",
+      "symptom": "replay-021 的第 2 步（trip.plan）实际发出了 5 次距离矩阵调用 + 1 次步行路线调用 + 1 次公交调用（共 7 次上游请求，由注入的回放传输层逐次记录），而响应里 `walkTimes.mapApiCalls = 1`、decision 记录里的 `mapApiCalls` 同样是 1。",
+      "expected": "`walkTimes.mapApiCalls` 的自我说明是\"本次规划真实消耗的地图接口调用次数（11/8、11/12 成本核算要用）\"；`resolveLegTravelTimes` 自己的注释也写着\"**配额如实计数** —— 结果里的 `calls` 要写进 decision 记录\"。按这两处口径，应当把矩阵与公交的次数一并计入。",
+      "location": "cloudfunctions/api/actions/trip.js:1141 与 :1161（`mapApiCalls: walkFill.mapApiCalls` —— 只含 `fillMissingWalkTimes` 与起点段回落的步行路线调用）；`resolveLegTravelTimes` 返回的 `calls.matrix` / `calls.transit`（约 :520、:477）被计算出来后没有合并进去。",
+      "evidence": "2026-10-20T02:10 世界 + 回放夹具（recordings: []）：walkTimes = {bySource:{estimated:2}, upstreamFailed:1, mapApiCalls:1, failures:[防洪纪念塔→圣索菲亚教堂]}；legOptions[0].unavailable 与 legOptions[1].unavailable 共列出 5 条 tencent-matrix 失败 + 2 条 amap-transit 失败。",
+      "impact": "只影响成本/配额核算与\"这次规划花了多少次调用\"的可核对性；不影响行程结果本身。本次 6 条案例都没有断言 `mapApiCalls`，所以不改任何案例的状态。"
+    },
+    {
+      "id": "obs-002",
+      "seenIn": "replay-005",
+      "title": "两条提案路径对\"已完成的节点\"处理不一致（trip.nodes 是否保留 done 节点）",
+      "symptom": "replay-005 第 4 步确认 `meet.prepareDepart` 生成的提案后，trip.nodes 变成 [node-a(status=done), node-b(status=pending, seq=1)] —— **保留了已完成的 node-a**；而 replay-009 走 `trip.adjust` 生成的提案，确认后 node-a 被完全移出 trip.nodes。",
+      "expected": "案例集内部对此有明确写法：`replay-012` 的 invariants 是「确认后 trip.nodes **不得包含已 done 的节点**，也不得让它以 pending 状态复活」，expectedState 也写「只包含重算后的未完成节点……已 done 的 node-a 不得出现」。两条路径必须给出同一个答案，否则同一批次的两条案例无法同时成立。",
+      "location": "cloudfunctions/api/actions/departure.js:69（`nodes: result.history.concat(...)` —— 把历史节点并回候选）；对照 cloudfunctions/api/actions/trip.js:1382 与 domain/planner.js:382（`toNodes(evaluation.timeline.legs)` —— 候选只含重算后的未完成节点）。",
+      "evidence": "replay-005 确认后存储层：trip.nodes = [{\"nodeId\":\"node-a\",\"status\":\"done\",\"seq\":0},{\"nodeId\":\"node-b\",\"status\":\"pending\",\"seq\":1}]；replay-009 确认后存储层：trip.nodes = [node-b, node-c]（node-a 不在其中）。",
+      "impact": "影响\"行程里还看不看得到已完成的那一站\"，以及 `departure.js` 里按 done 过滤 mustVisit 的既有逻辑。本次 6 条案例都没有对\"确认后 trip.nodes 的组成\"写断言，所以只作为交叉观察记录，不改案例状态。"
+    }
+  ],
+  "summary": {
+    "executed": 6,
+    "passed": 5,
+    "failed": 0,
+    "blocked": 1,
+    "byEvidenceLevel": {
+      "indoor_device": {
+        "executed": 4,
+        "passed": 4,
+        "failed": 0,
+        "blocked": 0
+      },
+      "synthetic": {
+        "executed": 1,
+        "passed": 1,
+        "failed": 0,
+        "blocked": 0
+      },
+      "replay": {
+        "executed": 1,
+        "passed": 0,
+        "failed": 0,
+        "blocked": 1
+      }
+    },
+    "machineInvariants": {
+      "total": 36,
+      "passed": 35,
+      "failed": 1,
+      "checks": 70
+    },
+    "manualInvariants": 0,
+    "mustNotHappen": {
+      "total": 21,
+      "passed": 21,
+      "failed": 0,
+      "checks": 22
+    }
+  }
+}
