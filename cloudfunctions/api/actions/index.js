@@ -43,6 +43,13 @@ module.exports = {
   'ops.verifyIndexes': user.verifyIndexes,
   /** 步行估算的校准报告 —— 也是"绕路系数"模型的训练数据现状 */
   'ops.walkStats': user.walkStats,
+  /**
+   * 步行样本导出（仅 dev）—— 离线评测器的输入。
+   *
+   * 评测器（`lib/walk-eval.js`）是纯函数、不读库，样本在云库里，
+   * 中间必须有这一步；否则"评测"只能对着编的数据跑。
+   */
+  'ops.exportWalkSamples': user.exportWalkSamples,
 
   /**
    * 步行缓存体检 —— 找出 `walkableTo` 里隐含速度不可能的"步行"记录。

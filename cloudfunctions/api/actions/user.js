@@ -7,6 +7,15 @@ const C = require('../lib/repo/collections');
 const { MANUAL_UNIQUE_INDEXES } = require('../lib/repo/indexes');
 /** `ops.walkStats` 要在报告里对照"现在产品用的那个常数" */
 const geo = require('../lib/geo');
+/**
+ * 分桶与中位数**收口到 `lib/walk-eval.js`**（2026-10-15）。
+ *
+ * ⚠️ 原先这里有一份自己的副本，而新写的评测器还需要同一份 ——
+ * **两处定义必然漂移**，漂移的表现是"报告说 A、评测说 B"，且两边都不报错。
+ * 本项目在"认地名"上已经吃过一次两套规则的亏（哈工大：一个认、一个不认），
+ * 所以在加第二处之前先合并成一处。
+ */
+const { DISTANCE_BUCKETS, median } = require('../lib/walk-eval');
 /** 6 位用户短号（2026-10-14）—— 见 lib/short-id.js 的设计说明 */
 const shortIdMod = require('../lib/short-id');
 
@@ -717,21 +726,90 @@ async function verifyIndexes(ctx) {
  * 任何回归模型都必须先打败"分段常数"这个基线，否则不值得上。
  * **先有基线，再谈模型。**
  */
-const DISTANCE_BUCKETS = [
-  { label: '0–100 米', min: 0, max: 100 },
-  { label: '100–300 米', min: 100, max: 300 },
-  { label: '300–600 米', min: 300, max: 600 },
-  { label: '600–1000 米', min: 600, max: 1000 },
-  { label: '1000–2000 米', min: 1000, max: 2000 },
-  { label: '2000 米以上', min: 2000, max: Infinity },
-];
+/**
+ * `ops.exportWalkSamples` —— 把步行样本导出成**可离线评测**的一批行（仅 dev）。
+ *
+ * ── 为什么必须有一个导出接口 ─────────────────────────────
+ *
+ * 评测器（`lib/walk-eval.js`）是**纯函数**：不联网、不读库、不调模型 ——
+ * 这是它能被测试、能被复现的前提（与"评分器不调模型"同一条理由）。
+ * 而样本躺在云数据库里。没有导出这一步，"评测"就只能对着**编的数据**跑，
+ * 那正是本项目反复记下的教训：
+ *
+ *   > **用自己编的数据测自己写的规则，等于没测。**
+ *
+ * ── 为什么这个集合可以导出，而 `locations` 不行 ───────────
+ *
+ * `walk_samples` **不含 openid、不含坐标**（见 `actions/trip.js` 的写入处，
+ * 那里逐字段列了它记什么），只有地点名与几何量 —— 它是**数据**，不是**轨迹**。
+ * `locations` 是精确位置，属于隐私设计里"短期保留"的那一类，
+ * **绝不能**用同样方式导出。
+ *
+ * 导出时**显式挑字段**，不写 `...doc`：
+ * 以后有人往样本里加一个字段（比如按用户维度的统计），
+ * 新字段不会被**自动**带出数据库。白名单要改就得有人来改这一行。
+ */
+async function exportWalkSamples(ctx) {
+  const { repo, env } = ctx;
+  assert(env === 'dev', CODES.FORBIDDEN_ENV, `当前环境为 ${env}，样本导出仅限 dev`);
 
-/** 中位数 —— 比均值抗离群（同一条路偶尔会有异常返回值） */
-function median(nums) {
-  if (!nums.length) return null;
-  const s = nums.slice().sort((a, b) => a - b);
-  const m = Math.floor(s.length / 2);
-  return s.length % 2 ? s[m] : Number(((s[m - 1] + s[m]) / 2).toFixed(3));
+  /**
+   * ⚠️ **分批是必需的，不是优化**：云函数返回体有大小上限，
+   * 几千条样本一次全带回去会**截断或直接失败** ——
+   * 而一个"少了一半样本"的导出，会让评测结果看起来更差（或更好），
+   * 且**没有任何报错**。所以这里显式给 `limit` 并回报 `truncated`。
+   */
+  const p = ctx.payload || {};
+  const limit = Math.min(Math.max(Number(p.limit) || 1000, 1), 5000);
+  const all = await repo.find(C.WALK_SAMPLES, {}, { limit });
+  const total = await repo.count(C.WALK_SAMPLES, {});
+  const rows = all.map((s) => ({
+    _id: s._id,
+    // ── 情境（分类特征）──
+    mode: s.mode,
+    weather: s.weather,
+    timeBucket: s.timeBucket,
+    weekday: s.weekday,
+    // ── 几何量（标签与特征）──
+    straightMeters: s.straightMeters,
+    actualMeters: s.actualMeters,
+    detourRatio: s.detourRatio,
+    // ── 时间：预测是特征，真实用时才是标签 ──
+    predictedMinutes: s.predictedMinutes,
+    actualMinutes: s.actualMinutes,
+    // ── 可追溯到哪一段 ──
+    fromName: s.fromName,
+    toName: s.toName,
+    fromId: s.fromId,
+    toId: s.toId,
+    sampledAt: s.sampledAt,
+    labeledAt: s.labeledAt,
+  }));
+
+  return resp.ok({
+    kind: 'walkSamplesExport',
+    /** 导出格式版本 —— 字段变了就提它，否则离线分析拿到的列会对不上 */
+    schemaVersion: 1,
+    /** **实际的样本行**。评测器直接吃这个数组（见 scripts/walk-eval.js 的 loadRows） */
+    samples: rows,
+    count: rows.length,
+    /** 库里的总数 —— 与 count 不同就说明这次是被 limit 截断的 */
+    totalInDb: total,
+    truncated: total > rows.length,
+    limit,
+    /**
+     * 这两个数**必须一起给出**：只报 count 的话，
+     * "库里 0 条"与"导出坏了"看起来一模一样。
+     */
+    withActualMinutes: rows.filter((r) => typeof r.actualMinutes === 'number' && r.actualMinutes > 0).length,
+    exportedAt: new Date().toISOString(),
+    /** 离线评测器的入口 —— 报告里直接写出怎么用，省得下次再找 */
+    howTo: 'node scripts/walk-eval.js --samples <导出的 json>',
+    note:
+      '本集合不含 openid 与坐标，因此可导出用于离线评测。' +
+      '**不要**用同样方式导出 locations —— 那是精确轨迹。' +
+      (total > rows.length ? `⚠️ 本次只导出了 ${rows.length}/${total} 条，评测前请先确认是否要分批导全。` : ''),
+  });
 }
 
 async function walkStats(ctx) {
@@ -801,6 +879,7 @@ module.exports = {
   selfTest,
   verifyIndexes,
   walkStats,
+  exportWalkSamples,
   /** 个人资料（2026-10-14） */
   getProfile,
   updateProfile,
