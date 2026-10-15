@@ -1,0 +1,2508 @@
+{
+  "datasetVersion": "team-replay-v1",
+  "createdAt": "2026-10-15",
+  "disclaimer": "本批为**设计稿**：预期状态是设计意图，尚未执行；执行记录为空一律如实留 null，不得预填。",
+  "actionVocabulary": [
+    "crew.create",
+    "crew.join",
+    "crew.leave",
+    "crew.get",
+    "crew.remove",
+    "loc.report",
+    "loc.list",
+    "loc.stopSharing",
+    "trip.plan",
+    "trip.get",
+    "trip.adjust",
+    "trip.confirmChange",
+    "trip.progress",
+    "trip.legRoute",
+    "meet.recommend",
+    "meet.create",
+    "meet.confirm",
+    "meet.arrive",
+    "meet.depart",
+    "meet.prepareDepart",
+    "meet.get",
+    "intent.parse",
+    "place.search",
+    "place.survey"
+  ],
+  "cases": [
+    {
+      "caseId": "replay-001",
+      "core": true,
+      "evidenceLevel": "indoor_device",
+      "category": "全员到齐但尚未出发",
+      "title": "三人小队全员到齐：只写 allArrivedAt，departedAt 与路线版本都不动",
+      "initialState": {
+        "clock": "2026-10-20T01:05:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-a",
+          "mode": "team",
+          "crewId": "crew-a",
+          "status": "active",
+          "version": 3,
+          "plannedStartAt": "2026-10-20T00:40:00.000Z",
+          "plannedEndAt": "2026-10-20T05:00:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T05:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "confirmedBy": "owner-a", "sourceMemberIds": ["owner-a"]},
+            {"key": "mustVisit", "value": ["place-c"], "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "confirmedBy": "member-b", "sourceMemberIds": ["member-b"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "pending",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelFromPrevMin": 20, "travelSource": "upstream", "travelMode": "walking",
+              "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z", "dataSource": "survey"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelFromPrevMin": 15, "travelSource": "upstream", "travelMode": "walking",
+              "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z", "dataSource": "survey"}
+            },
+            {
+              "nodeId": "node-c", "placeId": "place-c", "placeName": "圣索菲亚教堂", "seq": 2, "status": "pending",
+              "location": {"latitude": 45.7703, "longitude": 126.6206},
+              "plannedArriveAt": "2026-10-20T03:20:00.000Z", "plannedLeaveAt": "2026-10-20T04:20:00.000Z", "plannedStayMin": 60,
+              "travelFromPrevMin": 20, "travelSource": "upstream", "travelMode": "walking",
+              "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-c", "name": "圣索菲亚教堂", "category": "spot", "location": {"latitude": 45.7703, "longitude": 126.6206}, "confidence": "normal", "verifiedAt": "2026-10-14T02:20:00.000Z", "dataSource": "survey"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-a",
+          "crewId": "crew-a",
+          "tripId": "trip-a",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "confirmed",
+          "version": 1,
+          "revision": 2,
+          "method": "manual",
+          "placeId": null,
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": null,
+          "departedAt": null,
+          "departureCheck": null,
+          "linkToTrip": {"affectsNodeId": "node-a", "plannedLeaveAt": "2026-10-20T01:00:00.000Z", "delayMin": 0},
+          "participants": [
+            {"userId": "owner-a", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": null, "declinedAt": null},
+            {"userId": "member-b", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": null, "declinedAt": null},
+            {"userId": "member-c", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:06:00.000Z", "arrivedAt": null, "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "owner-a", "point": {"latitude": 45.7756, "longitude": 126.6175}, "source": "gps", "reportedAt": "2026-10-20T01:04:30.000Z", "stale": false},
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:04:00.000Z", "stale": false},
+          {"userId": "member-c", "point": {"latitude": 45.7750, "longitude": 126.6169}, "source": "gps", "reportedAt": "2026-10-20T01:04:10.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "member-b", "action": "meet.arrive", "payload": {"meetTaskId": "meet-a"}, "expectedVersion": null, "note": "member-b 标记已到达：arrivedCount 由 0 变 1，allArrivedAt 必须仍为 null（尚未全员）"},
+        {"step": 2, "actor": "member-c", "action": "meet.arrive", "payload": {"meetTaskId": "meet-a"}, "expectedVersion": null, "note": "member-c 标记已到达：arrivedCount 变 2，仍未全员"},
+        {"step": 3, "actor": "owner-a", "action": "meet.arrive", "payload": {"meetTaskId": "meet-a"}, "expectedVersion": null, "note": "最后一人到达：此刻才写 allArrivedAt，状态转 arrived_all；响应必须是 tripUpdated=false"},
+        {"step": 4, "actor": "owner-a", "action": "meet.get", "payload": {"meetTaskId": "meet-a"}, "expectedVersion": null, "note": "读三时间：plannedMeetAt 保持原值、allArrivedAt 非空、departedAt 仍为 null"},
+        {"step": 5, "actor": "owner-a", "action": "trip.get", "payload": {"tripId": "trip-a"}, "expectedVersion": null, "note": "核对路线未被改写：version、plannedEndAt 与三个节点都应与初始一致"}
+      ],
+      "expectedState": {
+        "meetTask": {
+          "status": "arrived_all",
+          "version": 1,
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": "非空（最后一人 meet.arrive 的服务端时刻）",
+          "departedAt": null,
+          "participants": "三人 status 均为 arrived，arrivedAt 非空"
+        },
+        "trip": {
+          "version": 3,
+          "plannedEndAt": "2026-10-20T05:00:00.000Z",
+          "nodes": "全部 status=pending，plannedStayMin 与 seq 与初始一致",
+          "note": "到齐**不**触发任何路线重算"
+        },
+        "response": {
+          "step1": {"status": "confirmed", "arrivedCount": 1, "allArrivedAt": null, "tripUpdated": false},
+          "step3": {"status": "arrived_all", "allArrivedAt": "非空", "tripUpdated": false, "message": "应提示后续安排暂不调整、等待确认出发"}
+        }
+      },
+      "invariants": [
+        "allArrivedAt 非空时 departedAt 必须仍为 null（② 到齐 ≠ ③ 出发）",
+        "meet.arrive 不得改变 trip.version、trip.nodes 或 trip.plannedEndAt，响应 tripUpdated 必须为 false",
+        "plannedMeetAt 全程不变：它只在 meet.create 时写入，不得被到达事件改写",
+        "只有全部未退出参与者都到达时才写 allArrivedAt；arrivedCount 应等于参与人数减去 declined 人数",
+        "trip.version 在到齐前后都等于 3（无调整时版本不涨）"
+      ],
+      "mustNotHappen": [
+        "把 allArrivedAt 当作出发时间写进线路或 linkToTrip",
+        "到齐后自动重算可行性、改写 trip.nodes 或 plannedEndAt",
+        "用 plannedMeetAt 顶替 allArrivedAt，或反过来用 allArrivedAt 顶替 plannedMeetAt"
+      ],
+      "proves": "三时间分离的状态流转：② 全员到齐只产生 allArrivedAt，不触发任何路线改写",
+      "doesNotProve": "真实步行时间、集合效率、到齐与出发之间的实际时间差（室内两台设备点击只能证明状态流转，证明不了这些）",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-002",
+      "core": false,
+      "evidenceLevel": "synthetic",
+      "category": "全员到齐但尚未出发",
+      "title": "重复标记到达是幂等的：allArrivedAt 不刷新，也不产生第二次状态变更",
+      "initialState": {
+        "clock": "2026-10-20T01:20:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-a",
+          "mode": "team",
+          "crewId": "crew-a",
+          "status": "active",
+          "version": 3,
+          "plannedEndAt": "2026-10-20T05:00:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T05:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "pending",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-a",
+          "crewId": "crew-a",
+          "tripId": "trip-a",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "arrived_all",
+          "version": 1,
+          "revision": 4,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": "2026-10-20T01:12:00.000Z",
+          "departedAt": null,
+          "departureCheck": null,
+          "participants": [
+            {"userId": "owner-a", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": "2026-10-20T01:12:00.000Z", "declinedAt": null},
+            {"userId": "member-b", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": "2026-10-20T01:05:00.000Z", "declinedAt": null},
+            {"userId": "member-c", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:06:00.000Z", "arrivedAt": "2026-10-20T01:09:00.000Z", "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:19:00.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "member-b", "action": "meet.arrive", "payload": {"meetTaskId": "meet-a"}, "expectedVersion": null, "note": "已到达的成员再次点击「已到达」（真实场景：网络重试或手滑重复点）"},
+        {"step": 2, "actor": "member-c", "action": "meet.arrive", "payload": {"meetTaskId": "meet-a"}, "expectedVersion": null, "note": "换一名成员重复点击，验证幂等不是「按人记忆」"},
+        {"step": 3, "actor": "owner-a", "action": "meet.get", "payload": {"meetTaskId": "meet-a"}, "expectedVersion": null, "note": "核对 allArrivedAt 与 revision 都未被刷新"},
+        {"step": 4, "actor": "owner-a", "action": "trip.get", "payload": {"tripId": "trip-a"}, "expectedVersion": null, "note": "路线仍未因重复到达被改写"}
+      ],
+      "expectedState": {
+        "meetTask": {
+          "status": "arrived_all",
+          "version": 1,
+          "revision": 4,
+          "allArrivedAt": "2026-10-20T01:12:00.000Z（首次全员到齐的时刻，不被重复点击刷新）",
+          "departedAt": null
+        },
+        "trip": {"version": 3, "nodes": "与初始一致", "note": "重复到达同样不改路线"},
+        "response": {
+          "step1": {"allArrivedAt": "仍为 2026-10-20T01:12:00.000Z", "status": "arrived_all", "message": "应提示已记录/已到齐，不得再次推进状态"},
+          "step3": {"revision": 4}
+        }
+      },
+      "invariants": [
+        "重复 meet.arrive 不得改写 allArrivedAt（它记录的是第一次全员到齐的时刻）",
+        "重复到达不得产生新的状态变更：meet_tasks.revision 必须保持不变",
+        "重复到达的响应必须仍是 departedAt 为 null（不得因重复操作推进到出发）",
+        "是否重复由服务端按 participant.status 判定，不依赖客户端按钮禁用"
+      ],
+      "mustNotHappen": [
+        "把重复到达当作新事件、把 allArrivedAt 刷新为当前时刻",
+        "重复到达触发一次新的路线重算或可行性检查",
+        "以「重复提交」为由返回错误并让界面显示失败"
+      ],
+      "proves": "重复请求的幂等性与「到齐时刻」的一次性语义",
+      "doesNotProve": "真实网络中重试由谁触发、重复点击在真机上的实际频率",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-003",
+      "core": false,
+      "evidenceLevel": "synthetic",
+      "category": "全员到齐但尚未出发",
+      "title": "有人明确不参加：到齐只按未退出的参与名单判定",
+      "initialState": {
+        "clock": "2026-10-20T01:10:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-a",
+          "mode": "team",
+          "crewId": "crew-a",
+          "status": "active",
+          "version": 3,
+          "plannedEndAt": "2026-10-20T05:00:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T05:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "pending",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-a",
+          "crewId": "crew-a",
+          "tripId": "trip-a",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "confirmed",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": null,
+          "departedAt": null,
+          "departureCheck": null,
+          "linkToTrip": {"affectsNodeId": "node-a", "plannedLeaveAt": "2026-10-20T01:00:00.000Z", "delayMin": 0},
+          "participants": [
+            {"userId": "owner-a", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": null, "declinedAt": null},
+            {"userId": "member-b", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": null, "declinedAt": null},
+            {"userId": "member-c", "status": "declined", "confirmedVersion": null, "confirmedAt": "2026-10-19T12:06:00.000Z", "arrivedAt": null, "declinedAt": "2026-10-19T13:00:00.000Z"}
+          ]
+        },
+        "locations": [
+          {"userId": "owner-a", "point": {"latitude": 45.7756, "longitude": 126.6175}, "source": "gps", "reportedAt": "2026-10-20T01:09:00.000Z", "stale": false},
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:09:20.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "meet.arrive", "payload": {"meetTaskId": "meet-a"}, "expectedVersion": null, "note": "发起人到达：还有 member-b 未到，allArrivedAt 必须仍为 null"},
+        {"step": 2, "actor": "member-b", "action": "meet.arrive", "payload": {"meetTaskId": "meet-a"}, "expectedVersion": null, "note": "第二个未退出者到达：此刻应判定全员到齐（declined 的 member-c 不计入）"},
+        {"step": 3, "actor": "owner-a", "action": "meet.get", "payload": {"meetTaskId": "meet-a"}, "expectedVersion": null, "note": "核对 member-c 的状态没有被到达事件改写"},
+        {"step": 4, "actor": "owner-a", "action": "trip.get", "payload": {"tripId": "trip-a"}, "expectedVersion": null, "note": "路线在到齐后仍未被改写"}
+      ],
+      "expectedState": {
+        "meetTask": {
+          "status": "arrived_all",
+          "allArrivedAt": "非空（member-b 到达的服务端时刻）",
+          "departedAt": null,
+          "participants": "owner-a 与 member-b 为 arrived；member-c 仍为 declined，declinedAt 不变"
+        },
+        "trip": {"version": 3, "nodes": "与初始一致"},
+        "response": {
+          "step1": {"status": "active", "allArrivedAt": null, "arrivedCount": 1},
+          "step2": {"status": "arrived_all", "allArrivedAt": "非空"}
+        }
+      },
+      "invariants": [
+        "判定「全员到齐」时 declined 的参与者不计入（有效参与名单排除 declined）",
+        "declined 的参与者不得被 meet.arrive 改写为 arrived",
+        "存在 declined 参与者时，allArrivedAt 必须在其余参与者全部到达时写入，不得等到已退出者响应",
+        "declined 参与者的 confirmedVersion 必须保持 null（未确认就不算确认过）"
+      ],
+      "mustNotHappen": [
+        "因为有一人拒绝就永远到不齐（把 declined 当成未到达）",
+        "把所有登记过的参与者都算进到齐判定",
+        "把 declined 参与者从 participants 数组里删除（那会让「谁没来」不可查）"
+      ],
+      "proves": "参与名单变化下的到齐判定（有人明确不参加时，到齐不被无限等待拖住）",
+      "doesNotProve": "成员拒绝的真实原因、沟通成本与团队是否接受该结果",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-004",
+      "core": false,
+      "evidenceLevel": "synthetic",
+      "category": "全员到齐但尚未出发",
+      "title": "行程进度与集合进度互不代偿：节点到达不等于集合出发",
+      "initialState": {
+        "clock": "2026-10-20T01:45:00.000Z",
+        "crew": {
+          "crewId": "crew-b",
+          "name": "两人小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 2,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-b",
+          "mode": "team",
+          "crewId": "crew-b",
+          "status": "active",
+          "version": 3,
+          "plannedEndAt": "2026-10-20T05:00:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T05:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "pending",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-b",
+          "crewId": "crew-b",
+          "tripId": "trip-b",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "arrived_all",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": "2026-10-20T01:35:00.000Z",
+          "departedAt": null,
+          "departureCheck": null,
+          "participants": [
+            {"userId": "owner-a", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": "2026-10-20T01:35:00.000Z", "declinedAt": null},
+            {"userId": "member-b", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": "2026-10-20T01:30:00.000Z", "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:44:00.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "trip.progress", "payload": {"tripId": "trip-b", "nodeId": "node-a", "status": "arrived"}, "expectedVersion": 3, "note": "发起人标记 node-a 已到达：集合侧与集合出发侧此时都还没有动作"},
+        {"step": 2, "actor": "owner-a", "action": "meet.get", "payload": {"meetTaskId": "meet-b"}, "expectedVersion": null, "note": "核对集合仍停在 arrived_all、departedAt 仍为 null"},
+        {"step": 3, "actor": "owner-a", "action": "trip.progress", "payload": {"tripId": "trip-b", "nodeId": "node-a", "status": "done"}, "expectedVersion": 4, "note": "标记 node-a 已离开：信封版本必须用步骤 1 之后的新版本"},
+        {"step": 4, "actor": "owner-a", "action": "meet.get", "payload": {"meetTaskId": "meet-b"}, "expectedVersion": null, "note": "节点走完了，集合仍未出发"}
+      ],
+      "expectedState": {
+        "meetTask": {
+          "status": "arrived_all",
+          "allArrivedAt": "2026-10-20T01:35:00.000Z",
+          "departedAt": null,
+          "note": "行程节点推进不得写入集合的 departedAt"
+        },
+        "trip": {
+          "version": 5,
+          "nodes": "node-a.status=done、actualArriveAt 与 actualLeaveAt 非空；node-b 仍为 pending、actualArriveAt 仍为 null",
+          "note": "两次 trip.progress 各使版本 +1（3 → 4 → 5）"
+        },
+        "response": {
+          "step1": {"version": 4, "nodeId": "node-a", "status": "arrived"},
+          "step3": {"version": 5, "nodeId": "node-a", "status": "done"}
+        }
+      },
+      "invariants": [
+        "trip.progress 必须携带信封 expectedVersion，成功后 trip.version 恰好 +1",
+        "节点状态推进不得写入 departedAt（集合出发时刻只由 meet.depart 写入）",
+        "集合状态推进不得改写 trip.nodes（两个方向都不代偿）",
+        "node 的 actualArriveAt / actualLeaveAt 只在 trip.progress 时写入，且 status=done 时 actualArriveAt 已被写过则不得覆盖"
+      ],
+      "mustNotHappen": [
+        "用节点到达时间填补 departedAt",
+        "在节点到达/离开时改写集合状态（例如自动置 departed）",
+        "expectedVersion 缺失时仍执行写入"
+      ],
+      "proves": "行程进度与集合进度是两条独立记录线，任何一侧都不代偿另一侧",
+      "doesNotProve": "成员是否真的走到了那一站（室内点击只能证明状态流转）",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-005",
+      "core": true,
+      "evidenceLevel": "indoor_device",
+      "category": "集合延误导致后续超时",
+      "title": "延误使后续 endAt 硬约束不可行：先出提案、确认后重新检查，才能出发",
+      "initialState": {
+        "clock": "2026-10-20T02:20:00.000Z",
+        "crew": {
+          "crewId": "crew-b",
+          "name": "两人小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 2,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-b",
+          "mode": "team",
+          "crewId": "crew-b",
+          "status": "active",
+          "version": 5,
+          "plannedStartAt": "2026-10-20T00:40:00.000Z",
+          "plannedEndAt": "2026-10-20T03:30:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T03:30:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "confirmedBy": "owner-a", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "done",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": "2026-10-20T01:20:00.000Z", "actualLeaveAt": "2026-10-20T02:05:00.000Z",
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelFromPrevMin": 15, "travelSource": "upstream", "travelMode": "walking", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            },
+            {
+              "nodeId": "node-c", "placeId": "place-c", "placeName": "圣索菲亚教堂", "seq": 2, "status": "pending",
+              "location": {"latitude": 45.7703, "longitude": 126.6206},
+              "plannedArriveAt": "2026-10-20T03:20:00.000Z", "plannedLeaveAt": "2026-10-20T04:20:00.000Z", "plannedStayMin": 60,
+              "travelFromPrevMin": 20, "travelSource": "upstream", "travelMode": "walking", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-c", "name": "圣索菲亚教堂", "category": "spot", "location": {"latitude": 45.7703, "longitude": 126.6206}, "confidence": "normal", "verifiedAt": "2026-10-14T02:20:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-b",
+          "crewId": "crew-b",
+          "tripId": "trip-b",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "arrived_all",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": "2026-10-20T01:35:00.000Z",
+          "departedAt": null,
+          "departureCheck": null,
+          "linkToTrip": {"affectsNodeId": "node-b", "plannedLeaveAt": "2026-10-20T02:15:00.000Z", "delayMin": 0},
+          "participants": [
+            {"userId": "owner-a", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": "2026-10-20T01:35:00.000Z", "declinedAt": null},
+            {"userId": "member-b", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": "2026-10-20T01:28:00.000Z", "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "owner-a", "point": {"latitude": 45.7756, "longitude": 126.6175}, "source": "gps", "reportedAt": "2026-10-20T02:19:00.000Z", "stale": false},
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T02:19:10.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "meet.prepareDepart", "payload": {"meetTaskId": "meet-b"}, "expectedVersion": 1, "note": "发起人检查能否出发：此时已延误，预期 canDepart=false，服务端应生成变更提案并返回 checkId"},
+        {"step": 2, "actor": "owner-a", "action": "meet.depart", "payload": {"meetTaskId": "meet-b"}, "expectedVersion": 1, "note": "没有 checkId 就直接出发（负向探针）：必须被拒 INVALID_PARAM，departedAt 保持 null"},
+        {"step": 3, "actor": "owner-a", "action": "trip.get", "payload": {"tripId": "trip-b"}, "expectedVersion": null, "note": "核对检查过程没有落库改路线：version 与 nodes 必须仍是初始值"},
+        {"step": 4, "actor": "owner-a", "action": "trip.confirmChange", "payload": {"proposalId": "<step1.proposal.proposalId>", "candidateId": "<step1.proposal.candidates 中 feasible=true 的 candidateId>"}, "expectedVersion": 5, "note": "发起人确认一个可行候选：这是唯一能让调整生效的路径"},
+        {"step": 5, "actor": "owner-a", "action": "meet.prepareDepart", "payload": {"meetTaskId": "meet-b"}, "expectedVersion": 1, "note": "路线调整后重新检查：预期 canDepart=true，并返回新的 checkId"},
+        {"step": 6, "actor": "owner-a", "action": "meet.depart", "payload": {"meetTaskId": "meet-b", "checkId": "<step5.checkId>"}, "expectedVersion": 1, "note": "携带本次检查的 checkId 出发：写 ③ departedAt"}
+      ],
+      "expectedState": {
+        "meetTask": {
+          "status": "departed",
+          "version": 1,
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z（不变）",
+          "allArrivedAt": "2026-10-20T01:35:00.000Z（不变）",
+          "departedAt": "非空（③ 出发时刻，应晚于 allArrivedAt）"
+        },
+        "trip": {
+          "version": 6,
+          "note": "只在 step4 的 trip.confirmChange 成功后 +1；prepareDepart 与 depart 都不改写路线本身"
+        },
+        "proposal": {
+          "status": "confirmed",
+          "baseVersion": 5,
+          "selectedCandidateId": "<step4 确认的 candidateId>",
+          "note": "提案由 meet.prepareDepart 在检查不可行时生成；其触发类型由服务端写入，不由案例指定"
+        },
+        "response": {
+          "step1": {"canDepart": false, "checkId": "非空", "expiresAt": "非空", "tripImpact.conflicts": "非空（应含 END_TIME_EXCEEDED）", "proposal": "非空"},
+          "step2": {"ok": false, "error.code": "INVALID_PARAM"},
+          "step4": {"applied": true, "version": 6},
+          "step5": {"canDepart": true, "checkId": "非空（新的一次检查）"},
+          "step6": {"status": "departed", "departedAt": "非空"}
+        }
+      },
+      "invariants": [
+        "canDepart=false 时不得出发：meet.depart 必须被拒且 departedAt 保持 null",
+        "检查不可行不得自动改路线：提案生成后 trip.version 与 trip.nodes 必须保持不变，直到 trip.confirmChange 成功",
+        "只有发起人（initiatorUserId）可以 prepareDepart / depart，成员调用必须 FORBIDDEN_NOT_MEMBER",
+        "出发必须携带 prepareDepart 返回的 checkId，且该检查未过期（check.expiresAt 之后必须重新检查）",
+        "delayMin 由「当前时刻 − plannedMeetAt」计算且不小于 0；不得由 allArrivedAt 推出",
+        "trip.version 必须由 5 变为 6（一次确认只涨一版）"
+      ],
+      "mustNotHappen": [
+        "把提案自动生效（未经 trip.confirmChange 就改写 trip.nodes）",
+        "在 canDepart=false 或缺少 checkId 时写入 departedAt",
+        "让成员绕过发起人确认出发",
+        "用 allArrivedAt 当作 departedAt（② 与 ③ 混为一谈）"
+      ],
+      "proves": "集合延误 → 冲突提示 → 经发起人确认的调整 → 重新检查 → 出发 的联动闭环；①②③ 三个时间各自独立记录",
+      "doesNotProve": "真实集合耗时、各成员步行与等待时间，以及调整后的安排在现场是否真的可行（室内两台设备点不出这些）",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-006",
+      "core": false,
+      "evidenceLevel": "indoor_device",
+      "category": "集合延误导致后续超时",
+      "title": "延误但仍可行：不生成提案，直接记录出发",
+      "initialState": {
+        "clock": "2026-10-20T01:45:00.000Z",
+        "crew": {
+          "crewId": "crew-b",
+          "name": "两人小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 2,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-b",
+          "mode": "team",
+          "crewId": "crew-b",
+          "status": "active",
+          "version": 5,
+          "plannedStartAt": "2026-10-20T00:40:00.000Z",
+          "plannedEndAt": "2026-10-20T05:00:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T06:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "confirmedBy": "owner-a", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "done",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": "2026-10-20T01:10:00.000Z", "actualLeaveAt": "2026-10-20T01:40:00.000Z",
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelFromPrevMin": 15, "travelSource": "upstream", "travelMode": "walking", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            },
+            {
+              "nodeId": "node-c", "placeId": "place-c", "placeName": "圣索菲亚教堂", "seq": 2, "status": "pending",
+              "location": {"latitude": 45.7703, "longitude": 126.6206},
+              "plannedArriveAt": "2026-10-20T03:20:00.000Z", "plannedLeaveAt": "2026-10-20T04:20:00.000Z", "plannedStayMin": 60,
+              "travelFromPrevMin": 20, "travelSource": "upstream", "travelMode": "walking", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-c", "name": "圣索菲亚教堂", "category": "spot", "location": {"latitude": 45.7703, "longitude": 126.6206}, "confidence": "normal", "verifiedAt": "2026-10-14T02:20:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-b",
+          "crewId": "crew-b",
+          "tripId": "trip-b",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "arrived_all",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": "2026-10-20T01:35:00.000Z",
+          "departedAt": null,
+          "departureCheck": null,
+          "linkToTrip": {"affectsNodeId": "node-b", "plannedLeaveAt": "2026-10-20T02:15:00.000Z", "delayMin": 0},
+          "participants": [
+            {"userId": "owner-a", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": "2026-10-20T01:35:00.000Z", "declinedAt": null},
+            {"userId": "member-b", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": "2026-10-20T01:30:00.000Z", "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:44:00.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "meet.prepareDepart", "payload": {"meetTaskId": "meet-b"}, "expectedVersion": 1, "note": "已延误但后续仍可行：预期 canDepart=true、proposal=null"},
+        {"step": 2, "actor": "owner-a", "action": "meet.depart", "payload": {"meetTaskId": "meet-b", "checkId": "<step1.checkId>"}, "expectedVersion": 1, "note": "按检查结果出发：写 ③ departedAt"},
+        {"step": 3, "actor": "owner-a", "action": "trip.get", "payload": {"tripId": "trip-b"}, "expectedVersion": null, "note": "核对延误没有触发任何路线改写"}
+      ],
+      "expectedState": {
+        "meetTask": {
+          "status": "departed",
+          "departedAt": "非空（③ 出发时刻，应晚于 allArrivedAt）",
+          "allArrivedAt": "2026-10-20T01:35:00.000Z（不变）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z（不变）"
+        },
+        "trip": {"version": 5, "nodes": "与初始一致", "note": "延误本身不改路线"},
+        "response": {
+          "step1": {"canDepart": true, "proposal": null, "tripImpact.conflicts": "空数组", "tripImpact.shouldReevaluate": false, "delayMin": "非负整数（由当前时刻与 plannedMeetAt 得出）"},
+          "step2": {"status": "departed", "departedAt": "非空", "delayMin": "非负整数"}
+        }
+      },
+      "invariants": [
+        "canDepart=true 时 proposal 必须为 null（不得为凑流程造提案）",
+        "延误本身不得改变 trip.version 或 trip.nodes",
+        "delayMin 必须由「当前时刻 − plannedMeetAt」计算，与 allArrivedAt 无关",
+        "depart 成功后 departedAt 非空，且 departedAt 不早于 allArrivedAt"
+      ],
+      "mustNotHappen": [
+        "因存在延误就自动改写后续安排",
+        "把 canDepart=true 的检查结果当成「必须调整」的理由",
+        "出发时缺少 checkId 仍然写 departedAt"
+      ],
+      "proves": "延误与不可行是两件事：可行时只记录出发时间，不触发调整",
+      "doesNotProve": "用户是否接受这次延误、实际等待是否合理",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-007",
+      "core": false,
+      "evidenceLevel": "synthetic",
+      "category": "集合延误导致后续超时",
+      "title": "到齐后长时间未出发：停留期间不重算路线，delayMin 以 plannedMeetAt 为基准",
+      "initialState": {
+        "clock": "2026-10-20T02:30:00.000Z",
+        "crew": {
+          "crewId": "crew-b",
+          "name": "两人小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 2,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-b",
+          "mode": "team",
+          "crewId": "crew-b",
+          "status": "active",
+          "version": 5,
+          "plannedEndAt": "2026-10-20T06:00:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T06:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "done",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": "2026-10-20T01:15:00.000Z", "actualLeaveAt": "2026-10-20T02:00:00.000Z",
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelFromPrevMin": 15, "travelSource": "upstream", "travelMode": "walking", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-b",
+          "crewId": "crew-b",
+          "tripId": "trip-b",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "arrived_all",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": "2026-10-20T01:35:00.000Z",
+          "departedAt": null,
+          "departureCheck": null,
+          "linkToTrip": {"affectsNodeId": "node-b", "plannedLeaveAt": "2026-10-20T02:15:00.000Z", "delayMin": 0},
+          "participants": [
+            {"userId": "owner-a", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": "2026-10-20T01:35:00.000Z", "declinedAt": null},
+            {"userId": "member-b", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": "2026-10-20T01:28:00.000Z", "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "owner-a", "point": {"latitude": 45.7756, "longitude": 126.6175}, "source": "gps", "reportedAt": "2026-10-20T02:29:00.000Z", "stale": false},
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T02:29:30.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "member-b", "action": "loc.report", "payload": {"crewId": "crew-b", "point": {"latitude": 45.7762, "longitude": 126.6182}, "source": "gps"}, "expectedVersion": null, "note": "成员在原地等待时继续上报位置：reportedAt 必须取服务端时刻"},
+        {"step": 2, "actor": "owner-a", "action": "meet.get", "payload": {"meetTaskId": "meet-b"}, "expectedVersion": null, "note": "到齐后停留期间读集合状态：不得因为「停留很久」而推进任何状态"},
+        {"step": 3, "actor": "owner-a", "action": "loc.list", "payload": {"crewId": "crew-b"}, "expectedVersion": null, "note": "位置时效由服务端计算（ageSeconds / stale），客户端时间不参与"},
+        {"step": 4, "actor": "owner-a", "action": "trip.get", "payload": {"tripId": "trip-b"}, "expectedVersion": null, "note": "停留期间路线必须一字未改"},
+        {"step": 5, "actor": "owner-a", "action": "meet.prepareDepart", "payload": {"meetTaskId": "meet-b"}, "expectedVersion": 1, "note": "此刻才检查：delayMin 的基准是 plannedMeetAt"},
+        {"step": 6, "actor": "owner-a", "action": "meet.depart", "payload": {"meetTaskId": "meet-b", "checkId": "<step5.checkId>"}, "expectedVersion": 1, "note": "确认出发：直到这一步才写 ③"}
+      ],
+      "expectedState": {
+        "meetTask": {
+          "status": "departed",
+          "allArrivedAt": "2026-10-20T01:35:00.000Z（停留期间不变）",
+          "departedAt": "非空（③ 时刻，等于 depart 时的服务端时刻）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z（不变）"
+        },
+        "trip": {"version": 5, "nodes": "与初始一致", "note": "② 与 ③ 之间的停留不重算路线"},
+        "locations": {"member-b": "reportedAt 为步骤 1 的服务端时刻；ageSeconds 与 stale 由服务端给出"},
+        "response": {"step5": {"delayMin": "非负整数，基准为 plannedMeetAt", "canDepart": true}}
+      },
+      "invariants": [
+        "在 arrived_all 停留期间，loc.report / loc.list / meet.get 都不得改变 trip.version、trip.nodes 或 plannedEndAt",
+        "delayMin 的基准是 plannedMeetAt：不得改用 allArrivedAt，也不得用「departedAt − allArrivedAt」代替",
+        "departedAt 仍为 null 时，任何响应只能给出「预计」影响，不得给出具体出发时刻或据此推算的到达时刻",
+        "loc.report 的 reportedAt 一律取服务端时间，客户端上报的 clientAt 只作诊断"
+      ],
+      "mustNotHappen": [
+        "到齐后按「已等待 N 分钟」自动重算路线或自动调整后续安排",
+        "把 allArrivedAt 当作计时起点来算延误",
+        "用客户端时间判定位置时效"
+      ],
+      "proves": "到齐后长时间停留的场景下，路线重算的时机被严格限定在 ③ 出发之后",
+      "doesNotProve": "真实等待时长、团队耐心与「等到多久该走」的判断是否合理（需要真实小队）",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-008",
+      "core": false,
+      "evidenceLevel": "synthetic",
+      "category": "集合延误导致后续超时",
+      "title": "出发检查有有效期：过期后必须重新检查才能出发",
+      "initialState": {
+        "clock": "2026-10-20T01:45:00.000Z",
+        "crew": {
+          "crewId": "crew-b",
+          "name": "两人小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 2,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-b",
+          "mode": "team",
+          "crewId": "crew-b",
+          "status": "active",
+          "version": 5,
+          "plannedEndAt": "2026-10-20T06:00:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T06:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "done",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": "2026-10-20T01:15:00.000Z", "actualLeaveAt": "2026-10-20T01:40:00.000Z",
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelFromPrevMin": 15, "travelSource": "upstream", "travelMode": "walking", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-b",
+          "crewId": "crew-b",
+          "tripId": "trip-b",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "arrived_all",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": "2026-10-20T01:35:00.000Z",
+          "departedAt": null,
+          "departureCheck": null,
+          "linkToTrip": {"affectsNodeId": "node-b", "plannedLeaveAt": "2026-10-20T02:15:00.000Z", "delayMin": 0},
+          "participants": [
+            {"userId": "owner-a", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": "2026-10-20T01:35:00.000Z", "declinedAt": null},
+            {"userId": "member-b", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": "2026-10-20T01:28:00.000Z", "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:44:00.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "meet.prepareDepart", "payload": {"meetTaskId": "meet-b"}, "expectedVersion": 1, "note": "第一次检查：canDepart=true，返回 checkId 与 expiresAt"},
+        {"step": 2, "actor": "owner-a", "action": "meet.depart", "payload": {"meetTaskId": "meet-b", "checkId": "<step1.checkId>"}, "expectedVersion": 1, "note": "【调用前先把夹具时钟推进到 <step1.expiresAt> 之后 —— 时间推进不是接口调用，不计入 steps】用已过期的检查出发（负向探针）：必须被拒 VERSION_CONFLICT，departedAt 保持 null"},
+        {"step": 3, "actor": "owner-a", "action": "meet.prepareDepart", "payload": {"meetTaskId": "meet-b"}, "expectedVersion": 1, "note": "重新检查：拿到新的 checkId 与新的 expiresAt"},
+        {"step": 4, "actor": "owner-a", "action": "meet.depart", "payload": {"meetTaskId": "meet-b", "checkId": "<step3.checkId>"}, "expectedVersion": 1, "note": "用新的检查出发：写 ③ departedAt"}
+      ],
+      "expectedState": {
+        "meetTask": {
+          "status": "departed",
+          "departedAt": "非空（步骤 4 的服务端时刻）",
+          "departureCheck": "步骤 3 写入的新检查（checkId 与步骤 1 的不同）"
+        },
+        "trip": {"version": 5, "note": "整个过程中路线未被改写"},
+        "response": {
+          "step1": {"canDepart": true, "checkId": "非空", "expiresAt": "非空（服务端写入，当前实现为检查时刻 +2 分钟）"},
+          "step2": {"ok": false, "error.code": "VERSION_CONFLICT"},
+          "step3": {"canDepart": true, "checkId": "非空且与 step1.checkId 不同"},
+          "step4": {"status": "departed", "departedAt": "非空"}
+        }
+      },
+      "invariants": [
+        "checkId 只在 expiresAt 之前可用：过期后 meet.depart 必须被拒且不得写入 departedAt",
+        "过期的检查不得被续用（必须重新 prepareDepart 取得新 checkId）",
+        "重新检查必须基于当时的 trip.version（路线更新后旧检查同样失效）",
+        "每次 prepareDepart 都会覆盖 departureCheck，且 meet_tasks.revision 递增",
+        "时钟推进只由夹具完成（对应 invoke 的 ctx.now），不得用任何接口伪造时间流逝"
+      ],
+      "mustNotHappen": [
+        "忽略 expiresAt 直接出发",
+        "把过期检查的 canDepart 结果当成仍然有效",
+        "在检查被拒时写入 departedAt 或改动 trip.nodes"
+      ],
+      "proves": "出发确认是「当下有效」的检查结果，不是可长期复用的通行证",
+      "doesNotProve": "现场网络与操作延迟下，用户能否在有效期内完成确认",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-009",
+      "core": true,
+      "evidenceLevel": "synthetic",
+      "category": "第二次修改继承第一次要求",
+      "title": "连续两次调整：第二次基于第一次确认后的版本，并保留仍然有效的硬约束",
+      "initialState": {
+        "clock": "2026-10-20T02:00:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-a",
+          "mode": "team",
+          "crewId": "crew-a",
+          "status": "active",
+          "version": 3,
+          "plannedStartAt": "2026-10-20T00:40:00.000Z",
+          "plannedEndAt": "2026-10-20T05:30:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T08:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "confirmedBy": "owner-a", "sourceMemberIds": ["owner-a"]},
+            {"key": "mustVisit", "value": ["place-c"], "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "confirmedBy": "member-b", "sourceMemberIds": ["member-b"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "done",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "travelMode": "walking", "actualArriveAt": "2026-10-20T01:10:00.000Z", "actualLeaveAt": "2026-10-20T01:55:00.000Z",
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelFromPrevMin": 15, "travelSource": "upstream", "travelMode": "walking", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            },
+            {
+              "nodeId": "node-c", "placeId": "place-c", "placeName": "圣索菲亚教堂", "seq": 2, "status": "pending",
+              "location": {"latitude": 45.7703, "longitude": 126.6206},
+              "plannedArriveAt": "2026-10-20T03:20:00.000Z", "plannedLeaveAt": "2026-10-20T04:20:00.000Z", "plannedStayMin": 60,
+              "travelFromPrevMin": 20, "travelSource": "upstream", "travelMode": "walking", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-c", "name": "圣索菲亚教堂", "category": "spot", "location": {"latitude": 45.7703, "longitude": 126.6206}, "confidence": "normal", "verifiedAt": "2026-10-14T02:20:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-a",
+          "crewId": "crew-a",
+          "tripId": "trip-a",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "departed",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": "2026-10-20T01:15:00.000Z",
+          "departedAt": "2026-10-20T01:20:00.000Z",
+          "participants": [
+            {"userId": "owner-a", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": "2026-10-20T01:15:00.000Z", "declinedAt": null},
+            {"userId": "member-b", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": "2026-10-20T01:05:00.000Z", "declinedAt": null},
+            {"userId": "member-c", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:06:00.000Z", "arrivedAt": "2026-10-20T01:09:00.000Z", "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "owner-a", "point": {"latitude": 45.7756, "longitude": 126.6175}, "source": "gps", "reportedAt": "2026-10-20T01:59:00.000Z", "stale": false},
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:59:20.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "trip.adjust", "payload": {"tripId": "trip-a", "trigger": {"type": "extend_stay", "payload": {"nodeId": "node-b", "deltaMin": 30}}}, "expectedVersion": null, "note": "第一次修改：把 node-b 的停留延长。trip.adjust 不消费信封版本，它按当时的 trip.version（3）记录 baseVersion"},
+        {"step": 2, "actor": "owner-a", "action": "trip.confirmChange", "payload": {"proposalId": "<step1.proposalId>", "candidateId": "<step1.candidates 中 feasible=true 的 candidateId>"}, "expectedVersion": 3, "note": "确认第一次修改：版本 3 → 4，走向与写入路径与自动生效完全相同"},
+        {"step": 3, "actor": "owner-a", "action": "trip.adjust", "payload": {"tripId": "trip-a", "trigger": {"type": "shorten_stay", "payload": {"nodeId": "node-b", "deltaMin": 20}}}, "expectedVersion": null, "note": "第二次修改：必须发生在第一次确认之后，服务端记录的 baseVersion 应为 4"},
+        {"step": 4, "actor": "owner-a", "action": "trip.confirmChange", "payload": {"proposalId": "<step3.proposalId>", "candidateId": "<step3.candidates 中 feasible=true 的 candidateId>"}, "expectedVersion": 4, "note": "确认第二次修改：版本 4 → 5"},
+        {"step": 5, "actor": "owner-a", "action": "trip.get", "payload": {"tripId": "trip-a"}, "expectedVersion": null, "note": "核对：两次修改的净效果、硬约束仍在、node-c 仍在行程里"}
+      ],
+      "expectedState": {
+        "trip": {
+          "version": 5,
+          "constraints": "仍包含 endAt 与 mustVisit，hardness 仍为 hard 且 confirmedAt 非空（第二次修改不得丢弃仍然有效的硬约束）",
+          "nodes": "node-b 的 plannedStayMin 等于两次修改的净效果（由服务端计算，案例不预填数值）；node-c 仍在 nodes 中（mustVisit 仍被满足）",
+          "note": "两次修改各 +1 版：3 → 4 → 5"
+        },
+        "proposal": {
+          "step1 的提案": {"status": "confirmed", "baseVersion": 3},
+          "step3 的提案": {"status": "confirmed", "baseVersion": 4}
+        },
+        "response": {
+          "step2": {"applied": true, "version": 4, "changes": "非空（必须给出改了什么）"},
+          "step4": {"applied": true, "version": 5, "changes": "非空"}
+        }
+      },
+      "invariants": [
+        "第二次 trip.adjust 记录的 baseVersion 必须等于第一次确认后的 trip.version（4），不得回落到 3",
+        "两次确认各使 trip.version 恰好 +1（3 → 4 → 5），不得跳版或原地不动",
+        "两次修改后 trip.constraints 必须仍含 endAt 与 mustVisit，且 hardness=hard、confirmedAt 非空",
+        "trip.confirmChange 必须携带信封 expectedVersion，且等于提案的 baseVersion 与当时的 trip.version",
+        "只有 feasible=true 的候选可以生效；不可行候选必须被拒（INFEASIBLE_HARD_CONSTRAINT）",
+        "每个候选必须带 impact 与 notes（改了什么必须可解释）",
+        "trip.adjust 本身不落库改路线：提案生成后 trip.version 与 trip.nodes 不变，直到 confirmChange 成功"
+      ],
+      "mustNotHappen": [
+        "第二次修改回到第一次之前的版本基线（把已确认的改动丢掉）",
+        "第二次修改静默丢弃 endAt 或 mustVisit 硬约束",
+        "把两次修改合并成一次未经确认的写入",
+        "用 payload 里的 expectedVersion 代替信封字段"
+      ],
+      "proves": "连续修改的版本基线与硬约束继承（先改得少、再改得清楚）",
+      "doesNotProve": "两次修改在真实游览中的体验，以及用户是否认同这些取舍",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-010",
+      "core": false,
+      "evidenceLevel": "synthetic",
+      "category": "第二次修改继承第一次要求",
+      "title": "未确认的修改不构成既成事实：第二次仍基于原版本，旧提案确认时失效",
+      "initialState": {
+        "clock": "2026-10-20T02:00:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-a",
+          "mode": "team",
+          "crewId": "crew-a",
+          "status": "active",
+          "version": 3,
+          "plannedEndAt": "2026-10-20T05:30:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T08:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "done",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": "2026-10-20T01:10:00.000Z", "actualLeaveAt": "2026-10-20T01:55:00.000Z",
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelFromPrevMin": 15, "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            },
+            {
+              "nodeId": "node-c", "placeId": "place-c", "placeName": "圣索菲亚教堂", "seq": 2, "status": "pending",
+              "location": {"latitude": 45.7703, "longitude": 126.6206},
+              "plannedArriveAt": "2026-10-20T03:20:00.000Z", "plannedLeaveAt": "2026-10-20T04:20:00.000Z", "plannedStayMin": 60,
+              "travelFromPrevMin": 20, "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-c", "name": "圣索菲亚教堂", "category": "spot", "location": {"latitude": 45.7703, "longitude": 126.6206}, "confidence": "normal", "verifiedAt": "2026-10-14T02:20:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-a",
+          "crewId": "crew-a",
+          "tripId": "trip-a",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "departed",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": "2026-10-20T01:15:00.000Z",
+          "departedAt": "2026-10-20T01:20:00.000Z",
+          "participants": [
+            {"userId": "owner-a", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": "2026-10-20T01:15:00.000Z", "declinedAt": null},
+            {"userId": "member-b", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": "2026-10-20T01:05:00.000Z", "declinedAt": null},
+            {"userId": "member-c", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:06:00.000Z", "arrivedAt": "2026-10-20T01:09:00.000Z", "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:59:00.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "trip.adjust", "payload": {"tripId": "trip-a", "trigger": {"type": "extend_stay", "payload": {"nodeId": "node-b", "deltaMin": 30}}}, "expectedVersion": null, "note": "第一次修改，先不确认：只应产生提案"},
+        {"step": 2, "actor": "owner-a", "action": "trip.get", "payload": {"tripId": "trip-a"}, "expectedVersion": null, "note": "核对提案未落库：version 仍为 3，node-b 的停留与初始一致"},
+        {"step": 3, "actor": "owner-a", "action": "trip.adjust", "payload": {"tripId": "trip-a", "trigger": {"type": "skip_node", "payload": {"nodeId": "node-c"}}}, "expectedVersion": null, "note": "第二次修改（基于同一原版本）：baseVersion 仍应为 3，两个提案互不影响"},
+        {"step": 4, "actor": "owner-a", "action": "trip.confirmChange", "payload": {"proposalId": "<step1.proposalId>", "candidateId": "<step1.candidates 中 feasible=true 的 candidateId>"}, "expectedVersion": 3, "note": "确认第一个提案：版本 3 → 4"},
+        {"step": 5, "actor": "owner-a", "action": "trip.confirmChange", "payload": {"proposalId": "<step3.proposalId>", "candidateId": "<step3.candidates 中 feasible=true 的 candidateId>"}, "expectedVersion": 3, "note": "用旧版本确认第二个提案（负向探针）：必须被拒 VERSION_CONFLICT"},
+        {"step": 6, "actor": "owner-a", "action": "trip.get", "payload": {"tripId": "trip-a"}, "expectedVersion": null, "note": "核对被拒的确认没有落库：version 仍为 4，node-c 仍在行程里"}
+      ],
+      "expectedState": {
+        "trip": {
+          "version": 4,
+          "nodes": "node-c 仍在 nodes 中（被拒的 skip_node 不得生效）",
+          "note": "只有 step4 的确认生效"
+        },
+        "proposal": {
+          "step1 的提案": {"status": "confirmed", "baseVersion": 3},
+          "step3 的提案": {"status": "proposed", "baseVersion": 3, "note": "仍未被确认；确认时必须因 baseVersion ≠ 当前版本被拒"}
+        },
+        "response": {
+          "step1": {"applied": false, "baseVersion": 3, "candidates": "非空"},
+          "step2": {"trip.version": 3},
+          "step4": {"applied": true, "version": 4},
+          "step5": {"ok": false, "error.code": "VERSION_CONFLICT"}
+        }
+      },
+      "invariants": [
+        "未确认的提案不得写入 trip.nodes 或改变 trip.version",
+        "同时存在两个未确认提案时不得自动合并、也不得自动生效",
+        "确认时提案的 baseVersion 必须等于当时 trip.version；不相等必须 VERSION_CONFLICT（旧确认不得使新方案生效）",
+        "被拒的确认不得改变 trip.nodes、trip.version 或提案状态",
+        "trip.adjust 的响应必须给出 applied=false 与候选清单（不得让调用方以为已经生效）"
+      ],
+      "mustNotHappen": [
+        "把未确认的候选当作已生效的安排继续往下算",
+        "自动确认（团队行程不得自动生效，必须走确认流程）",
+        "把两个提案的改动叠加写入而不经确认"
+      ],
+      "proves": "提案与既成事实分离，以及旧提案的失效（版本一致性在写入侧的表现）",
+      "doesNotProve": "界面是否把「提案已失效」说清楚（需要另做界面检查）",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-011",
+      "core": false,
+      "evidenceLevel": "synthetic",
+      "category": "第二次修改继承第一次要求",
+      "title": "第二次修改不得丢掉必去节点：skip_node 命中硬约束必须判为不可行",
+      "initialState": {
+        "clock": "2026-10-20T02:10:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-a",
+          "mode": "team",
+          "crewId": "crew-a",
+          "status": "active",
+          "version": 4,
+          "plannedEndAt": "2026-10-20T05:30:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T08:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "sourceMemberIds": ["owner-a"]},
+            {"key": "mustVisit", "value": ["place-c"], "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "confirmedBy": "member-b", "sourceMemberIds": ["member-b"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "done",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": "2026-10-20T01:10:00.000Z", "actualLeaveAt": "2026-10-20T01:55:00.000Z",
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelFromPrevMin": 15, "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            },
+            {
+              "nodeId": "node-c", "placeId": "place-c", "placeName": "圣索菲亚教堂", "seq": 2, "status": "pending",
+              "location": {"latitude": 45.7703, "longitude": 126.6206},
+              "plannedArriveAt": "2026-10-20T03:20:00.000Z", "plannedLeaveAt": "2026-10-20T04:20:00.000Z", "plannedStayMin": 60,
+              "travelFromPrevMin": 20, "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-c", "name": "圣索菲亚教堂", "category": "spot", "location": {"latitude": 45.7703, "longitude": 126.6206}, "confidence": "normal", "verifiedAt": "2026-10-14T02:20:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-a",
+          "crewId": "crew-a",
+          "tripId": "trip-a",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "departed",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": "2026-10-20T01:15:00.000Z",
+          "departedAt": "2026-10-20T01:20:00.000Z",
+          "participants": [
+            {"userId": "owner-a", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": "2026-10-20T01:15:00.000Z", "declinedAt": null},
+            {"userId": "member-b", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": "2026-10-20T01:05:00.000Z", "declinedAt": null},
+            {"userId": "member-c", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:06:00.000Z", "arrivedAt": "2026-10-20T01:09:00.000Z", "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T02:09:00.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "trip.adjust", "payload": {"tripId": "trip-a", "trigger": {"type": "skip_node", "payload": {"nodeId": "node-c"}}}, "expectedVersion": null, "note": "第二次修改要求跳过 node-c，而它是 mustVisit 硬约束点：候选必须被判为不可行"},
+        {"step": 2, "actor": "owner-a", "action": "trip.confirmChange", "payload": {"proposalId": "<step1.proposalId>", "candidateId": "<step1.candidates 中 feasible=false 的 candidateId>"}, "expectedVersion": 4, "note": "确认一个不可行候选（负向探针）：必须被拒，不得落库"},
+        {"step": 3, "actor": "owner-a", "action": "trip.get", "payload": {"tripId": "trip-a"}, "expectedVersion": null, "note": "核对行程一字未改：version 仍为 4，node-c 仍在"}
+      ],
+      "expectedState": {
+        "trip": {
+          "version": 4,
+          "constraints": "mustVisit 仍在（不得因为要跳过就把约束删掉）",
+          "nodes": "node-c 仍在 nodes 中且 status 未变",
+          "note": "被拒的调整不产生任何写入"
+        },
+        "proposal": {"step1 的提案": {"status": "proposed", "note": "候选全部不可行，未被确认"}},
+        "response": {
+          "step1": {"noFeasible": true, "feasibleCount": 0, "candidates": "非空且每个都 feasible=false", "candidates[].conflicts": "含 MUST_VISIT_MISSING（hardConstraintKey=mustVisit）"},
+          "step2": {"ok": false, "error.code": "INFEASIBLE_HARD_CONSTRAINT"}
+        }
+      },
+      "invariants": [
+        "跳过 mustVisit 硬约束点时必须报 MUST_VISIT_MISSING，且该候选 feasible=false",
+        "feasible=false 的候选经 trip.confirmChange 必须被拒，trip.nodes 与 trip.version 不变",
+        "不得为了「少改计划」而静默删除必去节点",
+        "noFeasible=true 时不得补一个默认方案（不得编造可行候选）",
+        "被拒的调整不得改变提案状态以外的任何数据"
+      ],
+      "mustNotHappen": [
+        "把不可行候选当可行落库",
+        "为了让候选看起来可行而移除或降级 mustVisit 约束",
+        "在响应里省略冲突原因（用户必须能看到为什么不可行）"
+      ],
+      "proves": "硬约束在动态调整中的优先级（第一步必须满足新的硬约束，其次才谈少改）",
+      "doesNotProve": "用户是否接受「该调整不可行」的结论、以及他会怎么改需求",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-012",
+      "core": false,
+      "evidenceLevel": "synthetic",
+      "category": "第二次修改继承第一次要求",
+      "title": "第二次修改不得重算已完成的节点：重算范围只含未完成节点",
+      "initialState": {
+        "clock": "2026-10-20T02:30:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-a",
+          "mode": "team",
+          "crewId": "crew-a",
+          "status": "active",
+          "version": 6,
+          "plannedEndAt": "2026-10-20T05:30:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T08:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "done",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": "2026-10-20T01:10:00.000Z", "actualLeaveAt": "2026-10-20T02:05:00.000Z",
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "arrived",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelFromPrevMin": 15, "travelSource": "upstream", "actualArriveAt": "2026-10-20T02:20:00.000Z", "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            },
+            {
+              "nodeId": "node-c", "placeId": "place-c", "placeName": "圣索菲亚教堂", "seq": 2, "status": "pending",
+              "location": {"latitude": 45.7703, "longitude": 126.6206},
+              "plannedArriveAt": "2026-10-20T03:20:00.000Z", "plannedLeaveAt": "2026-10-20T04:20:00.000Z", "plannedStayMin": 60,
+              "travelFromPrevMin": 20, "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-c", "name": "圣索菲亚教堂", "category": "spot", "location": {"latitude": 45.7703, "longitude": 126.6206}, "confidence": "normal", "verifiedAt": "2026-10-14T02:20:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-a",
+          "crewId": "crew-a",
+          "tripId": "trip-a",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "departed",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": "2026-10-20T01:15:00.000Z",
+          "departedAt": "2026-10-20T01:20:00.000Z",
+          "participants": [
+            {"userId": "owner-a", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": "2026-10-20T01:15:00.000Z", "declinedAt": null},
+            {"userId": "member-b", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": "2026-10-20T01:05:00.000Z", "declinedAt": null},
+            {"userId": "member-c", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:06:00.000Z", "arrivedAt": "2026-10-20T01:09:00.000Z", "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "member-b", "point": {"latitude": 45.7810, "longitude": 126.6185}, "source": "gps", "reportedAt": "2026-10-20T02:29:00.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "trip.adjust", "payload": {"tripId": "trip-a", "trigger": {"type": "shorten_stay", "payload": {"nodeId": "node-b", "deltaMin": 15}}}, "expectedVersion": null, "note": "第二次修改：压缩 node-b 的停留。重算输入应只含未完成节点（node-b、node-c）"},
+        {"step": 2, "actor": "owner-a", "action": "trip.confirmChange", "payload": {"proposalId": "<step1.proposalId>", "candidateId": "<step1.candidates 中 feasible=true 的 candidateId>"}, "expectedVersion": 6, "note": "确认第二次修改：版本 6 → 7"},
+        {"step": 3, "actor": "owner-a", "action": "trip.get", "payload": {"tripId": "trip-a"}, "expectedVersion": null, "note": "核对：已完成的 node-a 不得回到待办，node-b 与 node-c 保留各自身份"}
+      ],
+      "expectedState": {
+        "trip": {
+          "version": 7,
+          "nodes": "只包含重算后的未完成节点（node-b、node-c），seq 从 0 连续编号；已 done 的 node-a 不得出现，也不得以 pending 状态复活",
+          "note": "已 done 的既成事实不参与重算，它的进度记录保留在事件日志里"
+        },
+        "response": {
+          "step1": {"candidates": "非空；候选 impact 的 removedNodeIds / shortenedNodeIds 只可能涉及未完成节点"},
+          "step2": {"applied": true, "version": 7, "changes": "非空"}
+        }
+      },
+      "invariants": [
+        "trip.adjust 只把 status 为 pending 或 arrived 的节点作为重算输入，已 done 的节点不参与",
+        "确认后 trip.nodes 不得包含已 done 的节点，也不得让它以 pending 状态复活",
+        "已 done 节点不得出现在候选 impact 的 removedNodeIds 或 shortenedNodeIds 中",
+        "确认后 nodes 的 seq 从 0 起连续编号",
+        "被重算的 arrived 节点（node-b）必须保留原 nodeId 与 placeId（不得换身份）",
+        "已完成的进度动作必须在 events 中留有 api_call 记录（既成事实有留痕，不随调整消失）"
+      ],
+      "mustNotHappen": [
+        "把已完成的节点重新排进待办、或重新计算它的停留时间",
+        "因为重算而改变 node-b / node-c 的 nodeId",
+        "把已 done 节点算进 impact 的「删除了什么」里"
+      ],
+      "proves": "调整的范围边界：既成事实不被重算，重算只发生在未完成节点上",
+      "doesNotProve": "真实游览中「已完成」的判断是否与用户认知一致",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-013",
+      "core": true,
+      "evidenceLevel": "indoor_device",
+      "category": "成员确认旧版本",
+      "title": "集合内容已升版后：旧 expectedVersion 的确认必须被拒并提示刷新",
+      "initialState": {
+        "clock": "2026-10-20T01:30:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-a",
+          "mode": "team",
+          "crewId": "crew-a",
+          "status": "active",
+          "version": 3,
+          "plannedEndAt": "2026-10-20T05:30:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T08:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "pending",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-a",
+          "crewId": "crew-a",
+          "tripId": "trip-a",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "confirmed",
+          "version": 2,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": null,
+          "departedAt": null,
+          "departureCheck": null,
+          "linkToTrip": {"affectsNodeId": "node-a", "plannedLeaveAt": "2026-10-20T01:00:00.000Z", "delayMin": 0},
+          "participants": [
+            {"userId": "owner-a", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": null, "declinedAt": null},
+            {"userId": "member-b", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": null, "declinedAt": null},
+            {"userId": "member-c", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:06:00.000Z", "arrivedAt": null, "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:29:00.000Z", "stale": false},
+          {"userId": "member-c", "point": {"latitude": 45.7750, "longitude": 126.6169}, "source": "gps", "reportedAt": "2026-10-20T01:29:30.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "member-b", "action": "meet.get", "payload": {"meetTaskId": "meet-a"}, "expectedVersion": null, "note": "member-b 打开集合页（设备 2）：必须看到「我的确认已失效」"},
+        {"step": 2, "actor": "member-b", "action": "meet.confirm", "payload": {"meetTaskId": "meet-a", "decision": "confirm"}, "expectedVersion": 1, "note": "member-b 用旧版本确认（负向探针）：必须被拒 VERSION_CONFLICT，不得写入 confirmedVersion"},
+        {"step": 3, "actor": "member-b", "action": "meet.confirm", "payload": {"meetTaskId": "meet-a", "decision": "confirm"}, "expectedVersion": 2, "note": "刷新后按当前版本重新确认：写入 confirmedVersion=2"},
+        {"step": 4, "actor": "owner-a", "action": "meet.get", "payload": {"meetTaskId": "meet-a"}, "expectedVersion": null, "note": "发起人（设备 1）读取：失效名单里应不再有 member-b，但仍含 owner-a 与 member-c"}
+      ],
+      "expectedState": {
+        "meetTask": {
+          "version": 2,
+          "status": "confirmed",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "departedAt": null,
+          "participants": "member-b 的 confirmedVersion=2、confirmedAt 为步骤 3 的时刻；owner-a 与 member-c 仍为 confirmedVersion=1"
+        },
+        "trip": {"version": 3, "note": "确认只影响集合任务，不动行程"},
+        "response": {
+          "step1": {"myConfirmationValid": false, "staleConfirmations": "非空且包含 member-b"},
+          "step2": {"ok": false, "error.code": "VERSION_CONFLICT"},
+          "step3": {"version": 2, "myStatus": "confirmed", "allConfirmed": false, "note": "其余两人仍是旧版本，所以整体仍未全员确认"},
+          "step4": {"staleConfirmations": "包含 owner-a 与 member-c，不包含 member-b"}
+        }
+      },
+      "invariants": [
+        "夹具初始状态必须原样注入（meetTask.version=2 且三名参与者 confirmedVersion=1）；不得用允许的 action 伪造该版本",
+        "确认必须携带信封 expectedVersion；与任务当前版本不一致时必须 VERSION_CONFLICT，且不得写入任何 confirmedVersion",
+        "有效确认只统计 confirmedVersion === version 的参与者，确认版本不等于当前版本者一律不算",
+        "meet.get 必须如实告知失效：myConfirmationValid=false、staleConfirmations 非空",
+        "确认本身不改变 meetTask.version（版本由集合内容变化驱动，不由确认驱动）",
+        "部分成员重新确认后 allConfirmed 仍为 false，集合状态不得提前推进"
+      ],
+      "mustNotHappen": [
+        "把旧版本的确认算作有效确认（旧确认不得用于新版本）",
+        "在版本不匹配时静默按当前版本执行",
+        "确认被拒后仍写入 confirmedAt 或改变参与者状态"
+      ],
+      "proves": "expectedVersion 机制：旧版本确认被拒，且界面可识别哪些确认已失效",
+      "doesNotProve": "成员是否真的看到了刷新提示，也不知道版本为何变化的业务沟通是否到位（版本变化本身由夹具给定，不由本批案例产生证据）",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-014",
+      "core": false,
+      "evidenceLevel": "replay",
+      "category": "成员确认旧版本",
+      "title": "expectedVersion 必须走请求信封：缺失或塞进 payload 一律拒绝",
+      "initialState": {
+        "clock": "2026-10-20T02:00:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-a",
+          "mode": "team",
+          "crewId": "crew-a",
+          "status": "active",
+          "version": 3,
+          "plannedEndAt": "2026-10-20T05:30:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T08:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "done",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": "2026-10-20T01:10:00.000Z", "actualLeaveAt": "2026-10-20T01:55:00.000Z",
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelFromPrevMin": 15, "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-a",
+          "crewId": "crew-a",
+          "tripId": "trip-a",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "confirmed",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": null,
+          "departedAt": null,
+          "departureCheck": null,
+          "participants": [
+            {"userId": "owner-a", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": null, "declinedAt": null},
+            {"userId": "member-b", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": null, "declinedAt": null},
+            {"userId": "member-c", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:06:00.000Z", "arrivedAt": null, "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:59:00.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "trip.adjust", "payload": {"tripId": "trip-a", "trigger": {"type": "shorten_stay", "payload": {"nodeId": "node-b", "deltaMin": 10}}}, "expectedVersion": null, "note": "先产生一个基于版本 3 的提案，为下一步的缺陷回归准备现场"},
+        {"step": 2, "actor": "owner-a", "action": "trip.confirmChange", "payload": {"proposalId": "<step1.proposalId>", "candidateId": "<step1.candidates 中 feasible=true 的 candidateId>"}, "expectedVersion": null, "note": "真实缺陷的复现形态：客户端把版本号写进了 payload、信封不带（执行器按此形态调用：payload 里额外带 expectedVersion=3；本数据集的 payload 不写该键，以免与「expectedVersion 属于信封」的字段纪律混淆）。信封为空 → 必须 INVALID_PARAM，trip.version 保持 3"},
+        {"step": 3, "actor": "member-b", "action": "meet.confirm", "payload": {"meetTaskId": "meet-a", "decision": "confirm"}, "expectedVersion": null, "note": "同一缺陷形态在集合确认上的复现：payload 里带 expectedVersion=1、信封不带 → 同样必须 INVALID_PARAM，参与者状态不变"},
+        {"step": 4, "actor": "owner-a", "action": "trip.confirmChange", "payload": {"proposalId": "<step1.proposalId>", "candidateId": "<step1.candidates 中 feasible=true 的 candidateId>"}, "expectedVersion": 3, "note": "把版本放回信封后确认：应当成功，版本 3 → 4"},
+        {"step": 5, "actor": "member-b", "action": "meet.confirm", "payload": {"meetTaskId": "meet-a", "decision": "confirm"}, "expectedVersion": 1, "note": "把版本放回信封后确认集合：应当成功"}
+      ],
+      "expectedState": {
+        "trip": {"version": 4, "note": "只有 step4 的信封版本校验通过后才 +1"},
+        "proposal": {"step1 的提案": {"status": "confirmed", "baseVersion": 3}},
+        "meetTask": {"version": 1, "participants": "member-b 的 confirmedVersion=1（步骤 5 写入）；步骤 3 未产生任何写入"},
+        "response": {
+          "step2": {"ok": false, "error.code": "INVALID_PARAM"},
+          "step3": {"ok": false, "error.code": "INVALID_PARAM"},
+          "step4": {"applied": true, "version": 4},
+          "step5": {"myStatus": "confirmed"}
+        }
+      },
+      "invariants": [
+        "expectedVersion 必须从请求信封读取（invoke 的 event.expectedVersion → ctx.expectedVersion）；payload 里的同名键不得被当作版本号",
+        "缺少信封 expectedVersion 时一律 INVALID_PARAM，不得回落到「当前版本」（回落会让校验恒为通过）",
+        "校验失败时不得写入 trip.nodes、提案状态或 meet 的 participants",
+        "expectedVersion 出现在 payload 里不构成任何校验依据，也不得因此提前返回成功"
+      ],
+      "mustNotHappen": [
+        "把 payload.expectedVersion 当作版本依据",
+        "缺少 expectedVersion 时按当前版本执行写入",
+        "因为 payload 里有 expectedVersion 就跳过错层检查"
+      ],
+      "proves": "真实缺陷（版本校验在生产路径上从未生效）的回归：确认必须显式给版本，系统不提供兜底",
+      "doesNotProve": "其它写入路径是否都遵守同一信封约定（需逐 action 检查，本批只覆盖 trip.confirmChange 与 meet.confirm）",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-015",
+      "core": false,
+      "evidenceLevel": "synthetic",
+      "category": "成员确认旧版本",
+      "title": "出发检查与路线版本绑定：路线更新后旧 checkId 必须被拒",
+      "initialState": {
+        "clock": "2026-10-20T01:45:00.000Z",
+        "crew": {
+          "crewId": "crew-b",
+          "name": "两人小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 2,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-b",
+          "mode": "team",
+          "crewId": "crew-b",
+          "status": "active",
+          "version": 5,
+          "plannedEndAt": "2026-10-20T05:30:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T08:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "done",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": "2026-10-20T01:10:00.000Z", "actualLeaveAt": "2026-10-20T01:40:00.000Z",
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelFromPrevMin": 15, "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-b",
+          "crewId": "crew-b",
+          "tripId": "trip-b",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "arrived_all",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": "2026-10-20T01:35:00.000Z",
+          "departedAt": null,
+          "departureCheck": null,
+          "participants": [
+            {"userId": "owner-a", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": "2026-10-20T01:35:00.000Z", "declinedAt": null},
+            {"userId": "member-b", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": "2026-10-20T01:28:00.000Z", "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:44:00.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "meet.prepareDepart", "payload": {"meetTaskId": "meet-b"}, "expectedVersion": 1, "note": "检查通过：canDepart=true，返回 checkId（该检查绑定当时的 trip.version=5）"},
+        {"step": 2, "actor": "owner-a", "action": "trip.adjust", "payload": {"tripId": "trip-b", "trigger": {"type": "shorten_stay", "payload": {"nodeId": "node-b", "deltaMin": 10}}}, "expectedVersion": null, "note": "检查之后、出发之前又来了一次修改：产生基于版本 5 的提案"},
+        {"step": 3, "actor": "owner-a", "action": "trip.confirmChange", "payload": {"proposalId": "<step2.proposalId>", "candidateId": "<step2.candidates 中 feasible=true 的 candidateId>"}, "expectedVersion": 5, "note": "确认修改：路线版本 5 → 6"},
+        {"step": 4, "actor": "owner-a", "action": "meet.depart", "payload": {"meetTaskId": "meet-b", "checkId": "<step1.checkId>"}, "expectedVersion": 1, "note": "用检查时的旧路线版本出发（负向探针）：必须被拒 VERSION_CONFLICT，departedAt 保持 null"},
+        {"step": 5, "actor": "owner-a", "action": "meet.prepareDepart", "payload": {"meetTaskId": "meet-b"}, "expectedVersion": 1, "note": "基于新路线重新检查：canDepart=true，返回新的 checkId（服务端存的 departureCheck.tripVersion 应为 6）"},
+        {"step": 6, "actor": "owner-a", "action": "meet.depart", "payload": {"meetTaskId": "meet-b", "checkId": "<step5.checkId>"}, "expectedVersion": 1, "note": "用新检查出发：写 ③ departedAt"}
+      ],
+      "expectedState": {
+        "meetTask": {
+          "status": "departed",
+          "departedAt": "非空（步骤 6 的服务端时刻）",
+          "departureCheck": "步骤 5 写入的检查（tripVersion=6）"
+        },
+        "trip": {"version": 6, "note": "步骤 3 的确认是唯一一次版本变化"},
+        "response": {
+          "step1": {"canDepart": true, "checkId": "非空"},
+          "step4": {"ok": false, "error.code": "VERSION_CONFLICT"},
+          "step5": {"canDepart": true, "checkId": "非空且与 step1.checkId 不同"},
+          "step6": {"status": "departed", "departedAt": "非空"}
+        }
+      },
+      "invariants": [
+        "出发检查与路线版本绑定：departureCheck.tripVersion 必须等于出发时的 trip.version",
+        "路线更新后旧 checkId 必须失效（VERSION_CONFLICT），不得沿用旧检查出发",
+        "重新检查必须基于最新 trip.version",
+        "被拒的出发不得写入 departedAt、不得改变 trip.nodes"
+      ],
+      "mustNotHappen": [
+        "只看检查是否过期、不看路线是否已更新",
+        "检查被路线更新作废后仍按旧结果出发",
+        "把「重新检查」当成可省略的一次点击"
+      ],
+      "proves": "检查结果与版本绑定（不只是时间有效期）",
+      "doesNotProve": "用户在出发现场能否及时重新检查（需要真实设备与真实网络）",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-016",
+      "core": false,
+      "evidenceLevel": "indoor_device",
+      "category": "成员确认旧版本",
+      "title": "更换集合地点＝发起新一轮：旧轮次的确认不得计入新一轮",
+      "initialState": {
+        "clock": "2026-10-20T03:00:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-a",
+          "mode": "team",
+          "crewId": "crew-a",
+          "status": "active",
+          "version": 3,
+          "plannedEndAt": "2026-10-20T05:30:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T08:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 0, "status": "arrived",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelSource": "upstream", "actualArriveAt": "2026-10-20T02:20:00.000Z", "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            },
+            {
+              "nodeId": "node-c", "placeId": "place-c", "placeName": "圣索菲亚教堂", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7703, "longitude": 126.6206},
+              "plannedArriveAt": "2026-10-20T03:20:00.000Z", "plannedLeaveAt": "2026-10-20T04:20:00.000Z", "plannedStayMin": 60,
+              "travelFromPrevMin": 20, "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-c", "name": "圣索菲亚教堂", "category": "spot", "location": {"latitude": 45.7703, "longitude": 126.6206}, "confidence": "normal", "verifiedAt": "2026-10-14T02:20:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-a",
+          "crewId": "crew-a",
+          "tripId": "trip-a",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "departed",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7810, "longitude": 126.6185},
+          "placeName": "防洪纪念塔（南门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": "2026-10-20T01:15:00.000Z",
+          "departedAt": "2026-10-20T01:20:00.000Z",
+          "participants": [
+            {"userId": "owner-a", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": "2026-10-20T01:15:00.000Z", "declinedAt": null},
+            {"userId": "member-b", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": "2026-10-20T01:05:00.000Z", "declinedAt": null},
+            {"userId": "member-c", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:06:00.000Z", "arrivedAt": "2026-10-20T01:09:00.000Z", "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "owner-a", "point": {"latitude": 45.7810, "longitude": 126.6185}, "source": "gps", "reportedAt": "2026-10-20T02:59:00.000Z", "stale": false},
+          {"userId": "member-b", "point": {"latitude": 45.7812, "longitude": 126.6180}, "source": "gps", "reportedAt": "2026-10-20T02:59:20.000Z", "stale": false},
+          {"userId": "member-c", "point": {"latitude": 45.7808, "longitude": 126.6190}, "source": "gps", "reportedAt": "2026-10-20T02:59:40.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "meet.create", "payload": {"crewId": "crew-a", "tripId": "trip-a", "plannedMeetAt": "2026-10-20T03:30:00.000Z", "point": {"latitude": 45.7749, "longitude": 126.6240}, "placeName": "兆麟公园（北门）", "method": "manual"}, "expectedVersion": null, "note": "更换集合地点：新建一轮（round 2，version 1）；发起人自己的确认自动生效，其余人为 invited"},
+        {"step": 2, "actor": "member-b", "action": "meet.confirm", "payload": {"meetTaskId": "<step1.meetTaskId>", "decision": "confirm"}, "expectedVersion": 1, "note": "member-b 在第一台设备上确认新一轮"},
+        {"step": 3, "actor": "owner-a", "action": "meet.get", "payload": {"meetTaskId": "<step1.meetTaskId>"}, "expectedVersion": null, "note": "发起人读取：member-c 还没确认，allConfirmed 必须仍为 false"},
+        {"step": 4, "actor": "member-c", "action": "meet.confirm", "payload": {"meetTaskId": "<step1.meetTaskId>", "decision": "confirm"}, "expectedVersion": 1, "note": "member-c 在第二台设备上确认：此时新一轮才全员确认"},
+        {"step": 5, "actor": "owner-a", "action": "meet.get", "payload": {"meetTaskId": "meet-a"}, "expectedVersion": null, "note": "回看旧轮次：新一轮不得改写旧任务的任何字段"}
+      ],
+      "expectedState": {
+        "新一轮（step1 返回的集合任务）": {
+          "round": 2,
+          "version": 1,
+          "status": "confirmed",
+          "plannedMeetAt": "2026-10-20T03:30:00.000Z",
+          "allArrivedAt": null,
+          "departedAt": null,
+          "participants": "owner-a confirmed / confirmedVersion=1；member-b 与 member-c confirmed / confirmedVersion=1（步骤 2、4 写入）"
+        },
+        "旧一轮（meet-a）": {
+          "status": "departed",
+          "version": 1,
+          "participants": "与初始完全一致（仍为 arrived / confirmedVersion=1）"
+        },
+        "response": {
+          "step1": {"meetTaskId": "非空（新任务 id）", "round": 2, "version": 1, "status": "proposed"},
+          "step3": {"allConfirmed": false, "myConfirmationValid": true},
+          "step4": {"allConfirmed": true, "confirmedCount": 3}
+        }
+      },
+      "invariants": [
+        "新一轮参与者的 confirmedVersion 初始为 null（发起人除外 —— 他刚点过发起，为 1），旧轮次的确认不得计入新一轮",
+        "同一小队的多次集合是相互独立的任务：新一轮不得改写旧轮次的 participants、version 或 status",
+        "每次 meet.create 的 plannedMeetAt 必须显式给出，不得沿用旧轮次推断",
+        "round 必须比该小队已有的集合任务数大 1",
+        "新一轮的 allArrivedAt 与 departedAt 必须从 null 起算，不得继承旧轮次"
+      ],
+      "mustNotHappen": [
+        "把旧轮次的确认当成新一轮的确认（换个地点却不用重新确认）",
+        "新一轮创建时改写或关闭旧轮次",
+        "沿用旧轮次的 plannedMeetAt 作为新一轮的计划时间"
+      ],
+      "proves": "更换集合地点的落地形态（新建一轮）与确认的轮次隔离",
+      "doesNotProve": "现场重新集合的沟通成本，以及成员是否都收到并看到了新一轮通知",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-017",
+      "core": false,
+      "evidenceLevel": "indoor_device",
+      "category": "成员退出、位置过期",
+      "title": "成员退出与重新加入：权限与位置共享立即更新",
+      "initialState": {
+        "clock": "2026-10-20T02:00:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "inviteCode": "ABC234",
+          "shareLocationDefault": true,
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-a",
+          "mode": "team",
+          "crewId": "crew-a",
+          "status": "active",
+          "version": 3,
+          "plannedEndAt": "2026-10-20T05:30:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T08:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "pending",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:15:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-a",
+          "crewId": "crew-a",
+          "tripId": "trip-a",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "confirmed",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T02:15:00.000Z",
+          "allArrivedAt": null,
+          "departedAt": null,
+          "participants": [
+            {"userId": "owner-a", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": null, "declinedAt": null},
+            {"userId": "member-b", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": null, "declinedAt": null},
+            {"userId": "member-c", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:06:00.000Z", "arrivedAt": null, "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "owner-a", "point": {"latitude": 45.7756, "longitude": 126.6175}, "source": "gps", "reportedAt": "2026-10-20T01:59:00.000Z", "stale": false},
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:59:10.000Z", "stale": false},
+          {"userId": "member-c", "point": {"latitude": 45.7750, "longitude": 126.6169}, "source": "gps", "reportedAt": "2026-10-20T01:59:20.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "member-c", "action": "crew.leave", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "member-c 退出小队（设备 2）：应立即停止其位置共享并递减成员数"},
+        {"step": 2, "actor": "member-c", "action": "crew.get", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "退出后读队伍（负向探针）：必须 FORBIDDEN_NOT_MEMBER"},
+        {"step": 3, "actor": "member-c", "action": "loc.list", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "退出后读位置（负向探针）：必须 FORBIDDEN_NOT_MEMBER，不得返回任何坐标"},
+        {"step": 4, "actor": "member-c", "action": "loc.report", "payload": {"crewId": "crew-a", "point": {"latitude": 45.7750, "longitude": 126.6169}, "source": "gps"}, "expectedVersion": null, "note": "退出后继续上报位置（负向探针）：必须被拒，不得接受写入"},
+        {"step": 5, "actor": "owner-a", "action": "crew.get", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "发起人读队伍（设备 1）：成员名单与人数应已更新"},
+        {"step": 6, "actor": "owner-a", "action": "loc.list", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "发起人读位置：不得再看到 member-c"},
+        {"step": 7, "actor": "member-c", "action": "crew.join", "payload": {"inviteCode": "ABC234"}, "expectedVersion": null, "note": "member-c 用邀请码重新加入（设备 2）：复用原成员记录，且位置共享重置为队伍默认值，不继承退出前的设置"},
+        {"step": 8, "actor": "owner-a", "action": "crew.get", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "发起人再读队伍（设备 1）：成员数应回到 3，member-c 重新为 active"},
+        {"step": 9, "actor": "owner-a", "action": "meet.get", "payload": {"meetTaskId": "meet-a"}, "expectedVersion": null, "note": "重新加入不等于重新回到该次集合的参与名单：集合任务不得被 crew.join 改写"}
+      ],
+      "expectedState": {
+        "crew（步骤 1–6 之后）": {
+          "memberCount": 2,
+          "members": "只含 owner-a 与 member-b（均为 active）",
+          "note": "member-c 不再出现在成员列表里"
+        },
+        "crew（步骤 7–8 之后）": {
+          "memberCount": 3,
+          "members": "重新包含 member-c（active、role=member、locationSharing=true —— 按队伍默认值重置）"
+        },
+        "位置共享（存储层核对）": "member-c 的记录在步骤 1 后为 status='left'、locationSharing=false；步骤 7 后为 status='active'、locationSharing=true、leftAt=null",
+        "meetTask": {"status": "confirmed", "version": 1, "participants": "与初始一致 —— 退出与重新加入都不得改写集合任务的参与名单"},
+        "response": {
+          "step1": {"revoked": true, "memberCount": 2, "leftAt": "非空"},
+          "step2": {"ok": false, "error.code": "FORBIDDEN_NOT_MEMBER"},
+          "step3": {"ok": false, "error.code": "FORBIDDEN_NOT_MEMBER"},
+          "step4": {"ok": false, "error.code": "FORBIDDEN_NOT_MEMBER"},
+          "step6": {"members": "不含 member-c"},
+          "step7": {"joined": true, "role": "member", "memberCount": 3},
+          "step8": {"members": "含 member-c"}
+        }
+      },
+      "invariants": [
+        "退出立即生效：该成员之后的任何队伍读取/写入必须 FORBIDDEN_NOT_MEMBER（成员身份不得缓存）",
+        "crew.memberCount 必须等于 status === 'active' 的成员数",
+        "退出即停止位置共享（存储层 locationSharing=false 且 status='left'），不得等用户手动关闭",
+        "退出者不得再出现在 loc.list 的返回里",
+        "重新加入复用原成员记录（不新增重复成员），且位置共享重置为队伍默认值，不继承退出前的设置",
+        "退出与重新加入都不得改写既有集合任务的 participants（重新加入不等于回到该次集合的参与名单）",
+        "退出不得改写集合任务或行程（不得顺手改 meet / trip）"
+      ],
+      "mustNotHappen": [
+        "退出后仍能读到队伍或位置",
+        "memberCount 不递减（把已退出者算作成员）",
+        "需要额外的「失效」动作才撤销访问",
+        "重新加入时保留退出前关闭共享的设置（应当回到队伍默认值）"
+      ],
+      "proves": "成员变化（退出与重新加入）时的权限撤销、位置共享重置与集合名单隔离",
+      "doesNotProve": "真实退出意愿与团队沟通，也不涉及真实位置数据",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-018",
+      "core": false,
+      "evidenceLevel": "synthetic",
+      "category": "成员退出、位置过期",
+      "title": "位置过期由服务端判定：过期位置不得进入集合点推荐",
+      "initialState": {
+        "clock": "2026-10-20T01:40:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "places": [
+          {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z", "dataSource": "survey"}
+        ],
+        "locations": [
+          {"userId": "owner-a", "point": {"latitude": 45.7756, "longitude": 126.6175}, "source": "gps", "reportedAt": "2026-10-20T01:39:00.000Z", "stale": false},
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:30:00.000Z", "stale": true},
+          {"userId": "member-c", "point": {"latitude": 45.7750, "longitude": 126.6169}, "source": "gps", "reportedAt": "2026-10-20T01:39:30.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "loc.list", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "读位置时效：member-b 必须被标为过期，其余成员正常"},
+        {"step": 2, "actor": "owner-a", "action": "meet.recommend", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "存在过期位置时推荐（负向探针）：候选必须被排除，不得用旧坐标算出看起来可行的候选"},
+        {"step": 3, "actor": "member-b", "action": "loc.report", "payload": {"crewId": "crew-a", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps"}, "expectedVersion": null, "note": "member-b 重新定位：reportedAt 取服务端时刻"},
+        {"step": 4, "actor": "owner-a", "action": "loc.list", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "再读位置：member-b 应已回到有效"},
+        {"step": 5, "actor": "owner-a", "action": "meet.recommend", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "位置有效后推荐：候选应恢复（来源为地点库）"},
+        {"step": 6, "actor": "owner-a", "action": "loc.list", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "【调用前先把夹具时钟推进到超过时效阈值 —— 时间推进不是接口调用，不计入 steps】同一份数据应重新变为过期：时效是随时间变化的判定，不是一次性写入的字段"}
+      ],
+      "expectedState": {
+        "locations": "时效字段（ageSeconds / stale）由服务端按 reportedAt 与阈值计算，不由客户端决定",
+        "response": {
+          "step1": {"member-b": {"stale": true, "reporting": "stale", "ageSeconds": "非空"}, "owner-a 与 member-c": {"stale": false, "reporting": "ok"}},
+          "step2": {"candidates": "空数组", "excluded": "含 {userId: member-b, reason: LOCATION_STALE}"},
+          "step3": {"reportedAt": "服务端时刻", "locationId": "非空"},
+          "step4": {"member-b": {"stale": false, "reporting": "ok"}},
+          "step5": {"candidates": "非空", "candidateSource": "library"},
+          "step6": {"member-b": {"stale": true}}
+        }
+      },
+      "invariants": [
+        "stale 必须由服务端按 reportedAt 与阈值（当前实现 STALE_THRESHOLD_SEC = 120 秒）计算，客户端时间不得参与判定",
+        "存在过期位置的成员时，集合点候选必须被排除并给出 LOCATION_STALE，不得用旧坐标算出看起来可行的候选",
+        "loc.report 的 reportedAt 一律取服务端时间（客户端时间只作诊断）",
+        "时效随时间变化：同一份数据在时钟推进后必须变为 stale（同一份数据不得被冻结为有效）",
+        "状态读取与判定结果必须随每次请求重新计算，不得缓存过期结论"
+      ],
+      "mustNotHappen": [
+        "用过期坐标给出集合点候选",
+        "把「过期」当成「没有位置」以外的另一种成功路径",
+        "由客户端时间决定 stale（那会让改设备时钟影响判定）"
+      ],
+      "proves": "位置有效性与集合点准入的联动（排除原因可定位）",
+      "doesNotProve": "真实的定位漂移与室内定位误差（本案例只验证时时效判定与准入规则）",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-019",
+      "core": false,
+      "evidenceLevel": "synthetic",
+      "category": "成员退出、位置过期",
+      "title": "成员关闭位置共享：不返回坐标，推荐降级为手动选点",
+      "initialState": {
+        "clock": "2026-10-20T02:20:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": false},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": false},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "places": [
+          {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z", "dataSource": "survey"}
+        ],
+        "locations": [
+          {"userId": "member-c", "point": {"latitude": 45.7750, "longitude": 126.6169}, "source": "gps", "reportedAt": "2026-10-20T02:19:00.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "member-c", "action": "loc.stopSharing", "payload": {"crewId": "crew-a", "sharing": false}, "expectedVersion": null, "note": "member-c 关闭自己的位置共享（个人级开关）"},
+        {"step": 2, "actor": "member-c", "action": "loc.report", "payload": {"crewId": "crew-a", "point": {"latitude": 45.7750, "longitude": 126.6169}, "source": "gps"}, "expectedVersion": null, "note": "关闭后继续上报（负向探针）：必须被拒 LOCATION_SHARING_OFF"},
+        {"step": 3, "actor": "owner-a", "action": "loc.list", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "发起人读位置：member-b 与 member-c 只能看到「已关闭共享」，不得带坐标或上报时间"},
+        {"step": 4, "actor": "owner-a", "action": "meet.recommend", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "全员都不可用时推荐：必须走手动选点降级，不得返回空候选当作成功"}
+      ],
+      "expectedState": {
+        "crew": "member-c 的 locationSharing 变为 false（个人级开关的权威值在成员记录上）；其余成员不受影响",
+        "response": {
+          "step1": {"sharing": false, "note": "非空（应说明队伍将看不到你的位置）"},
+          "step2": {"ok": false, "error.code": "LOCATION_SHARING_OFF"},
+          "step3": {"owner-a": {"point": null, "hasLocation": false, "reporting": "none"}, "member-b 与 member-c": {"sharingOff": true, "note": "不得含 point / reportedAt / source"}},
+          "step4": {"candidates": "空数组", "reason": "NO_LOCATION_AVAILABLE", "manualFallback": true, "excluded": "每条带 reason=LOCATION_SHARING_OFF"}
+        }
+      },
+      "invariants": [
+        "关闭共享后，其它成员读到的该成员记录必须只有 sharingOff=true，不得含 point / reportedAt / source",
+        "关闭共享后 loc.report 必须被拒 LOCATION_SHARING_OFF（不得「关了还在传」）",
+        "所有成员都关闭共享时，meet.recommend 必须走手动选点降级（manualFallback=true、reason=NO_LOCATION_AVAILABLE）",
+        "不得用历史坐标凑候选，也不得把空候选当作成功返回",
+        "本人仍可读到自己的记录，但这不等于队伍可见（关闭共享不得让队伍看到坐标）"
+      ],
+      "mustNotHappen": [
+        "关闭共享后仍向队伍返回坐标",
+        "推荐失败时静默返回空列表（界面无从判断为什么没有候选）",
+        "用最后一条历史位置充当当前可用位置"
+      ],
+      "proves": "位置共享开关的权限语义与推荐降级路径（无位置时给出可行动的出路）",
+      "doesNotProve": "用户为何关闭共享，以及手动选点在实际集合中的效果",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-020",
+      "core": false,
+      "evidenceLevel": "synthetic",
+      "category": "成员退出、位置过期",
+      "title": "发起人移除成员：owner 专属权限与被移除者的访问撤销",
+      "initialState": {
+        "clock": "2026-10-20T02:00:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "trip": {
+          "tripId": "trip-a",
+          "mode": "team",
+          "crewId": "crew-a",
+          "status": "active",
+          "version": 3,
+          "plannedEndAt": "2026-10-20T05:30:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T08:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "pending",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:15:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-a",
+          "crewId": "crew-a",
+          "tripId": "trip-a",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "confirmed",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T02:15:00.000Z",
+          "allArrivedAt": null,
+          "departedAt": null,
+          "participants": [
+            {"userId": "owner-a", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": null, "declinedAt": null},
+            {"userId": "member-b", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": null, "declinedAt": null},
+            {"userId": "member-c", "status": "confirmed", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:06:00.000Z", "arrivedAt": null, "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "owner-a", "point": {"latitude": 45.7756, "longitude": 126.6175}, "source": "gps", "reportedAt": "2026-10-20T01:59:00.000Z", "stale": false},
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:59:10.000Z", "stale": false},
+          {"userId": "member-c", "point": {"latitude": 45.7750, "longitude": 126.6169}, "source": "gps", "reportedAt": "2026-10-20T01:59:20.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "member-b", "action": "crew.remove", "payload": {"crewId": "crew-a", "userId": "member-c"}, "expectedVersion": null, "note": "非发起人尝试移除他人（负向探针）：必须 FORBIDDEN_NOT_MEMBER（仅发起人可用）"},
+        {"step": 2, "actor": "owner-a", "action": "crew.remove", "payload": {"crewId": "crew-a", "userId": "owner-a"}, "expectedVersion": null, "note": "发起人尝试移除自己（负向探针）：必须 INVALID_PARAM，解散走另一条路径"},
+        {"step": 3, "actor": "owner-a", "action": "crew.remove", "payload": {"crewId": "crew-a", "userId": "member-c"}, "expectedVersion": null, "note": "发起人移除 member-c：成员数递减、被移除者停止共享"},
+        {"step": 4, "actor": "member-c", "action": "crew.get", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "被移除者读队伍（负向探针）：必须 FORBIDDEN_NOT_MEMBER"},
+        {"step": 5, "actor": "member-c", "action": "loc.list", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "被移除者读位置（负向探针）：必须 FORBIDDEN_NOT_MEMBER"},
+        {"step": 6, "actor": "owner-a", "action": "loc.list", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "发起人读位置：只应看到仍为 active 的两名成员"}
+      ],
+      "expectedState": {
+        "crew": {"memberCount": 2, "members": "只含 owner-a 与 member-b"},
+        "位置共享（存储层核对）": "crew_members 中 member-c 的记录为 status='removed'、locationSharing=false",
+        "response": {
+          "step1": {"ok": false, "error.code": "FORBIDDEN_NOT_MEMBER"},
+          "step2": {"ok": false, "error.code": "INVALID_PARAM"},
+          "step3": {"removed": true, "userId": "member-c", "memberCount": 2},
+          "step4": {"ok": false, "error.code": "FORBIDDEN_NOT_MEMBER"},
+          "step5": {"ok": false, "error.code": "FORBIDDEN_NOT_MEMBER"},
+          "step6": {"members": "不含 member-c"}
+        }
+      },
+      "invariants": [
+        "仅发起人（role=owner）可移除成员，其它成员调用必须 FORBIDDEN_NOT_MEMBER",
+        "发起人不能移除自己（INVALID_PARAM）",
+        "被移除后该成员的任何队伍请求必须被拒，memberCount 只统计 active 成员",
+        "移除即停止其位置共享（locationSharing=false），且不再出现在 loc.list 的返回里",
+        "被拒的移除（步骤 1、2）不得改变任何成员记录"
+      ],
+      "mustNotHappen": [
+        "普通成员也能移除他人",
+        "发起人把自己移除后队伍失去 owner",
+        "被移除者仍能读取队伍或位置"
+      ],
+      "proves": "权限边界（owner 专属动作）与成员有效性的即时更新",
+      "doesNotProve": "被移除者的实际离队行为与团队关系",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-021",
+      "core": true,
+      "evidenceLevel": "replay",
+      "category": "地图或 AI 失败",
+      "title": "地图路线接口失败：不返回假路线，计划如实标注为估算",
+      "initialState": {
+        "clock": "2026-10-20T02:10:00.000Z",
+        "crew": {
+          "crewId": "crew-b",
+          "name": "两人小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 2,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "places": [
+          {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z", "dataSource": "survey"},
+          {"_id": "place-c", "name": "圣索菲亚教堂", "category": "spot", "location": {"latitude": 45.7703, "longitude": 126.6206}, "confidence": "normal", "verifiedAt": "2026-10-14T02:20:00.000Z", "dataSource": "survey"}
+        ],
+        "trip": {
+          "tripId": "trip-b",
+          "mode": "team",
+          "crewId": "crew-b",
+          "status": "active",
+          "version": 5,
+          "startPoint": {"latitude": 45.7756, "longitude": 126.6175, "label": "我的位置"},
+          "plannedEndAt": "2026-10-20T05:30:00.000Z",
+          "constraints": [
+            {"key": "endAt", "value": "2026-10-20T08:00:00.000Z", "hardness": "hard", "confirmedAt": "2026-10-15T02:00:00.000Z", "sourceMemberIds": ["owner-a"]}
+          ],
+          "nodes": [
+            {
+              "nodeId": "node-a", "placeId": "place-a", "placeName": "中央大街", "seq": 0, "status": "done",
+              "location": {"latitude": 45.7756, "longitude": 126.6175},
+              "plannedArriveAt": "2026-10-20T01:00:00.000Z", "plannedLeaveAt": "2026-10-20T02:00:00.000Z", "plannedStayMin": 60,
+              "travelSource": "upstream", "actualArriveAt": "2026-10-20T01:10:00.000Z", "actualLeaveAt": "2026-10-20T02:00:00.000Z",
+              "placeSnapshot": {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z"}
+            },
+            {
+              "nodeId": "node-b", "placeId": "place-b", "placeName": "防洪纪念塔", "seq": 1, "status": "pending",
+              "location": {"latitude": 45.7810, "longitude": 126.6185},
+              "plannedArriveAt": "2026-10-20T02:15:00.000Z", "plannedLeaveAt": "2026-10-20T03:00:00.000Z", "plannedStayMin": 45,
+              "travelFromPrevMin": 15, "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z"}
+            },
+            {
+              "nodeId": "node-c", "placeId": "place-c", "placeName": "圣索菲亚教堂", "seq": 2, "status": "pending",
+              "location": {"latitude": 45.7703, "longitude": 126.6206},
+              "plannedArriveAt": "2026-10-20T03:20:00.000Z", "plannedLeaveAt": "2026-10-20T04:20:00.000Z", "plannedStayMin": 60,
+              "travelFromPrevMin": 20, "travelSource": "upstream", "actualArriveAt": null, "actualLeaveAt": null,
+              "placeSnapshot": {"_id": "place-c", "name": "圣索菲亚教堂", "category": "spot", "location": {"latitude": 45.7703, "longitude": 126.6206}, "confidence": "normal", "verifiedAt": "2026-10-14T02:20:00.000Z"}
+            }
+          ]
+        },
+        "meetTask": {
+          "meetTaskId": "meet-b",
+          "crewId": "crew-b",
+          "tripId": "trip-b",
+          "initiatorUserId": "owner-a",
+          "round": 1,
+          "status": "departed",
+          "version": 1,
+          "method": "manual",
+          "point": {"latitude": 45.7756, "longitude": 126.6175},
+          "placeName": "中央大街（西门）",
+          "plannedMeetAt": "2026-10-20T01:00:00.000Z",
+          "allArrivedAt": "2026-10-20T01:15:00.000Z",
+          "departedAt": "2026-10-20T01:20:00.000Z",
+          "participants": [
+            {"userId": "owner-a", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:00:00.000Z", "arrivedAt": "2026-10-20T01:15:00.000Z", "declinedAt": null},
+            {"userId": "member-b", "status": "arrived", "confirmedVersion": 1, "confirmedAt": "2026-10-19T12:05:00.000Z", "arrivedAt": "2026-10-20T01:05:00.000Z", "declinedAt": null}
+          ]
+        },
+        "locations": [
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T02:09:00.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "trip.legRoute", "payload": {"tripId": "trip-b", "nodeId": "node-b"}, "expectedVersion": null, "note": "读取到下一段的导航，而地图服务此时不可用（用回放夹具让这次调用显式失败）：结果必须是结构化的失败，不得给出一条编造的路线"},
+        {"step": 2, "actor": "owner-a", "action": "trip.plan", "payload": {"crewId": "crew-b", "placeIds": ["place-b", "place-c"], "startAt": "2026-10-20T02:30:00.000Z", "startPoint": {"latitude": 45.7756, "longitude": 126.6175, "label": "我的位置"}}, "expectedVersion": null, "note": "规划时同样取不到真实路线：必须回落为直线估算，并在结果里标注来源"},
+        {"step": 3, "actor": "owner-a", "action": "trip.get", "payload": {"tripId": "<step2.tripId>"}, "expectedVersion": null, "note": "读回新行程：每段的出行来源必须可区分，估算不得被标成真实路线"}
+      ],
+      "expectedState": {
+        "response": {
+          "step1": {"data.ok": false, "data.reason": "非空（UPSTREAM_FAILED / UPSTREAM_STATUS_* / THREW 之一）", "data.legs": "空数组", "data.message": "非空", "禁止出现": "distanceMeters / durationMinutes / route / legs 内的任何路径与耗时"},
+          "step2": {"walkTimes.failures": "非空（逐段给出失败原因）", "walkTimes.bySource": "含 estimated（估算段必须被计入）", "walkTimes.note": "非空（应说明有段落回落为直线估算、时间可能偏小）", "tripId": "非空"},
+          "step3": {"nodes[].travelSource": "estimated 或 none —— 不得为 upstream / survey"}
+        },
+        "trip（既有行程 trip-b）": {"version": 5, "nodes": "与初始一致（读导航失败不得改写行程）"}
+      },
+      "invariants": [
+        "地图接口失败时 trip.legRoute 的 data.ok 必须为 false 且 legs 为空：不得返回任何 distanceMeters / durationMinutes / route",
+        "规划中取不到真实路线的路段必须计入 walkTimes.failures，其 travelSource 不得为 upstream / survey（估算必须可识别）",
+        "失败不得静默：响应必须带 reason 与 message",
+        "回放夹具找不到对应录音时必须显式失败，不得静默返回空结果",
+        "读取导航失败不得改写任何已存在的行程数据"
+      ],
+      "mustNotHappen": [
+        "把直线估算标成 upstream（真实路线）",
+        "接口失败时返回一条编造的路线或距离",
+        "吞掉失败后给出「看起来可行」的结论而不留痕"
+      ],
+      "proves": "接口失败的降级路径与来源标注：真实路线与直线估算必须可区分，失败必须显式",
+      "doesNotProve": "真实步行时间与估算误差（失败时本来就没有真值；本案例不产生任何真实耗时数据）",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-022",
+      "core": false,
+      "evidenceLevel": "synthetic",
+      "category": "地图或 AI 失败",
+      "title": "模型不可用：回落规则解析并如实留痕，不冒充模型结果",
+      "initialState": {
+        "clock": "2026-10-20T02:00:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "places": [
+          {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z", "dataSource": "survey"},
+          {"_id": "place-b", "name": "防洪纪念塔", "category": "spot", "location": {"latitude": 45.7810, "longitude": 126.6185}, "confidence": "normal", "verifiedAt": "2026-10-14T02:10:00.000Z", "dataSource": "survey"}
+        ],
+        "locations": [
+          {"userId": "owner-a", "point": {"latitude": 45.7756, "longitude": 126.6175}, "source": "gps", "reportedAt": "2026-10-20T01:59:00.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "intent.parse", "payload": {"text": "先逛中央大街一小时，再去防洪纪念塔，尽量少走路", "crewId": "crew-a", "preferModel": true}, "expectedVersion": null, "note": "模型不可用（未配置 Key / 上游失败 / 输出无法解析）时的解析：必须回落到规则解析并留痕"},
+        {"step": 2, "actor": "owner-a", "action": "trip.plan", "payload": {"crewId": "crew-a", "placeIds": ["place-a", "place-b"], "startAt": "2026-10-20T02:30:00.000Z", "startPoint": {"latitude": 45.7756, "longitude": 126.6175, "label": "我的位置"}, "constraints": "<step1.constraints 原样下发>"}, "expectedVersion": null, "note": "把解析结果下发给规划：含糊表达不得变成硬约束"},
+        {"step": 3, "actor": "owner-a", "action": "trip.get", "payload": {"tripId": "<step2.tripId>"}, "expectedVersion": null, "note": "读回行程：只应包含用户点名的两个地点，不得由系统补造地点"}
+      ],
+      "expectedState": {
+        "response": {
+          "step1": {"ok": true, "parser": "rulebased（模型不可用时必须如实标为规则解析）", "degraded": true, "attempts": "非空且含模型解析那一条的失败原因（NOT_CONFIGURED / AI_KEY_NOT_CONFIGURED / AI_UPSTREAM_FAILED / AI_BAD_JSON 之一）", "uncertainties": "非空且含 maxWalkMinutes（「尽量少走」必须留给用户确认）", "constraints": "不得包含把「尽量少走」换算出的 hard 约束", "rawText": "与输入原话逐字一致"},
+          "step2": {"tripId": "非空", "nodes": "非空"}
+        },
+        "requirement（落库）": {"source": "'rule'（不是 'ai'）", "aiMeta.parser": "rulebased", "aiMeta.degraded": true, "aiMeta.attempts": "非空", "rawText": "原话原样保留"},
+        "trip": {"nodes": "只含 place-a 与 place-b 两个地点（用户点名的），nodeCount=2"}
+      },
+      "invariants": [
+        "模型不可用时必须回落到规则解析，并在 parser / degraded / attempts（以及落库的 source 与 aiMeta）如实留痕，不得冒充模型解析结果",
+        "含糊表达一律进 uncertainties，不得被换算成 hard 约束（§6.2）",
+        "需求原话必须原样落库（rawText），不得只留解析结果",
+        "解析失败不得产出用户没有提到的地点",
+        "降级不得阻断主流程：解析仍必须给出可下发给规划的结构化需求"
+      ],
+      "mustNotHappen": [
+        "把规则解析的结果标成模型结果（parser / source 写错）",
+        "把「尽量少走」自动变成 maxWalkMinutes 硬上限",
+        "解析失败时编造结构化需求，或让规划流程直接失败"
+      ],
+      "proves": "AI 失败的降级链与「不猜」纪律（宁可少一个约束，也不拿猜的数值去算可行性）",
+      "doesNotProve": "模型解析质量与规则解析的准确率对比（需要固定测试集与标注，本批不含）",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-023",
+      "core": false,
+      "evidenceLevel": "replay",
+      "category": "地图或 AI 失败",
+      "title": "地图服务不可用：结构化失败并给出可行动提示，不用空结果冒充成功",
+      "initialState": {
+        "clock": "2026-10-20T02:00:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "places": [],
+        "locations": [
+          {"userId": "owner-a", "point": {"latitude": 45.7756, "longitude": 126.6175}, "source": "gps", "reportedAt": "2026-10-20T01:59:00.000Z", "stale": false},
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:59:10.000Z", "stale": false},
+          {"userId": "member-c", "point": {"latitude": 45.7750, "longitude": 126.6169}, "source": "gps", "reportedAt": "2026-10-20T01:59:20.000Z", "stale": false}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "place.search", "payload": {"keyword": "中央大街", "region": "哈尔滨"}, "expectedVersion": null, "note": "地点检索：上游不可用时必须是结构化的失败，并说明这是配置/服务问题而不是「没有这个地方」"},
+        {"step": 2, "actor": "owner-a", "action": "meet.recommend", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "地点库为空，推荐要走实时检索，而上游不可用：必须明确失败并给出手动选点出路"},
+        {"step": 3, "actor": "owner-a", "action": "loc.list", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "与上游无关的能力必须照常工作（成员位置读取不依赖地图服务）"}
+      ],
+      "expectedState": {
+        "response": {
+          "step1": {"data.ok": false, "data.reason": "非空（MAP_KEY_NOT_CONFIGURED / UPSTREAM_FAILED / UPSTREAM_STATUS_* 之一）", "data.hint": "非空（配置问题必须能与「附近没有结果」区分）", "data.candidates": "空数组", "data.mapApiCalls": "非零（调用确实发生了）"},
+          "step2": {"candidates": "空数组", "reason": "非空（与步骤 1 的失败原因一致）", "message": "非空", "manualFallback": true},
+          "step3": {"members": "非空（三名成员），位置读取不受上游失败影响"}
+        },
+        "存储层核对": "places 集合仍为空（检索结果一律不入库，失败更不入库）",
+        "事件日志（存储层核对）": "上述两次失败都应留下 result='error' 与 errCode 的事件记录"
+      },
+      "invariants": [
+        "服务不可用时必须把「配置问题」与「附近没有结果」区分开（reason 与 hint 必须能区分）",
+        "不得用空候选或空列表冒充成功：必须给出 reason 与降级路径（manualFallback=true）",
+        "失败时不得写入 places 集合（检索结果一律不入库）",
+        "上游失败不得影响与之无关的能力（成员位置读取照常）",
+        "失败必须留痕：事件日志中应有 result='error' 与 errCode"
+      ],
+      "mustNotHappen": [
+        "把配置问题报成「附近没有地方」",
+        "静默返回空成功（界面无从判断是没地方还是服务坏了）",
+        "失败时去掉降级出路，让用户无路可走"
+      ],
+      "proves": "上游不可用时的结构化失败与降级提示（失败原因可定位、有可行动出路）",
+      "doesNotProve": "Key 配置正确之后真实检索的覆盖率与候选质量",
+      "executionRecord": null,
+      "recordedAt": null
+    },
+    {
+      "caseId": "replay-024",
+      "core": false,
+      "evidenceLevel": "synthetic",
+      "category": "地图或 AI 失败",
+      "title": "候选项全部不合格：不降低准入标准凑候选，未核验地点只作行程节点",
+      "initialState": {
+        "clock": "2026-10-20T02:00:00.000Z",
+        "crew": {
+          "crewId": "crew-a",
+          "name": "中央大街小队",
+          "ownerUserId": "owner-a",
+          "status": "active",
+          "memberCount": 3,
+          "members": [
+            {"userId": "owner-a", "role": "owner", "status": "active", "locationSharing": true},
+            {"userId": "member-b", "role": "member", "status": "active", "locationSharing": true},
+            {"userId": "member-c", "role": "member", "status": "active", "locationSharing": true}
+          ]
+        },
+        "places": [
+          {"_id": "place-a", "name": "中央大街", "category": "spot", "location": {"latitude": 45.7756, "longitude": 126.6175}, "confidence": "normal", "verifiedAt": "2026-10-14T02:00:00.000Z", "dataSource": "survey"},
+          {"_id": "place-d", "name": "某处待核验广场", "category": "meeting", "location": {"latitude": 45.7749, "longitude": 126.6240}, "confidence": "low", "verifiedAt": null, "dataSource": "tencent-poi"}
+        ],
+        "locations": [
+          {"userId": "owner-a", "point": {"latitude": 45.7756, "longitude": 126.6175}, "source": "gps", "reportedAt": "2026-10-20T01:59:00.000Z", "stale": false},
+          {"userId": "member-b", "point": {"latitude": 45.7761, "longitude": 126.6181}, "source": "gps", "reportedAt": "2026-10-20T01:59:10.000Z", "stale": false},
+          {"userId": "member-c", "未上报": true, "note": "member-c 从未上报过位置：应体现为 MEMBER_NO_LOCATION，而不是拿别的成员的位置顶替"}
+        ]
+      },
+      "steps": [
+        {"step": 1, "actor": "owner-a", "action": "meet.recommend", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "有成员没有位置、又有低可信度地点：候选必须为空且逐条给出排除原因"},
+        {"step": 2, "actor": "member-c", "action": "loc.report", "payload": {"crewId": "crew-a", "point": {"latitude": 45.7750, "longitude": 126.6169}, "source": "gps"}, "expectedVersion": null, "note": "member-c 补上位置"},
+        {"step": 3, "actor": "owner-a", "action": "meet.recommend", "payload": {"crewId": "crew-a"}, "expectedVersion": null, "note": "再推荐：合格地点可以进候选，但低可信度地点仍必须被排除（不得因为候选少就放宽）"},
+        {"step": 4, "actor": "owner-a", "action": "trip.plan", "payload": {"crewId": "crew-a", "places": [{"name": "中央大街", "location": {"latitude": 45.7756, "longitude": 126.6175}, "category": "spot"}], "startAt": "2026-10-20T02:30:00.000Z", "startPoint": {"latitude": 45.7756, "longitude": 126.6175, "label": "我的位置"}}, "expectedVersion": null, "note": "把检索来的地点当行程节点：允许，但结果必须标注未核验"},
+        {"step": 5, "actor": "owner-a", "action": "meet.create", "payload": {"crewId": "crew-a", "tripId": "<step4.tripId>", "plannedMeetAt": "2026-10-20T03:00:00.000Z", "point": {"latitude": 45.7756, "longitude": 126.6175}, "placeName": "中央大街（西门）", "method": "manual"}, "expectedVersion": null, "note": "候选为空时的正路：手动指定集合点（必须显式给坐标与名称）"}
+      ],
+      "expectedState": {
+        "response": {
+          "step1": {"candidates": "空数组", "excluded": "非空且每条含 reason（应含 MEMBER_NO_LOCATION 与 PLACE_NOT_MEETING_POINT）"},
+          "step3": {"candidates": "非空（含 place-a）", "excluded": "仍含 reason=PLACE_NOT_MEETING_POINT 的 place-d", "candidateSource": "library"},
+          "step4": {"tripId": "非空", "unverifiedNotice": "非空（本次路线含未核验地点：可作行程节点，不可作集合点）"},
+          "step5": {"meetTaskId": "非空", "status": "proposed", "round": 1}
+        },
+        "地点准入（存储层核对）": "place-d 的 confidence='low' 且 verifiedAt=null：它可以出现在行程节点里，但不得出现在集合点候选里"
+      },
+      "invariants": [
+        "candidates 只包含通过集合点准入的地点；不合格的一律进 excluded 并带 reason",
+        "不得放宽准入来凑候选（低可信度或显式否决的地点不得进入 candidates，也不得在任意坐标上造一个集合点）",
+        "候选为空时必须明确告知并提供手动选点路径",
+        "检索来的地点只能作行程节点，且必须在结果里标注未核验（unverifiedNotice 非空）",
+        "手动指定集合点必须显式给出坐标与名称（point 与 placeName 同时提供），系统不得自动编造"
+      ],
+      "mustNotHappen": [
+        "把 confidence=low 的地点放进集合点候选",
+        "用未核验 POI 自动充当集合点",
+        "候选为空时返回成功却不说原因（用户以为「没有合适的地方」而不知道是谁没有位置）"
+      ],
+      "proves": "准入标准不被「必须给出候选」的压力破坏，以及未核验地点的使用边界",
+      "doesNotProve": "手动选点在现场是否方便，以及候选质量的主观评价",
+      "executionRecord": null,
+      "recordedAt": null
+    }
+  ]
+}
