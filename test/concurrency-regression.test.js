@@ -166,7 +166,7 @@ test('云仓储条件写包含修订号、版本、状态，冲突时返回零�
     module: moduleBox, console,
     require: name => name === 'wx-server-sdk'
       ? { __zy_inited: true, database: () => db }
-      : require('../cloudfunctions/api/lib/repo/query'),
+      : require('node:module').createRequire(filename)(name),
   }, { filename });
   const repo = moduleBox.exports.createCloudRepo();
   const saved = await repo.updateIf('meet_tasks', 'task1', {

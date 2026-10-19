@@ -1,9 +1,14 @@
 'use strict';
 
+const { memberNicknames } = require('../lib/member-nicknames');
+
 const resp = require('../lib/resp');
 const { CODES, require_fields, assert, fail } = require('../lib/errors');
-const { requireCrewMember, requireCrewOwner, requireCrew } = require('../lib/authz');
+const { requireCrewMember, requireCrew } = require('../lib/authz');
 const C = require('../lib/repo/collections');
+const { mutateCrew, requireMember } = require('../lib/crew-mutation');
+const { hasLocationConsent, recordLocationConsent } = require('../lib/location-consent');
+const { reconcileCrewMeetings } = require('../lib/meeting-members');
 
 /** 生成 6 位大写邀请码，排除易混字符。 */
 function makeInviteCode() {
@@ -30,28 +35,31 @@ async function create(ctx) {
   }
   assert(inviteCode, CODES.INTERNAL, '邀请码生成失败，请重试');
 
-  const crew = await repo.insert(C.CREWS, {
-    name: String(p.name),
-    ownerUserId: openid,
-    inviteCode,
-    status: 'active',
-    memberCount: 1,
-    shareLocationDefault: p.shareLocationDefault !== false,
-    createdAt: now,
-    closedAt: null,
-  });
+  const crew = await repo.runTransaction(async tx => {
+    const created = await tx.insert(C.CREWS, {
+      name: String(p.name),
+      ownerUserId: openid,
+      inviteCode,
+      status: 'active',
+      memberCount: 1,
+      revision: 0,
+      shareLocationDefault: false, // 建队/入队不是本人对位置共享的同意。
+      createdAt: now,
+      closedAt: null,
+    });
 
-  await repo.insert(C.CREW_MEMBERS, {
-    crewId: crew._id,
-    userId: openid,
-    role: 'owner',
-    status: 'active',
-    joinedAt: now,
-    leftAt: null,
-    // 个人级共享开关，权威值在此（docs/01 §2.8）
-    locationSharing: p.shareLocationDefault !== false,
-    lastLocationAt: null,
-  });
+    await tx.insert(C.CREW_MEMBERS, {
+      crewId: created._id,
+      userId: openid,
+      role: 'owner',
+      status: 'active',
+      joinedAt: now,
+      leftAt: null,
+      locationSharing: false,
+      lastLocationAt: null,
+    });
+    return created;
+  }, [C.CREWS, C.CREW_MEMBERS]);
 
   return resp.ok({ crewId: crew._id, inviteCode, role: 'owner', memberCount: 1 });
 }
@@ -67,39 +75,26 @@ async function join(ctx) {
   const code = String(ctx.payload.inviteCode).trim().toUpperCase();
   const crew = await repo.findOne(C.CREWS, { inviteCode: code });
   if (!crew || crew.status !== 'active') throw fail(CODES.NOT_FOUND, '邀请码无效或小队已解散');
+  return resp.ok(await joinCrew(ctx, crew._id));
+}
 
+async function joinCrew(ctx, crewId, guard, otherUsers = []) {
+  const { openid } = ctx;
   const now = new Date(ctx.now ? ctx.now : Date.now());
-  const existing = await repo.findOne(C.CREW_MEMBERS, { crewId: crew._id, userId: openid });
-
-  if (existing && existing.status === 'active') {
-    return resp.ok({ crewId: crew._id, role: existing.role, memberCount: crew.memberCount, joined: false });
-  }
-
-  if (existing) {
-    // 重新加入：**重置共享开关为队伍默认值**，不继承退出前的设置
-    await repo.update(C.CREW_MEMBERS, existing._id, {
-      status: 'active',
-      joinedAt: now,
-      leftAt: null,
-      locationSharing: crew.shareLocationDefault !== false,
-    });
-  } else {
-    await repo.insert(C.CREW_MEMBERS, {
-      crewId: crew._id,
-      userId: openid,
-      role: 'member',
-      status: 'active',
-      joinedAt: now,
-      leftAt: null,
-      locationSharing: crew.shareLocationDefault !== false,
-      lastLocationAt: null,
-    });
-  }
-
-  const memberCount = await repo.count(C.CREW_MEMBERS, { crewId: crew._id, status: 'active' });
-  await repo.update(C.CREWS, crew._id, { memberCount });
-
-  return resp.ok({ crewId: crew._id, role: 'member', memberCount, joined: true });
+  return mutateCrew(ctx, crewId, [openid, ...otherUsers], async ({ tx, crew, members, count }) => {
+    if (guard) await guard({ tx, crew, members });
+    const existing = members.get(openid);
+    if (existing && existing.status === 'active') return {
+      result: { crewId: crew._id, role: existing.role, memberCount: count, joined: false },
+    };
+    const patch = { status: 'active', joinedAt: now, leftAt: null, locationSharing: false,
+      locationConsentId: null, locationConsentPolicyVersion: null, locationConsentGrantedAt: null,
+      lastLocationAt: null };
+    if (existing) await tx.update(C.CREW_MEMBERS, existing._id, patch);
+    else await tx.insert(C.CREW_MEMBERS, Object.assign({ crewId: crew._id, userId: openid, role: 'member' }, patch));
+    return { crewPatch: { memberCount: count + 1 },
+      result: { crewId: crew._id, role: existing ? existing.role : 'member', memberCount: count + 1, joined: true } };
+  });
 }
 
 /**
@@ -108,25 +103,19 @@ async function join(ctx) {
  * （lib/authz.js 不缓存成员身份）。对应 10/20、10/21 的权限验收。
  */
 async function leave(ctx) {
-  const { repo, openid } = ctx;
+  const { openid } = ctx;
   require_fields(ctx.payload, ['crewId']);
 
-  const member = await requireCrewMember(repo, ctx.payload.crewId, openid);
   const now = new Date(ctx.now ? ctx.now : Date.now());
-
-  await repo.update(C.CREW_MEMBERS, member._id, {
-    status: 'left',
-    leftAt: now,
-    locationSharing: false, // 退出即停止共享，不等用户手动关
+  const result = await mutateCrew(ctx, ctx.payload.crewId, [openid], async ({ tx, members, count }) => {
+    const member = requireMember(members, openid);
+    const consent = await recordLocationConsent(tx, ctx, ctx.payload.crewId, member, false, 'crew_leave');
+    await tx.update(C.CREW_MEMBERS, member._id, Object.assign({ status: 'left', leftAt: now }, consent));
+    return { crewPatch: { memberCount: count - 1 }, result: {
+      crewId: ctx.payload.crewId, leftAt: now.toISOString(), memberCount: count - 1, revoked: true } };
   });
-
-  const memberCount = await repo.count(C.CREW_MEMBERS, {
-    crewId: ctx.payload.crewId,
-    status: 'active',
-  });
-  await repo.update(C.CREWS, ctx.payload.crewId, { memberCount });
-
-  return resp.ok({ crewId: ctx.payload.crewId, leftAt: now.toISOString(), memberCount, revoked: true });
+  await reconcileCrewMeetings(ctx, ctx.payload.crewId);
+  return resp.ok(result);
 }
 
 /** 读取小队与成员。非成员一律 FORBIDDEN_NOT_MEMBER。 */
@@ -141,6 +130,7 @@ async function get(ctx) {
     { crewId: ctx.payload.crewId, status: 'active' },
     { limit: 50 }
   );
+  const nicknames = await memberNicknames(repo, members);
 
   return resp.ok({
     crew: {
@@ -155,10 +145,11 @@ async function get(ctx) {
     myRole: member.role,
     members: members.map((m) => ({
       userId: m.userId,
+      nickname: nicknames.get(m.userId) || null,
       role: m.role,
       joinedAt: m.joinedAt,
       // 只暴露"是否共享"，不在这里返回坐标 —— 坐标必须走 loc.list
-      locationSharing: m.locationSharing !== false,
+      locationSharing: hasLocationConsent(m),
       lastLocationAt: m.lastLocationAt || null,
     })),
   });
@@ -166,30 +157,22 @@ async function get(ctx) {
 
 /** 移除成员：仅发起人可用（P0 接口清单 §2.4）。 */
 async function remove(ctx) {
-  const { repo, openid } = ctx;
+  const { openid } = ctx;
   require_fields(ctx.payload, ['crewId', 'userId']);
 
-  await requireCrewOwner(repo, ctx.payload.crewId, openid);
-  const target = await repo.findOne(C.CREW_MEMBERS, {
-    crewId: ctx.payload.crewId,
-    userId: ctx.payload.userId,
-  });
-  if (!target) throw fail(CODES.NOT_FOUND, '该成员不在小队中');
-  assert(target.userId !== openid, CODES.INVALID_PARAM, '发起人不能移除自己，请使用解散');
-
   const now = new Date(ctx.now ? ctx.now : Date.now());
-  await repo.update(C.CREW_MEMBERS, target._id, {
-    status: 'removed',
-    leftAt: now,
-    locationSharing: false,
+  const result = await mutateCrew(ctx, ctx.payload.crewId, [openid, ctx.payload.userId], async ({ tx, members, count }) => {
+    requireMember(members, openid, true);
+    const target = members.get(ctx.payload.userId);
+    assert(target, CODES.NOT_FOUND, '该成员不在小队中');
+    assert(target.userId !== openid, CODES.INVALID_PARAM, '发起人不能移除自己，请使用解散');
+    const consent = await recordLocationConsent(tx, ctx, ctx.payload.crewId, target, false, 'crew_remove');
+    await tx.update(C.CREW_MEMBERS, target._id, Object.assign({ status: 'removed', leftAt: now }, consent));
+    const memberCount = count - (target.status === 'active' ? 1 : 0);
+    return { crewPatch: { memberCount }, result: { removed: true, userId: ctx.payload.userId, memberCount } };
   });
-  const memberCount = await repo.count(C.CREW_MEMBERS, {
-    crewId: ctx.payload.crewId,
-    status: 'active',
-  });
-  await repo.update(C.CREWS, ctx.payload.crewId, { memberCount });
-
-  return resp.ok({ removed: true, userId: ctx.payload.userId, memberCount });
+  await reconcileCrewMeetings(ctx, ctx.payload.crewId);
+  return resp.ok(result);
 }
 
-module.exports = { create, join, leave, get, remove };
+module.exports = { create, join, leave, get, remove, joinCrew };

@@ -259,6 +259,7 @@ test('**显式否决**的地点会被排除，且排除原因带地点名（界�
    */
   await w.A('user.login', {});
   const crew = expectOk(await w.A('crew.create', { name: '准入测试小队', shareLocationDefault: true }));
+  await require('./helpers').enableLocation(w, 'A', crew.crewId);
   expectOk(
     await w.A('loc.report', {
       crewId: crew.crewId,

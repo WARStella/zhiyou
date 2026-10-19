@@ -1,0 +1,35 @@
+<view class="page">
+  <view class="hero">同游邀请</view>
+  <view class="subtitle">和同伴一起安排行程、查看队伍和确认集合。</view>
+  <view wx:if="{{loading}}" class="card hint">正在读取邀请…</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view wx:if="{{message}}" class="notice">{{message}}</view>
+  <view wx:if="{{managing && !loading}}" class="card">
+    <view class="title">{{name || '小队邀请'}}</view>
+    <block wx:if="{{invitation}}">
+      <view class="hint">有效至 {{expiresLabel}}。对方打开后确认加入。</view>
+      <button class="primary" open-type="share" disabled="{{busy}}">发送邀请给同伴</button>
+      <button bindtap="generateQr" disabled="{{busy}}">{{qrPath ? '重新生成小程序码' : '生成邀请小程序码'}}</button>
+      <image wx:if="{{qrPath}}" class="qr" src="{{qrPath}}" mode="aspectFit" show-menu-by-longpress="{{true}}" />
+      <button wx:if="{{qrPath}}" bindtap="saveQr" disabled="{{busy}}">保存小程序码</button>
+      <view wx:if="{{canManage}}" class="actions">
+        <button size="mini" data-refresh="{{true}}" bindtap="changeInvitation" disabled="{{busy}}">更新邀请</button>
+        <button size="mini" bindtap="revoke" disabled="{{busy}}">撤销邀请</button>
+      </view>
+    </block>
+    <block wx:else>
+      <view class="hint">还没有有效邀请，或旧邀请已经到期/撤销。</view>
+      <button wx:if="{{canManage}}" class="primary" bindtap="changeInvitation" disabled="{{busy}}">创建7天有效邀请</button>
+      <view wx:else class="hint">请小队发起人创建邀请，再返回此页刷新。</view>
+    </block>
+  </view>
+  <view wx:if="{{!managing && preview}}" class="card">
+    <view class="eyebrow">同伴邀请你加入</view>
+    <view class="title">{{name}}</view>
+    <view class="hint">当前 {{preview.memberCount}} 位成员 · 邀请有效至 {{expiresLabel}}</view>
+    <view class="notice">加入后切换至这个队伍。位置共享需要你另行开启，入队不会自动共享位置。</view>
+    <button class="primary" bindtap="join" disabled="{{busy}}">{{joinedCrewId ? '打开队伍' : preview.alreadyMember ? '确认进入已有队伍' : '确认加入小队'}}</button>
+  </view>
+  <button wx:if="{{!loading}}" bindtap="refresh" disabled="{{busy}}">刷新邀请状态</button>
+  <button class="plain" bindtap="home">返回我的</button>
+</view>

@@ -16,6 +16,8 @@ const authz = require('../lib/authz');
 
 const time = require('../lib/time');
 const geo = require('../lib/geo');
+/** 实际地点应在成员平均中心周围 1 公里内，不限制成员到地点的距离。 */
+const MEET_SEARCH_RADIUS_METERS = 1000;
 const timelineMod = require('./timeline');
 const { checkFeasibility } = require('./feasibility');
 
@@ -233,9 +235,9 @@ function evaluateDepartImpact(p) {
 /**
  * 集合点推荐（§7.1）。
  *
- * 评分规则刻意选 **minimax（最小化最远成员的步行时间）**：
- * 集合场景关心的是"最后一个到的人要多久"，而不是平均值。平均最优会让某个人走很远。
- * 这条规则可以直接写进答辩：规则简单、可解释、可复现。
+ * 按所有成员坐标的算术平均值取中心，候选按离中心的直线距离排序。
+ * 无可用地点时，调用方可开启 fallbackToCenter，直接采用中心坐标。
+ * 中心不是已核验的入口，也不保证多人严格等距；各成员步行时间仅为估算。
  *
  * @param {object} p
  * @param {Array}  p.members       [{userId, point, reportedAt, source, locationId}]
@@ -250,8 +252,28 @@ function recommendMeetPoints(p) {
   const speed = params.walkSpeedMPerMin || 75;
   const excluded = [];
   const candidates = [];
+  const members = p.members || [];
+  const points = members.map(m => geo.coord(m.point));
+  const locationIssues = [];
+  members.forEach((m, i) => {
+    if (m.sharingOff) {
+      locationIssues.push({ userId: m.userId, reason: 'LOCATION_SHARING_OFF', message: '有成员关闭了位置共享，请开启并共享一次当前位置' });
+    } else if (!points[i]) {
+      locationIssues.push({ userId: m.userId, reason: 'MEMBER_NO_LOCATION', message: '有成员没有可用位置，请先获取并共享一次当前位置' });
+    } else {
+      const fresh = time.freshness(m.reportedAt, p.ctx);
+      if (m.reportedAt == null || !Number.isFinite(fresh.ageSeconds) || fresh.stale) {
+        locationIssues.push({ userId: m.userId, reason: 'LOCATION_STALE', message: '有成员的位置已过期，请重新获取并共享一次当前位置', ageSeconds: fresh.ageSeconds });
+      }
+    }
+  });
+  if (!members.length) locationIssues.push({ reason: 'NO_LOCATION_AVAILABLE', message: '没有可用的成员位置，请先共享当前位置' });
+  const center = locationIssues.length ? null : {
+    latitude: points.reduce((sum, point) => sum + point.latitude, 0) / points.length,
+    longitude: points.reduce((sum, point) => sum + point.longitude, 0) / points.length,
+  };
 
-  for (const place of p.candidatePlaces || []) {
+  function consider(place, isCenter) {
     // 集合点无需实地核验，按名称、坐标及显式可用状态判断。
     if (!authz.canBeMeetingPoint(place)) {
       excluded.push({
@@ -261,43 +283,33 @@ function recommendMeetPoints(p) {
         reason: 'PLACE_NOT_MEETING_POINT',
         message: '该地点资料不完整、可信度较低或已标记为不适合集合，请选择其他地点',
       });
-      continue;
+      return;
+    }
+
+    if (locationIssues.length) return;
+    const point = geo.coord(geo.coordOf(place, true));
+    if (!point) {
+      excluded.push({ placeId: place._id, placeName: place.name, reason: 'PLACE_NOT_MEETING_POINT', message: '集合点入口坐标无效，请选择其他地点' });
+      return;
+    }
+    const centerDistance = geo.haversineMeters(center, point);
+    if (centerDistance > MEET_SEARCH_RADIUS_METERS + 1e-6) {
+      excluded.push({ placeId: place._id, placeName: place.name,
+        reason: 'OUTSIDE_CENTER_RADIUS', centerDistanceMeters: Math.round(centerDistance),
+        message: '该地点距成员平均中心超过 1 公里，已排除' });
+      return;
     }
 
     const estimates = [];
     let blocked = null;
 
-    for (const m of p.members || []) {
-      if (!m.point) {
-        blocked = { reason: 'MEMBER_NO_LOCATION', message: '有成员没有可用位置，无法计算步行时间', userId: m.userId };
-        break;
-      }
-      const fresh = time.freshness(m.reportedAt, p.ctx);
-      if (fresh.stale) {
-        blocked = {
-          reason: 'LOCATION_STALE',
-          message: `有成员的位置已过期（${fresh.ageSeconds} 秒前上报），需要重新定位`,
-          userId: m.userId,
-          ageSeconds: fresh.ageSeconds,
-        };
-        break;
-      }
-
-      const straight = geo.haversineMeters(m.point, geo.coordOf(place, true));
+    for (const m of members) {
+      const straight = geo.haversineMeters(m.point, point);
       if (straight == null) {
         blocked = { reason: 'MEMBER_NO_LOCATION', message: '位置或地点坐标缺失', userId: m.userId };
         break;
       }
       const meters = Math.round(straight * geo.DETOUR_FACTOR);
-      if (meters > geo.MAX_WALK_METERS) {
-        blocked = {
-          reason: 'TOO_FAR',
-          message: `有成员到该点约 ${meters} 米，超出步行可达范围`,
-          userId: m.userId,
-          meters,
-        };
-        break;
-      }
       const walkMin = Math.max(1, Math.ceil(meters / speed));
       estimates.push({
         userId: m.userId,
@@ -311,11 +323,11 @@ function recommendMeetPoints(p) {
 
     if (blocked) {
       excluded.push({ placeId: place._id, placeName: place.name, ...blocked });
-      continue;
+      return;
     }
     if (!estimates.length) {
       excluded.push({ placeId: place._id, placeName: place.name, reason: 'NO_PARTICIPANTS', message: '没有参与成员' });
-      continue;
+      return;
     }
 
     const maxWalkMin = Math.max(...estimates.map((e) => e.walkMin));
@@ -333,7 +345,7 @@ function recommendMeetPoints(p) {
           message: `最远成员需 ${maxWalkMin} 分钟，赶不上约定的最晚到达时间`,
           maxWalkMin,
         });
-        continue;
+        return;
       }
     }
 
@@ -341,22 +353,34 @@ function recommendMeetPoints(p) {
       placeId: place._id,
       placeName: place.name,
       category: place.category,
-      point: place.location,
-      entrancePoint: place.entranceLocation || null,
+      point,
+      entrancePoint: geo.coord(place.entranceLocation),
+      candidateSource: isCenter ? 'geometric-center' : (place.candidateSource || 'library'),
+      centerDistanceMeters: Math.round(centerDistance),
       maxWalkMin,
       avgWalkMin,
       spreadMin,
       estimates,
-      // minimax：先比最远步行，再比平均，最后比差距（越集中越好）
-      score: maxWalkMin * 1000 + avgWalkMin * 10 + spreadMin,
+      distanceSource: 'estimated',
+      score: centerDistance,
     });
   }
 
-  candidates.sort((a, b) => a.score - b.score);
-  return { candidates, excluded };
+  for (const place of p.candidatePlaces || []) consider(place, false);
+  excluded.push(...locationIssues);
+  if (center && !candidates.length && p.fallbackToCenter) {
+    consider({ _id: null, name: '成员位置几何中心', location: center, category: 'meeting' }, true);
+  }
+  candidates.sort((a, b) => a.score - b.score || String(a.placeId).localeCompare(String(b.placeId)));
+  const failure = locationIssues[0] || excluded[excluded.length - 1];
+  return { candidates, excluded, center, searchRadiusMeters: MEET_SEARCH_RADIUS_METERS,
+    reason: candidates.length ? null : (failure && failure.reason) || 'NO_CANDIDATES',
+    message: candidates.length ? null : (failure && failure.message) || '没有可用的集合点',
+  };
 }
 
 module.exports = {
+  MEET_SEARCH_RADIUS_METERS,
   MEET_STATUS,
   TRANSITIONS,
   canTransition,

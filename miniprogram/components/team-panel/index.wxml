@@ -14,15 +14,17 @@
 
   <view wx:if="{{!collapsed}}" class="body">
   <block wx:if="{{!crewId}}">
-    <input placeholder="小队名称（选填）" value="{{name}}" data-field="name" bindinput="input" maxlength="20"/>
-    <button disabled="{{busy}}" bindtap="create">创建小队</button>
-    <input placeholder="输入同伴的邀请码" value="{{invite}}" data-field="invite" bindinput="input" maxlength="6"/>
-    <button disabled="{{busy}}" bindtap="join">加入小队</button>
+    <input class="tp-input" placeholder="小队名称（选填）" value="{{name}}" data-field="name" bindinput="input" maxlength="20"/>
+    <button class="tp-btn" disabled="{{busy}}" bindtap="create">创建小队</button>
+    <input class="tp-input" placeholder="输入同伴的邀请码" value="{{invite}}" data-field="invite" bindinput="input" maxlength="6"/>
+    <button class="tp-btn" disabled="{{busy}}" bindtap="join">加入小队</button>
+    <button class="tp-btn" disabled="{{busy}}" bindtap="scanInvitation">扫码查看入队邀请</button>
   </block>
   <block wx:else>
     <view class="hint">邀请码 {{crew.inviteCode}} · {{members.length}} 位成员</view>
-    <button size="mini" bindtap="copyInvite" disabled="{{!crew}}">复制邀请码给同伴</button>
-    <button size="mini" bindtap="refresh" disabled="{{busy}}">刷新团队状态</button>
+    <button class="tp-btn" size="mini" bindtap="copyInvite" disabled="{{!crew}}">复制邀请码给同伴</button>
+    <button class="tp-btn" size="mini" bindtap="openInvitation" disabled="{{busy}}">邀请同伴 / 小程序码</button>
+    <button class="tp-btn" size="mini" bindtap="refresh" disabled="{{busy}}">刷新团队状态</button>
     <view class="hint">{{busy ? '正在同步…' : '最后刷新：' + refreshed}}</view>
     <view wx:for="{{members}}" wx:key="userId" class="row">{{item.label}} {{item.role === 'owner' ? '· 发起人' : ''}}<view class="hint">{{item.locationText}}</view></view>
 
@@ -48,7 +50,7 @@
       组队完成后到「队伍」页看队员位置、发起集合与确认出发。
     </view>
 
-    <button class="secondary" bindtap="leave" disabled="{{busy}}">{{owner ? '解散小队' : '退出小队'}}</button>
+    <button class="tp-btn secondary" bindtap="leave" disabled="{{busy}}">{{owner ? '解散小队' : '退出小队'}}</button>
   </block>
   </view>
 </view>

@@ -446,8 +446,15 @@ function loadComponent(relPath, opts) {
     global.getApp = prevGlobals.getApp;
   };
 
-  if (captured.lifetimes && typeof captured.lifetimes.attached === 'function') {
-    inst.__attached = captured.lifetimes.attached.bind(inst);
+  for (const phase of ['attached', 'detached']) {
+    if (captured.lifetimes && typeof captured.lifetimes[phase] === 'function') {
+      inst['__' + phase] = captured.lifetimes[phase].bind(inst);
+    }
+  }
+  for (const phase of ['show', 'hide', 'resize']) {
+    if (captured.pageLifetimes && typeof captured.pageLifetimes[phase] === 'function') {
+      inst['__page' + phase[0].toUpperCase() + phase.slice(1)] = captured.pageLifetimes[phase].bind(inst);
+    }
   }
   return inst;
 }

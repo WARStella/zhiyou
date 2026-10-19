@@ -1,0 +1,12 @@
+<view class="voice-input">
+  <view class="voice-controls">
+    <button size="mini" class="voice-button {{canStop ? 'recording' : ''}}" bindtap="tapVoice"
+      disabled="{{disabled || (active && !canStop)}}">{{buttonLabel}}</button>
+    <button wx:if="{{active}}" size="mini" class="voice-cancel" bindtap="cancelVoice" disabled="{{status === 'canceling'}}">取消</button>
+    <button wx:if="{{permissionDenied}}" size="mini" class="voice-cancel" bindtap="openRecordSettings">录音设置</button>
+  </view>
+  <view class="voice-hint">{{hint}}</view>
+  <view wx:if="{{message}}" class="voice-hint">{{message}}</view>
+  <text wx:if="{{preview}}" selectable class="voice-preview">{{preview}}</text>
+  <view wx:if="{{error}}" class="voice-error">{{error}}</view>
+</view>

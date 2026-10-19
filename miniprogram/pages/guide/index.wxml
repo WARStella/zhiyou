@@ -1,0 +1,154 @@
+<view class="page">
+  <view class="hero">
+    <view class="eyebrow">随行游览助手</view>
+    <view class="title">认地点，听故事，一起出发</view>
+    <view class="subtitle">问下一站、了解眼前的风景，或调整今天的安排。</view>
+    <view class="hint">正在协助：{{scopeLabel}}</view>
+  </view>
+  <view class="card">
+    <view class="actions">
+      <button size="mini" bindtap="choosePhoto" disabled="{{busy || voiceActive}}">拍照 / 选图</button>
+      <button size="mini" bindtap="toggleMoreActions" aria-expanded="{{moreActionsOpen}}">{{moreActionsOpen ? '收起操作 ▴' : '更多操作 ▾'}}</button>
+    </view>
+    <view wx:if="{{moreActionsOpen}}" class="actions more-actions">
+      <button size="mini" bindtap="locate" disabled="{{busy || voiceActive}}">{{center ? '更新附近位置' : '使用当前位置'}}</button>
+      <button size="mini" bindtap="navigate" data-target="next" disabled="{{busy || voiceActive}}">打开地图去下一站</button>
+      <button size="mini" bindtap="navigate" data-target="meeting" disabled="{{busy || voiceActive}}">打开地图去集合点</button>
+      <button size="mini" bindtap="clear" disabled="{{busy || voiceActive}}">清除会话</button>
+    </view>
+    <view wx:if="{{moreActionsOpen}}" class="hint">打开地图后请选择出行方式与路线，再开始导航。</view>
+    <view wx:if="{{center}}" class="hint">已设置附近搜索位置；该位置不会作为照片拍摄地点。</view>
+    <view wx:if="{{imagePath}}" class="photo-wrap">
+      <image class="photo" src="{{imagePath}}" mode="aspectFit" />
+      <view class="link" bindtap="removePhoto">移除照片</view>
+      <view class="hint">点击提问后，压缩图片经云端发送至配置的视觉模型或腾讯云 OCR。项目不保存原图。</view>
+      <button bindtap="countPeople" disabled="{{busy || voiceActive}}">统计照片人数</button>
+      <view class="hint">仅在点击计数时，将照片发送至人数检测服务；结果可能存在漏检或重复识别。</view>
+    </view>
+    <textarea class="question" value="{{text}}" bindinput="onText" maxlength="1000" disabled="{{busy}}"
+      placeholder="例如：这张照片是哪里？有什么历史？可以在这里集合吗？" />
+    <voice-input disabled="{{busy}}" context-key="{{voiceContext}}" bindresult="onVoice" bindstate="onVoiceState"
+      hint="录音发送至腾讯云实时转文字；结束后追加到问题框，检查后手动提问。" />
+    <button class="send" bindtap="ask" disabled="{{busy || voiceActive}}">{{busy ? '正在查找与核对资料…' : '提问 / 识别照片'}}</button>
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+    <view class="examples">
+      <text class="example" data-text="想去哈尔滨学院" bindtap="example">想去哈尔滨学院</text>
+      <text class="example" data-text="下一站去哪？" bindtap="example">下一站去哪？</text>
+      <text class="example" data-text="距离集合还有多久？" bindtap="example">集合倒计时</text>
+      <button class="example example-more" bindtap="toggleExamples" aria-expanded="{{examplesOpen}}">{{examplesOpen ? '收起示例 ▴' : '更多示例 ▾'}}</button>
+    </view>
+    <view wx:if="{{examplesOpen}}" class="examples">
+      <text class="example" data-text="下一站少待十分钟" bindtap="example">修改行程</text>
+      <text class="example" data-text="介绍一下中央大街的历史" bindtap="example">中央大街的历史</text>
+      <text class="example" data-text="这座教堂有什么建筑特点？" bindtap="example">建筑特点</text>
+      <text class="example" data-text="在这里集合吧" bindtap="example">准备集合点</text>
+    </view>
+  </view>
+  <view wx:if="{{crowdResult}}" class="card">
+    <view class="place-name">照片中检测到约 {{crowdResult.count}} 人</view>
+    <view class="crowd-preview">
+      <image class="crowd-photo" src="{{crowdImagePath}}" mode="widthFix" />
+      <view wx:for="{{crowdBoxes}}" wx:key="index" class="crowd-box" style="{{item.style}}"></view>
+    </view>
+    <view class="notice">{{crowdResult.notice}}</view>
+  </view>
+  <view wx:if="{{result}}" class="card">
+    <view wx:if="{{result.place}}" class="place-name">已确认 · {{result.place.name}}</view>
+    <view class="answer">{{result.answer}}</view>
+    <view wx:if="{{result.tripContext.next || (result.meetingContext.available && result.meetingContext.status !== 'cancelled' && result.meetingContext.status !== 'departed' && result.meetingContext.status !== 'completed') || result.place}}" class="actions navigation-actions">
+      <button wx:if="{{result.tripContext.next}}" size="mini" bindtap="navigate" data-target="next" disabled="{{busy || voiceActive}}">打开地图去下一站</button>
+      <button wx:if="{{result.meetingContext.available && result.meetingContext.status !== 'cancelled' && result.meetingContext.status !== 'departed' && result.meetingContext.status !== 'completed'}}" size="mini" bindtap="navigate" data-target="meeting" disabled="{{busy || voiceActive}}">打开地图去集合点</button>
+      <button wx:if="{{result.place}}" size="mini" bindtap="navigate" data-target="place" disabled="{{busy || voiceActive}}">打开地图去该地点</button>
+    </view>
+    <view wx:if="{{result.tripContext.available}}" class="hint">{{result.tripContext.title}} · 第{{result.tripContext.version}}版 · 查询于 {{result.tripContext.timeLabel}}</view>
+    <view wx:if="{{result.meetingContext}}" class="hint">集合状态查询于 {{result.meetingContext.timeLabel}}；可再次提问刷新。</view>
+    <view wx:for="{{result.notices}}" wx:key="*this" class="notice">{{item}}</view>
+    <view wx:for="{{result.candidates}}" wx:key="id" class="candidate">
+      <view class="place-name">{{item.name}}</view>
+      <view class="hint">{{item.address || '暂无详细地址'}}</view>
+      <view wx:if="{{item.distanceMeters !== null}}" class="hint">距搜索位置直线 {{item.distanceMeters}} 米</view>
+      <view class="hint">{{item.evidence}}</view>
+      <view class="actions">
+        <button size="mini" data-id="{{item.id}}" bindtap="previewPlace">查看位置</button>
+        <button size="mini" class="primary-action" data-id="{{item.id}}" bindtap="confirmPlace" disabled="{{busy || voiceActive}}">确认这个地点</button>
+      </view>
+    </view>
+    <button wx:if="{{result.evidence.length || result.sources.length}}" class="section-toggle" bindtap="toggleSources" aria-expanded="{{sourcesOpen}}">资料与来源 {{sourcesOpen ? '收起 ▴' : '展开 ▾'}}</button>
+    <block wx:if="{{sourcesOpen}}">
+      <view wx:for="{{result.evidence}}" wx:key="chunkId" class="evidence">
+        <view class="evidence-text">{{item.text}}</view>
+        <view class="hint">资料摘录 · 来源 {{item.sourceNumber}}</view>
+      </view>
+      <view wx:for="{{result.sources}}" wx:key="id" class="source">
+        <view class="source-title">来源 {{item.number}}：{{item.title}}</view>
+        <view class="hint">{{item.publisher}} · 资料核对 {{item.reviewedAt}}{{item.publishedAt ? ' · 发布 ' + item.publishedAt : ''}}</view>
+        <view class="source-url">{{item.url}}</view>
+        <view class="link" data-url="{{item.url}}" bindtap="copySource">复制来源链接</view>
+      </view>
+    </block>
+    <button wx:if="{{result.meetingDraft}}" class="send" bindtap="useMeeting" disabled="{{busy || voiceActive}}">用作集合点</button>
+    <view wx:if="{{result.trace.length}}" class="tools">
+      <button class="section-toggle" bindtap="toggleTrace" aria-expanded="{{traceOpen}}">处理过程 {{traceOpen ? '收起 ▴' : '展开 ▾'}}</button>
+      <block wx:if="{{traceOpen}}">
+        <view wx:for="{{result.trace}}" wx:key="tool" class="hint">{{item.label}} · {{item.statusLabel}}</view>
+      </block>
+    </view>
+  </view>
+  <view wx:if="{{result.tripPlan}}" class="card plan-card">
+    <view class="place-name">规划前往 {{result.tripPlan.destination.name}}</view>
+    <view class="hint">{{result.tripPlan.destination.address}}</view>
+    <view class="hint">{{center ? '出发位置：' + (center.label || '我的位置') : '请先设置出发位置'}}</view>
+    <view class="actions">
+      <button size="mini" bindtap="locate" disabled="{{busy || voiceActive || createdTripId}}">使用当前位置</button>
+      <button size="mini" bindtap="chooseStart" disabled="{{busy || voiceActive || createdTripId}}">地图选择出发点</button>
+    </view>
+    <view class="change-question">停留时间（分钟）</view>
+    <input class="change-input" type="number" maxlength="4" value="{{planStayMin}}" bindinput="setPlanStay" disabled="{{busy || createdTripId}}" />
+    <view class="change-question">出行方式</view>
+    <picker range="{{planModes}}" range-key="label" value="{{planModeIndex}}" bindchange="setPlanMode" disabled="{{busy || voiceActive || createdTripId}}">
+      <view class="change-choice">{{planModeLabel}} · 点击选择</view>
+    </picker>
+    <view class="hint">现在出发。停留时间默认 60 分钟，可自行修改。确认后生成个人行程，队伍路线需另行发布。</view>
+    <button class="send" bindtap="confirmPlan" disabled="{{busy || voiceActive}}">{{createdTripId ? '打开已生成行程' : '确认生成行程'}}</button>
+    <view wx:if="{{error}}" class="error">{{error}}</view>
+  </view>
+  <view wx:if="{{tripChange}}" class="card change-card">
+    <view class="place-name">行程修改 · 确认后生效</view>
+    <view class="hint">基于第{{tripChange.baseVersion}}版行程；现在还没有修改原行程。</view>
+    <view wx:if="{{tripChange.interpretation}}" class="hint">{{tripChange.interpretation.parser === 'http' ? 'AI 理解修改要求' : '规则理解修改要求'}}{{tripChange.interpretation.degraded ? '（已降级）' : ''}}</view>
+    <view wx:for="{{changeSummary}}" wx:key="index" class="hint">{{item}}</view>
+    <view wx:for="{{changeQuestions}}" wx:key="key" wx:for-item="question" class="change-question">
+      <view>{{question.prompt}}</view>
+      <block wx:if="{{question.kind === 'node' || question.kind === 'place'}}">
+        <view wx:for="{{question.options}}" wx:key="value" wx:for-item="option" class="change-choice {{question.value === option.value ? 'change-selected' : ''}}"
+          data-key="{{question.key}}" data-value="{{option.value}}" bindtap="answerChange">{{option.label}}</view>
+        <view wx:if="{{question.answerLabel}}" class="hint">已选：{{question.answerLabel}}</view>
+      </block>
+      <input wx:elif="{{question.kind === 'minutes'}}" class="change-input" type="number" value="{{question.value || ''}}" placeholder="请输入整数分钟"
+        data-key="{{question.key}}" bindinput="answerChange" disabled="{{busy}}" />
+      <picker wx:elif="{{question.kind === 'clock'}}" mode="time" value="{{question.value || '17:00'}}" data-key="{{question.key}}" bindchange="answerChange" disabled="{{busy}}">
+        <view class="change-choice">{{question.value || '选择结束时间'}}</view>
+      </picker>
+      <view wx:else class="hint">请在上方问题框改写要求，重新提交。</view>
+    </view>
+    <button wx:if="{{tripChange.needsClarification}}" bindtap="continueChange" disabled="{{busy || voiceActive || changeNeedsRewrite}}">补充完成，生成方案</button>
+    <view wx:for="{{changeCandidates}}" wx:key="candidateId" class="candidate">
+      <view class="place-name">{{item.strategyLabel}}</view>
+      <view class="hint">{{item.nodeSummary}}</view>
+      <view wx:for="{{item.notes}}" wx:for-item="note" wx:key="index" class="hint">{{note}}</view>
+      <view wx:for="{{item.conflicts}}" wx:for-item="conflict" wx:key="index" class="error">{{conflict}}</view>
+      <button wx:if="{{item.feasible}}" class="send" data-id="{{item.candidateId}}" bindtap="confirmChange" disabled="{{busy || voiceActive}}">选择并确认此方案</button>
+      <view wx:else class="notice">此方案不可行，无法确认。</view>
+    </view>
+    <view wx:if="{{tripChange.noFeasible}}" class="notice">没有可行方案，请修改要求后重新提问。</view>
+    <button bindtap="discardChange" disabled="{{busy}}">放弃本次修改</button>
+  </view>
+  <view wx:if="{{result.messages.length}}" class="card">
+    <view class="place-name">最近对话</view>
+    <view wx:for="{{result.messages}}" wx:key="index" class="history {{item.role === 'user' ? 'mine' : ''}}">
+      <view class="hint">{{item.role === 'user' ? '我' : '游览助手'}}{{item.hasImage ? ' · 含照片' : ''}}</view>
+      <view class="history-text">{{item.text}}</view>
+    </view>
+  </view>
+  <view class="footnote">首版有来源资料：中央大街、索菲亚教堂、太阳岛。票价、开放时间和当日状态请以景区官方渠道为准。</view>
+</view>

@@ -39,6 +39,8 @@
         </view>
       </block>
 
+      <view class="sub">昵称用于队伍显示，可以重名。</view>
+
       <!--
         用户 ID（2026-10-14 用户要求）—— 显示**完整 ID**，可点按复制。
 
@@ -59,9 +61,21 @@
 
   <view wx:if="{{error}}" class="err">{{error}}</view>
 
-  <!-- ══════════ 默认出行方式 ══════════ -->
-  <view class="card">
-    <view class="row">
+  <!-- 设置 -->
+  <view class="card settings-list">
+    <view class="row settings-head"><text class="k">设置</text></view>
+    <view class="row settings-row setting-sharing">
+      <text class="k">自动共享位置</text>
+      <switch checked="{{locationSharing}}" disabled="{{locationSharingBusy || !sharingCrewId}}"
+        bindchange="onLocationSharingChange" color="#0FA98A" />
+    </view>
+    <view class="sub">{{!sharingCrewId ? '加入小队后可开启。' : locationSharing ? (locationSharingActive ? '已开启，正在前台自动更新位置。' : '共享已开启，定位暂未运行。') : '已关闭，队友看不到你的位置。'}}</view>
+    <view class="sub">开启后进入「队伍」立即更新；前台每 15 秒处理定位，移动超过 20 米上传，静止每 60 秒更新。切到后台暂停。</view>
+    <view class="sub">开启表示同意将精确位置上传，用于向本队成员显示位置及推荐集合点。位置保留 7 天；关闭后停止上传并对队友隐藏，已有记录按保留期清理。系统记录本次同意的说明版本和时间；仅取得微信定位权限不会自动开启共享。</view>
+    <view wx:if="{{locationSharingError}}" class="err">{{locationSharingError}}</view>
+    <button wx:if="{{sharingCrewId && locationSharingError}}" class="btn ghost small"
+      disabled="{{locationSharingBusy}}" bindtap="retryLocationSharing">重试位置共享设置</button>
+    <view class="row settings-row setting-travel">
       <text class="k">默认出行方式</text>
       <picker
         mode="selector"
@@ -85,8 +99,7 @@
       </picker>
     </view>
     <view class="sub">
-      生成路线时先用它。**是偏好不是强制** —— 某一段它走不通时会给最快的方式，
-      并在那一段上说明原因。到了行程页还可以逐段单独改。
+      生成路线时优先使用此方式；无法使用时会提供其他方式并说明原因，也可以在行程中逐段调整。
     </view>
   </view>
 
@@ -102,6 +115,7 @@
     **属性传 null 不算"没传"**，会覆盖掉组件的默认值。
   -->
   <team-panel
+    id="profile-team"
     personal-trip-id="{{personalTripId}}"
     point="{{myPoint}}"
     source="{{mySource || ''}}"
@@ -109,13 +123,13 @@
   />
 
   <!-- ══════════ 开发工具 ══════════ -->
-  <view class="card">
+  <button class="section-toggle support-toggle" bindtap="toggleTools" aria-expanded="{{toolsOpen}}">帮助与调试 {{toolsOpen ? '收起 ▴' : '展开 ▾'}}</button>
+  <view wx:if="{{toolsOpen}}" class="card">
     <view class="row">
       <text class="k">开发工具</text>
     </view>
     <view class="sub">
-      联调自检是**开发脚手架**，不是产品功能：真机出问题时先跑一次它，
-      能分清"后端没通"还是"页面逻辑有问题"。
+      遇到连接问题时，可运行自检并将结果提供给开发人员。
     </view>
     <button class="btn ghost small" bindtap="openSelfCheck">打开联调自检</button>
   </view>

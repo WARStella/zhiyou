@@ -19,6 +19,8 @@
 const timelineMod = require('./timeline');
 const { checkFeasibility } = require('./feasibility');
 const constraintMod = require('./constraint');
+const geo = require('../lib/geo');
+const { insertNode } = require('../lib/trip-node-insertion');
 
 const ALGO_VERSION = 'planner-0.1.0';
 
@@ -46,13 +48,54 @@ const minStayOf = (place, params) =>
   10;
 
 /** 把触发条件施加到节点列表上，返回新的 items 与本次施加的说明。 */
-function applyTrigger(items, trigger, placesById) {
+function applyTrigger(items, trigger, placesById, params) {
   const out = items.map((i) => Object.assign({}, i));
   const notes = [];
   const t = trigger || {};
   const payload = t.payload || {};
 
   switch (t.type) {
+    case 'skip_remaining': {
+      const ids = new Set(payload.nodeIds || []);
+      return { items: out.filter(item => !ids.has(item.nodeId)), notes: out.filter(item => ids.has(item.nodeId))
+        .map(item => ({ code: 'NODE_SKIPPED', nodeId: item.nodeId, placeId: item.placeId,
+          message: `已跳过「${(placesById[item.placeId] || {}).name || item.placeId}」` })) };
+    }
+    case 'add_node': {
+      const place = placesById[payload.newPlaceId];
+      const node = { nodeId: payload.nodeId, placeId: payload.newPlaceId, status: 'pending',
+        stayMin: ((place || {}).visitDurationMin || {}).default || (params || {}).stayMinDefault || 30 };
+      if (place && insertNode(out, node, payload)) notes.push({ code: 'NODE_ADDED', nodeId: node.nodeId,
+        placeId: node.placeId, message: `新增「${place.name}」` });
+      else notes.push({ code: 'NODE_NOT_FOUND', message: '新增地点或插入位置不存在' });
+      break;
+    }
+    case 'batch': {
+      let current = out;
+      for (const op of payload.operations || []) {
+        const applied = applyTrigger(current, op, placesById, params);
+        current = applied.items;
+        notes.push(...applied.notes);
+      }
+      return { items: current, notes };
+    }
+    case 'set_stay': {
+      const target = out.find(i => i.nodeId === payload.nodeId);
+      if (target) {
+        target.stayMin = payload.stayMin;
+        notes.push({ code: 'STAY_SET', nodeId: target.nodeId,
+          message: `「${(placesById[target.placeId] || {}).name || target.placeId}」停留改为 ${payload.stayMin} 分钟` });
+      }
+      break;
+    }
+    case 'protect_node':
+      notes.push({ code: 'NODE_PROTECTED', nodeId: payload.nodeId,
+        message: `保留「${(placesById[payload.placeId] || {}).name || payload.placeId}」，不为赶时间删除` });
+      break;
+    case 'change_travel_mode':
+      notes.push({ code: 'TRAVEL_MODE_CHANGED', nodeId: payload.nodeId,
+        message: `前往该站的出行方式改为${require('../lib/mode-choice').MODE_OPTIONS.find(o => o.value === payload.mode).label}` });
+      break;
     case 'extend_stay':
     case 'shorten_stay': {
       const target = out.find((i) => i.nodeId === payload.nodeId);
@@ -97,7 +140,8 @@ function applyTrigger(items, trigger, placesById) {
         break;
       }
       target.placeId = payload.newPlaceId;
-      target.stayMin = undefined; // 用新地点的默认停留
+      target.stayMin = ((placesById[payload.newPlaceId] || {}).visitDurationMin || {}).default ||
+        (params || {}).stayMinDefault || 30; // 后续叠加增减时仍须是数值。
       notes.push({
         code: 'NODE_REPLACED',
         message: `已替换为「${(placesById[payload.newPlaceId] || {}).name || payload.newPlaceId}」`,
@@ -132,9 +176,14 @@ function applyTrigger(items, trigger, placesById) {
 function buildConstraints(baseConstraints, trigger) {
   const list = (baseConstraints || []).map((c) => Object.assign({}, c));
   const t = trigger || {};
+  if (t.type === 'batch') return (t.payload.operations || []).reduce((cs, op) => buildConstraints(cs, op), list);
+  if (t.type === 'protect_node') {
+    list.push({ key: 'mustVisit', value: [t.payload.placeId], hardness: 'hard',
+      confirmedAt: t.payload.confirmedAt, sourceMemberIds: t.payload.sourceMemberIds || [] });
+  }
   if (t.type === 'change_end_time' && t.payload && t.payload.endAt) {
     const existing = list.find((c) => c.key === 'endAt' && c.hardness === 'hard');
-    if (existing) existing.value = t.payload.endAt;
+    if (existing) { existing.value = t.payload.endAt; existing.confirmedAt = t.payload.confirmedAt || existing.confirmedAt || new Date(); }
     else
       list.push({
         key: 'endAt',
@@ -149,11 +198,42 @@ function buildConstraints(baseConstraints, trigger) {
 
 /** 在给定时间线下的可行性与质量评估。 */
 function evaluate(items, ctx) {
+  const legTimes = {};
+  if (ctx.preserveTravel) {
+    items.forEach((item, idx) => {
+      const edge = JSON.stringify([idx ? items[idx - 1].nodeId : null, item.nodeId]);
+      const legacyEdge = JSON.stringify([idx ? items[idx - 1].placeId : null, item.placeId]);
+      const key = item.nodeId || item.placeId;
+      if (ctx.legTimesByEdge && ctx.legTimesByEdge[edge]) {
+        legTimes[key] = ctx.legTimesByEdge[edge]; return;
+      }
+      if (ctx.legTimesByEdge && ctx.legTimesByEdge[legacyEdge]) {
+        legTimes[key] = ctx.legTimesByEdge[legacyEdge]; return;
+      }
+      const originalIndex = ctx.baseNodes.findIndex(n => n.nodeId === item.nodeId && n.placeId === item.placeId);
+      const n = ctx.baseNodes[originalIndex];
+      if (idx === 0 && n && n.status === 'arrived') return;
+      const sameEdge = n && (idx === 0 ? originalIndex === 0 : originalIndex > 0 &&
+        ctx.baseNodes[originalIndex - 1].nodeId === items[idx - 1].nodeId &&
+        ctx.baseNodes[originalIndex - 1].placeId === items[idx - 1].placeId);
+      if (idx === 0 && sameEdge && !n.travelFromStart && !n.travelFromPrevMin) return;
+      if (sameEdge && Number.isFinite(n.travelFromPrevMin)) {
+        legTimes[key] = { minutes: n.travelFromPrevMin, meters: n.travelFromPrevMeters || 0,
+          mode: n.travelMode, source: n.travelSource, provider: n.travelProvider, reason: n.travelReason,
+          candidateReason: n.travelCandidateReason, transit: n.travelTransit,
+          matchedPreference: n.travelMatchedPreference, preferredMode: n.travelPreferredMode };
+      } else if (idx === 0 && ctx.startPoint) {
+        const estimated = geo.walkMinutes({ location: ctx.startPoint }, ctx.placesById[item.placeId], ctx.params);
+        if (estimated) legTimes[key] = Object.assign({}, estimated, { mode: 'walking' });
+      }
+    });
+  }
   const tl = timelineMod.buildTimeline({
     startAt: ctx.startAt,
     items,
     placesById: ctx.placesById,
     params: ctx.params,
+    legTimes,
   });
   const res = checkFeasibility({
     timeline: tl,
@@ -255,8 +335,8 @@ function repairReoptimize(items, ctx, notes) {
   // 回插：还有时间余量就把删掉的地点放回去
   for (const d of dropped) {
     const trial = cur.concat([d]).sort((a, b) => {
-      const pa = ctx.orderOf[a.placeId] != null ? ctx.orderOf[a.placeId] : 999;
-      const pb = ctx.orderOf[b.placeId] != null ? ctx.orderOf[b.placeId] : 999;
+      const pa = ctx.orderOf[a.nodeId || a.placeId] != null ? ctx.orderOf[a.nodeId || a.placeId] : 999;
+      const pb = ctx.orderOf[b.nodeId || b.placeId] != null ? ctx.orderOf[b.nodeId || b.placeId] : 999;
       return pa - pb;
     });
     const trialEval = evaluate(trial, ctx);
@@ -325,14 +405,28 @@ function generateCandidates(p) {
     startAt: p.startAt,
     placesById: p.placesById,
     params: p.params || {},
+    preserveTravel: p.preserveTravel,
+    baseNodes: p.baseNodes,
+    startPoint: p.startPoint,
+    legTimesByEdge: p.legTimesByEdge,
     constraints: buildConstraints(p.constraints, p.trigger),
     orderOf: baseItems.reduce((acc, i, idx) => {
-      acc[i.placeId] = idx;
+      acc[i.nodeId || i.placeId] = idx;
       return acc;
     }, {}),
   };
 
   const baseEval = evaluate(baseItems, ctxBase);
+  const requested = applyTrigger(baseItems, p.trigger, p.placesById, p.params);
+  // 用户主动跳过所有剩余站点是结束行程；修复策略删光站点仍然不可行。
+  const ops = p.trigger && p.trigger.type === 'batch' ? p.trigger.payload.operations : [p.trigger];
+  const skippedIds = new Set(ops.flatMap(op => !op ? [] : op.type === 'skip_node' ? [op.payload.nodeId]
+    : op.type === 'skip_remaining' ? op.payload.nodeIds : []));
+  const explicitlyFinished = requested.items.length === 0 && baseItems.length > 0 &&
+    baseItems.every(item => skippedIds.has(item.nodeId));
+  if (explicitlyFinished) ctxBase.params = Object.assign({}, ctxBase.params, { meetBufferMin: 0 });
+  // 回插策略仍按用户要求的插入顺序排序，不能把新增站挪到末尾。
+  ctxBase.orderOf = requested.items.reduce((acc, item, idx) => { acc[item.nodeId || item.placeId] = idx; return acc; }, {});
 
   const strategies = [
     { strategy: 'minimal_change', repair: repairMinimalChange, label: '少改原计划' },
@@ -341,7 +435,7 @@ function generateCandidates(p) {
 
   const raw = [];
   for (const s of strategies) {
-    const applied = applyTrigger(baseItems, p.trigger, p.placesById);
+    const applied = requested;
     const notes = applied.notes.slice();
     const { items, evaluation } = s.repair(applied.items, ctxBase, notes);
 
@@ -361,10 +455,10 @@ function generateCandidates(p) {
       });
     }
 
-    const feasible = conflicts.length === 0 && items.length > 0;
+    const feasible = conflicts.length === 0 && (items.length > 0 || explicitlyFinished);
 
     // 空行程不是方案：把所有节点都删光的候选即使满足时间要求也没有意义
-    if (items.length === 0 && baseItems.length > 0) {
+    if (items.length === 0 && baseItems.length > 0 && !explicitlyFinished) {
       conflicts.push({
         code: 'NO_ARRANGEMENT_LEFT',
         message: '在给定时间要求下已经没有可以安排的节点',
@@ -417,6 +511,7 @@ function generateCandidates(p) {
 
 module.exports = {
   generateCandidates,
+  buildConstraints,
   ALGO_VERSION,
   TRIM_STEP_MIN,
   _internal: { toItems, applyTrigger, buildConstraints, evaluate, computeImpact, signature },

@@ -25,12 +25,12 @@ const planOnce = (w, ids) =>
     )
   );
 
-test('规划一次，每次地图调用都记下一条「直线 vs 实际」样本', async () => {
+test('规划一次，每次站间步行路线调用都记下一条「直线 vs 实际」样本', async () => {
   const w = await makeWorld();
   const before = await w.repo.count(C.WALK_SAMPLES, {});
 
   const res = expectOk(await planOnce(w, ['p_zhongyang', 'p_fanghong', 'p_sofia']));
-  const calls = res.walkTimes.mapApiCalls;
+  const calls = res.walkTimes.mapApiCallsByType.walking;
   const after = await w.repo.count(C.WALK_SAMPLES, {});
 
   assert.ok(calls > 0, '这次规划应当真的调了地图接口，否则样本无从产生');
@@ -183,10 +183,13 @@ test('命中缓存的段**不产生样本** —— 这是样本集的抽样偏�
   const first = expectOk(await planOnce(w, ids));
   assert.ok(first.walkTimes.mapApiCalls > 0, '第一次规划必须真的调了地图接口');
   const rows1 = await w.repo.find(C.WALK_SAMPLES, {});
-  assert.equal(rows1.length, first.walkTimes.mapApiCalls, '每调一次地图接口记一条样本');
+  assert.equal(rows1.length, first.walkTimes.mapApiCallsByType.walking, '每调一次站间步行路线接口记一条样本，矩阵与公交另计');
 
   const second = expectOk(await planOnce(w, ids));
-  assert.equal(second.walkTimes.mapApiCalls, 0, '第二次规划应当全部命中缓存');
+  assert.equal(second.walkTimes.mapApiCallsByType.walking, 0, '第二次规划的步行路线应当命中缓存；未取得的其他方式仍可能重新查询');
+  assert.equal(second.walkTimes.mapApiCalls,
+    second.walkTimes.mapApiCallsByType.matrix + second.walkTimes.mapApiCallsByType.transit,
+    '总请求数仍包含其他方式的查询，不能因步行命中缓存而漏记');
   const rows2 = await w.repo.find(C.WALK_SAMPLES, {});
   assert.equal(rows2.length, rows1.length, '命中缓存不产生样本 —— 这条偏差是可核对的（cacheHit 字段）');
 });

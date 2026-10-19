@@ -1,4 +1,5 @@
 'use strict';
+const { requestCount } = require('./map/usage');
 
 /**
  * 把**真实出行耗时**接进规划 —— 用户要求的那一步。
@@ -130,13 +131,13 @@ async function legTravelTimes(p) {
     for (const mode of modesToAsk) {
       const origin = p.fromPoint || (fromPlace && fromPlace.location);
       let r;
-      calls.matrix += 1;
       try {
         // eslint-disable-next-line no-await-in-loop
         r = await providers.map.distanceMatrix(origin, [toPlace.location], mode);
       } catch (e) {
         r = { ok: false, reason: 'THREW', message: (e && e.message) || String(e) };
       }
+      calls.matrix += requestCount(r);
       const el = r && r.ok && r.elements && r.elements[0] ? r.elements[0] : null;
 
       /**
@@ -242,7 +243,6 @@ async function legTravelTimes(p) {
   if (transitNeedsFetch && transitReady && opts.transitCity) {
     const origin = p.fromPoint || (fromPlace && fromPlace.location);
     let tr;
-    calls.transit += 1;
     try {
       tr = await providers.transit.route({
         from: origin,
@@ -253,6 +253,7 @@ async function legTravelTimes(p) {
     } catch (e) {
       tr = { ok: false, reason: 'THREW', message: (e && e.message) || String(e) };
     }
+    calls.transit += requestCount(tr);
 
     if (tr && tr.ok && tr.best && tr.best.durationMinutes !== null) {
       // 已有公交缓存时，这次请求仅用于补齐地铁候选，避免出现重复选项。
@@ -413,16 +414,16 @@ async function legTravelTimes(p) {
    * 用户为**这一段**单独指定的方式（2026-10-14）。
    *
    * 用户要求"点击生成路径后出现界面，让用户分别选择每段路径的出行方式"。
-   * `legModes` 是 `{ [toPlaceId]: mode }` —— 按**到达的地点**索引，
-   * 因为一段的身份就是"到哪个地方去"（起点可能是移动中的"我的位置"，
-   * 用它做键不稳定）。
+   * `legModes` 优先使用到达站次的 nodeId，兼容旧的 placeId 索引。
+   * 同一地点可以多次到访，各次入站交通方式必须独立。
    *
    * ⚠️ 认不出的值一律当没有 —— 与全局偏好同一条纪律：
    * 一个显示用的字段不该让整个规划失败。
    */
+  const wanted = opts.legModes && (opts.legModes[opts.toNodeId] || opts.legModes[toPlace._id]);
   const perLegMode =
-    opts.legModes && toPlace._id && modeChoice.isPreferredMode(opts.legModes[toPlace._id])
-      ? opts.legModes[toPlace._id]
+    modeChoice.isPreferredMode(wanted)
+      ? wanted
       : null;
   const perLegWanted = perLegMode && perLegMode !== modeChoice.PREFERRED_MODE.AUTO ? perLegMode : null;
 
@@ -505,7 +506,7 @@ function pickStep(steps, kind, field) {
 /**
  * 把一批结果写回地点缓存 —— **只写上游取回的真实值**，不写估算。
  *
- * 估算写进缓存会让"一次估算变成永久事实"（`docs/01 §2.2` 的写入规则：
+ * 估算写进缓存会让"一次估算变成永久事实"（`docs/项目计划书.md#data-model §2.2` 的写入规则：
  * "取不到时不写缓存 —— 否则一次估算会变成永久事实"）。
  *
  * @param {object} repo
@@ -576,13 +577,14 @@ async function resolveTripLegTimes(p) {
 
   for (let i = 0; i < places.length; i++) {
     const toPlace = places[i];
+    const toNodeId = p.items && p.items[i] && p.items[i].nodeId;
     const fromPlace = i > 0 ? places[i - 1] : null;
     /** 第一段的起点是"我的位置"，不是地点 */
     const fromPoint = i === 0 ? p.startPoint || null : null;
 
     if (i === 0 && !fromPoint) {
       /** 没有出发位置时第一段不计 —— 与实际规划器的行为保持一致 */
-      legs.push({ toPlaceId: toPlace._id, candidates: [], choice: null, skipped: 'NO_START_POINT' });
+      legs.push({ toPlaceId: toPlace._id, toNodeId, candidates: [], choice: null, skipped: 'NO_START_POINT' });
       continue;
     }
 
@@ -593,6 +595,7 @@ async function resolveTripLegTimes(p) {
       toPlace,
       providers: p.providers,
       opts: Object.assign({}, opts, {
+        toNodeId,
         transitCity: opts.transitCity,
         preferredMode: opts.preferredMode,
         /** 逐段指定的方式 { [toPlaceId]: mode } —— 优先于全局偏好 */
@@ -606,6 +609,7 @@ async function resolveTripLegTimes(p) {
     legs.push({
       fromPlaceId: fromPlace ? fromPlace._id : null,
       toPlaceId: toPlace._id,
+      toNodeId,
       candidates: r.candidates,
       choice: r.choice,
       /** 逐段选择器要的数据（给界面用，不参与时间线计算） */

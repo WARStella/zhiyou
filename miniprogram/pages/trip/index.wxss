@@ -1,89 +1,57 @@
 .page {
   /* 底部留出 tabBar 的高度，否则页面最后的按钮会被它盖住 */
-  padding: 24rpx 24rpx 200rpx;
+  padding: 24rpx 24rpx 224rpx;
+  padding-bottom: calc(224rpx + env(safe-area-inset-bottom));
 }
 
 /* ── 提示条 ───────────────────────────────── */
 .warn {
-  background: #fff8ed;
-  border-left: 8rpx solid #f5a623;
-  border-radius: 8rpx;
+  background: var(--warn-bg);
+  border-left: 8rpx solid var(--warn);
+  border-radius: var(--r-sm);
   padding: 18rpx 20rpx;
   margin-bottom: 20rpx;
-  font-size: 23rpx;
+  font-size: var(--fs-sm);
   line-height: 1.7;
-  color: #8a5a00;
+  color: var(--warn);
 }
 .err {
-  background: #fdecec;
-  border-left: 8rpx solid #e5484d;
-  border-radius: 8rpx;
+  background: var(--danger-bg);
+  border-left: 8rpx solid var(--danger);
+  border-radius: var(--r-sm);
   padding: 18rpx 20rpx;
   margin-bottom: 20rpx;
-  font-size: 24rpx;
-  color: #b02a2e;
+  font-size: var(--fs-sm);
+  color: var(--danger);
 }
 .note {
-  font-size: 23rpx;
-  color: #0b6bcb;
+  font-size: var(--fs-sm);
+  color: var(--brand-600);
   padding: 4rpx 0 16rpx;
+}/* ── 卡片 ─────────────────────────────────── */
+
+.card.bad {
+  border-left: 8rpx solid var(--danger);
 }
 
-/* ── 卡片 ─────────────────────────────────── */
-.card {
-  background: #fff;
-  border-radius: 16rpx;
-  padding: 24rpx;
-  margin-bottom: 20rpx;
-  box-shadow: 0 2rpx 10rpx rgba(11, 60, 110, 0.06);
-}
-.card.bad {
-  border-left: 8rpx solid #e5484d;
-}
-.row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-}
-.k {
-  font-size: 28rpx;
-  font-weight: 600;
-  color: #1f2933;
-}
-.v {
-  font-size: 26rpx;
-  font-weight: 600;
-}
-.v.link {
-  color: #0b6bcb;
-}
-.v.muted {
-  color: #9aa5b1;
-  font-weight: 400;
-}
 .ok {
-  color: #0f9d58;
+  color: var(--success);
 }
 .bad {
-  color: #e5484d;
+  color: var(--danger);
 }
-.sub {
-  margin-top: 10rpx;
-  font-size: 23rpx;
-  line-height: 1.6;
-  color: #7b8794;
-}
+
 .hint {
   margin-top: 12rpx;
-  font-size: 23rpx;
+  font-size: var(--fs-sm);
   line-height: 1.7;
-  color: #7b8794;
+  color: var(--ink-500);
 }
 .conflict {
   margin-top: 10rpx;
-  font-size: 24rpx;
+  font-size: var(--fs-sm);
   line-height: 1.6;
-  color: #b02a2e;
+  color: var(--danger);
 }
 
 /* ── 地点选择 ─────────────────────────────── */
@@ -92,7 +60,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 20rpx 0;
-  border-bottom: 1rpx solid #f0f2f4;
+  border-bottom: 1rpx solid var(--line);
 }
 .place:last-child {
   border-bottom: none;
@@ -107,70 +75,57 @@
   line-height: 40rpx;
   text-align: center;
   border-radius: 50%;
-  background: #eef1f4;
-  color: #b0b8c1;
-  font-size: 22rpx;
+  background: var(--surface-2);
+  color: var(--ink-300);
+  font-size: var(--fs-sm);
   margin-right: 16rpx;
 }
 .order.on {
-  background: #0b3c6e;
-  color: #fff;
+  background: var(--brand-600);
+  color: var(--surface);
 }
 .place-text {
   display: flex;
   flex-direction: column;
 }
 .place-name {
-  font-size: 27rpx;
-  color: #1f2933;
+  font-size: var(--fs-body);
+  color: var(--ink-900);
 }
 .place-meta {
   margin-top: 4rpx;
-  font-size: 21rpx;
-  color: #9aa5b1;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
 }
 .check {
-  font-size: 30rpx;
-  color: #0f9d58;
+  font-size: var(--fs-h2);
+  color: var(--success);
 }
 .place.on .place-name {
   font-weight: 600;
-  color: #0b3c6e;
+  color: var(--brand-600);
 }
 
-/* ── 按钮 ─────────────────────────────────── */
-.btn {
-  margin: 0 0 20rpx;
-  background: #0b3c6e;
-  color: #fff;
-  font-size: 29rpx;
-  border-radius: 12rpx;
+.candidate-toggle {
+  margin: 16rpx 0 0;
+  padding: 8rpx 20rpx;
+  background: var(--brand-100);
+  color: var(--brand-600);
+  font-size: var(--fs-body);
+  line-height: 2;
+  border-radius: var(--r-sm);
 }
+.candidate-toggle::after {
+  border: none;
+}
+.candidate-toggle-hover {
+  background: var(--brand-100);
+}/* ── 按钮 ─────────────────────────────────── */
 /*
  * 禁用态。⚠️ 原写法 `.btn[disabled]` 是**属性选择器**，WXSS 不支持 ——
  * 规则从未生效（禁用按钮一直是正常态外观）。编译器的警告说的就是这个。
  * 微信给禁用的 button 加的是**类名** `button-disabled`，所以按类名写。
  */
-.btn.button-disabled,
-.btn:disabled {
-  background: #9aa5b1;
-  color: #fff;
-}
-.btn.ghost {
-  background: #fff;
-  color: #0b3c6e;
-  border: 2rpx solid #0b3c6e;
-}
-.btn.ghost.button-disabled,
-.btn.ghost:disabled {
-  color: #9aa5b1;
-  border-color: #cfd6dd;
-}
-.btn.small {
-  margin-top: 20rpx;
-  font-size: 26rpx;
-  padding: 6rpx 0;
-}
 
 /* ── 概览 ─────────────────────────────────── */
 .summary .sum-row {
@@ -185,14 +140,10 @@
   flex: 1;
 }
 .sum-v {
-  font-size: 32rpx;
-  font-weight: 600;
-  color: #0b3c6e;
+  font-size: var(--fs-h1); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--brand-700);
 }
 .sum-k {
-  margin-top: 6rpx;
-  font-size: 20rpx;
-  color: #9aa5b1;
+  margin-top: 6rpx; font-size: var(--fs-xs); color: var(--ink-400);
 }
 
 /* ── 时间轴 ───────────────────────────────── */
@@ -204,80 +155,48 @@
   padding-bottom: 8rpx;
 }
 .node-rail {
-  width: 40rpx;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding-top: 30rpx;
+  width: 26rpx; margin-right: 16rpx; display: flex; flex-direction: column; align-items: center; padding-top: 30rpx; flex: none;
 }
 .dot {
-  width: 18rpx;
-  height: 18rpx;
-  border-radius: 50%;
-  background: #cfd6dd;
-  flex: none;
+  width: 22rpx; height: 22rpx; border-radius: 50%; background: var(--brand-300); flex: none; box-shadow: 0 0 0 6rpx var(--surface), 0 0 0 8rpx var(--line-strong);
 }
 .node.current .dot {
-  width: 24rpx;
-  height: 24rpx;
-  background: #ff7a45;
+  width: 26rpx; height: 26rpx; background: var(--accent); box-shadow: 0 0 0 8rpx var(--accent-ring);
 }
 .node.done .dot {
-  background: #0f9d58;
+  background: var(--success);
 }
 .node.skipped .dot {
-  background: #e5484d;
+  background: var(--ink-300);
 }
 .line {
-  width: 3rpx;
-  flex: 1;
-  background: #e6eaee;
-  margin-top: 6rpx;
+  width: 2rpx; flex: 1; background: var(--line-strong); margin-top: 12rpx;
 }
 .node-body {
-  flex: 1;
-  background: #fff;
-  border-radius: 16rpx;
-  padding: 22rpx;
-  margin-bottom: 16rpx;
-  box-shadow: 0 2rpx 10rpx rgba(11, 60, 110, 0.06);
+  flex: 1; min-width: 0; box-sizing: border-box; background: var(--surface); border: 2rpx solid var(--line); border-radius: var(--r-md); padding: 22rpx; margin-bottom: 18rpx; box-shadow: var(--sh-1);
 }
 .node.current .node-body {
-  border-left: 8rpx solid #ff7a45;
+  border-color: var(--accent); box-shadow: 0 4rpx 8rpx var(--accent-shadow-light), 0 20rpx 44rpx var(--accent-shadow-soft);
 }
 .node-head {
-  display: flex;
-  align-items: center;
+  display: flex; align-items: center; gap: 8rpx;
 }
 .node-seq {
-  font-size: 22rpx;
-  color: #9aa5b1;
-  margin-right: 12rpx;
+  flex: none; width: 36rpx; height: 36rpx; line-height: 36rpx; text-align: center; border-radius: 12rpx; font-size: var(--fs-xs); color: var(--brand-700); background: var(--brand-100);
 }
 .node-name {
-  font-size: 29rpx;
-  font-weight: 600;
-  color: #1f2933;
-  flex: 1;
+  font-size: var(--fs-body); font-weight: 600; color: var(--ink-900); flex: 1; min-width: 0; overflow-wrap: break-word;
 }
-.badge {
-  font-size: 20rpx;
-  padding: 4rpx 12rpx;
-  border-radius: 20rpx;
-  background: #eef1f4;
-  color: #7b8794;
-}
+
 .badge.done {
-  background: #e8f5ee;
-  color: #0f9d58;
+  background: var(--success-bg);
+  color: var(--success);
 }
 .badge.arrived {
-  background: #fff1e8;
-  color: #d9642a;
+  background: var(--success-bg); color: var(--success);
 }
 .badge.skipped {
-  background: #fdecec;
-  color: #e5484d;
+  background: var(--surface-2); color: var(--ink-500); border: 2rpx solid var(--line-strong);
 }
 .node-times {
   display: flex;
@@ -285,14 +204,14 @@
   margin-top: 14rpx;
 }
 .t {
-  font-size: 23rpx;
-  color: #52606d;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
   margin-right: 22rpx;
 }
 .node-travel {
   margin-top: 10rpx;
-  font-size: 22rpx;
-  color: #0fa98a;
+  font-size: var(--fs-sm);
+  color: var(--success);
 }
 
 /* ── 出行段：两个目的地之间 ─────────────────── */
@@ -302,98 +221,83 @@
   margin: -8rpx 0 8rpx;
 }
 .leg-rail {
-  width: 40rpx;
-  display: flex;
-  justify-content: center;
-  flex: none;
+  width: 26rpx; margin-right: 16rpx; display: flex; justify-content: center; flex: none;
 }
 .leg-bar {
-  width: 3rpx;
-  background: #cfd6dd;
-  border-radius: 2rpx;
+  width: 2rpx; background: var(--line-strong);
 }
 .leg-body {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  padding: 12rpx 20rpx;
-  margin-left: 0;
-  background: #f4f7fa;
-  border-radius: 10rpx;
-  flex: 1;
+  display: flex; align-items: baseline; flex-wrap: wrap; min-width: 0; padding: 14rpx 18rpx; margin-left: 0; border: 2rpx dashed var(--brand-200); background: var(--trip-leg-bg); border-radius: var(--r-sm); flex: 1;
 }
 .leg-mode {
-  font-size: 23rpx;
+  font-size: var(--fs-sm);
   font-weight: 600;
-  color: #0b3c6e;
+  color: var(--brand-600);
   margin-right: 10rpx;
 }
 .leg-time {
-  font-size: 23rpx;
+  font-size: var(--fs-sm);
   font-weight: 600;
-  color: #0fa98a;
+  color: var(--success);
   margin-right: 10rpx;
 }
 .leg-dist {
-  font-size: 21rpx;
-  color: #7b8794;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
 }
 .leg-warn {
-  font-size: 20rpx;
-  color: #d9642a;
-  background: #fff1e8;
-  border-radius: 6rpx;
+  font-size: var(--fs-sm);
+  color: var(--warn);
+  background: var(--accent-bg);
+  border-radius: var(--r-sm);
   padding: 2rpx 10rpx;
   margin-left: 10rpx;
 }
 /* 估算出来的时间要能一眼看出来 —— 它与真实路线在短距离下能差 7 倍 */
 .leg-estimated .leg-body {
-  background: #fff8ed;
+  background: var(--warn-bg); border-color: var(--warn-line);
 }
 
 /* 已走过的路段：变绿，与地图上的绿线一致 */
 .leg-visited .leg-bar {
-  background: #0f9d58;
+  background: var(--success);
 }
 .leg-visited .leg-body {
-  background: #eef8f2;
+  background: var(--success-bg);
 }
 .leg-visited .leg-time {
-  color: #0f9d58;
+  color: var(--success);
 }
 .leg-done {
-  font-size: 20rpx;
-  color: #0f9d58;
-  border: 2rpx solid #0f9d58;
-  border-radius: 6rpx;
+  font-size: var(--fs-sm);
+  color: var(--success);
+  border: 2rpx solid var(--success);
+  border-radius: var(--r-sm);
   padding: 1rpx 10rpx;
   margin-left: 10rpx;
 }
 
 /* ── 已到过的节点 ─────────────────────────── */.node.visited .dot {
-  background: #0f9d58;
-  width: 22rpx;
-  height: 22rpx;
+  background: var(--success); width: 22rpx; height: 22rpx; box-shadow: 0 0 0 6rpx var(--surface), 0 0 0 8rpx var(--success-ring);
 }
 .node.visited .node-body {
-  border-left: 8rpx solid #0f9d58;
+  border-left: 2rpx solid var(--line);
 }
 .node.visited .node-name {
-  color: #0f9d58;
+  color: var(--success);
 }
 
 /* ── 跳过的节点 ───────────────────────────── */
 /* ⚠️ 跳过的**不能显示成绿色** —— 绿色代表"去过了"，跳过就是没去。
    灰色才如实：这一站被跳过了。 */
 .node.skip .dot {
-  background: #9aa5b1;
+  background: var(--ink-300); box-shadow: 0 0 0 6rpx var(--surface), 0 0 0 8rpx var(--line-strong);
 }
 .node.skip .node-body {
-  border-left: 8rpx solid #9aa5b1;
-  opacity: 0.72;
+  border-color: var(--line-strong); box-shadow: none;
 }
 .node.skip .node-name {
-  color: #9aa5b1;
+  color: var(--ink-500);
   text-decoration: line-through;
 }
 
@@ -403,23 +307,20 @@
   padding-top: 12rpx;
 }
 .progress-act {
-  color: #0f9d58;
+  color: var(--success);
   font-weight: 600;
 }
 .acts {
   display: flex;
   margin-top: 18rpx;
-  border-top: 1rpx solid #f0f2f4;
+  border-top: 1rpx solid var(--line);
   padding-top: 16rpx;
 }
 .act {
-  flex: 1;
-  text-align: center;
-  font-size: 22rpx;
-  color: #0b6bcb;
+  flex: 1; min-width: 0; text-align: center; font-size: var(--fs-sm); color: var(--brand-700); padding: 8rpx 10rpx; border-radius: var(--r-pill); background: var(--brand-100);
 }
 .act.warn-act {
-  color: #d9642a;
+  color: var(--danger); background: var(--danger-bg);
 }
 
 /* ── 候选卡片 ─────────────────────────────── */
@@ -427,13 +328,13 @@
   padding: 20rpx 24rpx;
 }
 .cand-label {
-  font-size: 29rpx;
+  font-size: var(--fs-body);
   font-weight: 600;
-  color: #0b3c6e;
+  color: var(--brand-600);
 }
 .card.cand.infeasible {
   opacity: 0.72;
-  border-left: 8rpx solid #e5484d;
+  border-left: 8rpx solid var(--danger);
 }
 .cand-metrics {
   display: flex;
@@ -441,10 +342,10 @@
   margin-top: 16rpx;
 }
 .m {
-  font-size: 22rpx;
-  color: #52606d;
-  background: #f4f6f8;
-  border-radius: 6rpx;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
   padding: 6rpx 14rpx;
   margin: 0 12rpx 10rpx 0;
 }
@@ -452,20 +353,20 @@
   margin-top: 14rpx;
 }
 .changes-hd {
-  font-size: 22rpx;
-  color: #9aa5b1;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
   margin-bottom: 8rpx;
 }
 .change {
-  font-size: 23rpx;
+  font-size: var(--fs-sm);
   line-height: 1.7;
-  color: #1f2933;
+  color: var(--ink-900);
 }
 .quality-warn {
   margin-top: 14rpx;
-  font-size: 22rpx;
+  font-size: var(--fs-sm);
   line-height: 1.6;
-  color: #d9642a;
+  color: var(--warn);
 }
 .conflicts {
   margin-top: 12rpx;
@@ -473,9 +374,9 @@
 
 .foot {
   text-align: center;
-  font-size: 21rpx;
+  font-size: var(--fs-sm);
   line-height: 1.6;
-  color: #b0b8c1;
+  color: var(--ink-300);
   padding: 24rpx 10rpx 40rpx;
 }
 
@@ -483,25 +384,28 @@
 .search-row {
   display: flex;
   align-items: center;
+  margin-top: 20rpx;
 }
 .search-input {
   flex: 1;
-  height: 72rpx;
-  background: #f4f6f8;
-  border-radius: 10rpx;
-  padding: 0 20rpx;
-  font-size: 26rpx;
-  color: #1f2933;
+  width: 100%;
+  height: 156rpx;
+  box-sizing: border-box;
+  background: var(--surface-2);
+  border: 1rpx solid var(--line-strong);
+  border-radius: var(--r-sm);
+  padding: 18rpx 20rpx;
+  font-size: var(--fs-body);
+  line-height: 1.6;
+  color: var(--ink-900);
 }
-.search-btn {
-  margin-left: 16rpx;
-  padding: 0 30rpx;
-  height: 72rpx;
-  line-height: 72rpx;
-  background: #0b3c6e;
-  color: #fff;
-  font-size: 26rpx;
-  border-radius: 10rpx;
+.planning-title { font-size: var(--fs-h1); font-weight: 700; color: var(--brand-600); }
+.planning-examples { display: flex; flex-wrap: wrap; gap: 12rpx; margin-top: 16rpx; }
+.example-chip { margin: 0; padding: 12rpx 16rpx; font-size: var(--fs-sm); line-height: 1.5; border-radius: var(--r-sm); background: var(--brand-100); color: var(--brand-600); }
+.example-chip::after { border: none; }
+.search-submit { margin: 18rpx 0 8rpx; }
+.route-card {
+  border-color: var(--brand-200); box-shadow: var(--sh-2);
 }
 .mt {
   margin-top: 22rpx;
@@ -512,8 +416,8 @@
 }
 .clear {
   margin-left: 18rpx;
-  font-size: 22rpx;
-  color: #9aa5b1;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
 }
 
 /* ── 候选项 ───────────────────────────────── */
@@ -522,16 +426,16 @@
   height: 40rpx;
   line-height: 40rpx;
   text-align: center;
-  border-radius: 8rpx;
-  border: 2rpx solid #cfd6dd;
-  color: #fff;
-  font-size: 24rpx;
+  border-radius: var(--r-sm);
+  border: 2rpx solid var(--line-strong);
+  color: var(--surface);
+  font-size: var(--fs-sm);
   margin-right: 18rpx;
   flex: none;
 }
 .tick.on {
-  background: #0f9d58;
-  border-color: #0f9d58;
+  background: var(--success);
+  border-color: var(--success);
 }
 
 /* ── 已选顺序 ─────────────────────────────── */
@@ -539,7 +443,7 @@
   display: flex;
   align-items: center;
   padding: 18rpx 0;
-  border-bottom: 1rpx solid #f0f2f4;
+  border-bottom: 1rpx solid var(--line);
 }
 /* 名称 + 预选理由两行 —— 理由用弱化样式，不抢名字的注意力 */
 .sel-body {
@@ -549,8 +453,8 @@
   min-width: 0;
 }
 .sel-reason {
-  font-size: 22rpx;
-  color: #9aa5b1;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
   margin-top: 4rpx;
 }
 .sel:last-child {
@@ -562,67 +466,70 @@
   line-height: 40rpx;
   text-align: center;
   border-radius: 50%;
-  background: #0b3c6e;
-  color: #fff;
-  font-size: 22rpx;
+  background: var(--brand-600);
+  color: var(--surface);
+  font-size: var(--fs-sm);
   margin-right: 16rpx;
   flex: none;
 }
 .sel-name {
   flex: 1;
-  font-size: 27rpx;
-  color: #1f2933;
+  font-size: var(--fs-body);
+  color: var(--ink-900);
 }
 .sel-del {
-  font-size: 23rpx;
-  color: #d9642a;
+  font-size: var(--fs-sm);
+  color: var(--warn);
   padding: 6rpx 12rpx;
 }
+.sel-actions { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; margin-left: 12rpx; }
+.visit-again { margin: 0; padding: 8rpx 12rpx; color: var(--brand-600); background: var(--brand-100); border-radius: var(--r-sm); font-size: var(--fs-sm); line-height: 1.6; }
+.visit-again::after { border: none; }
 
 /* ── 提醒卡 ───────────────────────────────── */
 .warncard {
-  background: #fff8ed;
-  border-left: 8rpx solid #f5a623;
+  background: var(--warn-bg);
+  border-left: 8rpx solid var(--warn);
 }
 .warn-item {
-  font-size: 23rpx;
+  font-size: var(--fs-sm);
   line-height: 1.7;
-  color: #8a5a00;
+  color: var(--warn);
 }
 
 /* ── 意图解析 ─────────────────────────────── */
 .intent {
   margin-top: 18rpx;
-  background: #f7f9fb;
-  border-radius: 10rpx;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
   padding: 18rpx;
 }
 .intent-hd {
-  font-size: 25rpx;
+  font-size: var(--fs-body);
   font-weight: 600;
-  color: #0b3c6e;
+  color: var(--brand-600);
 }
 .degraded {
   margin-top: 10rpx;
-  font-size: 22rpx;
+  font-size: var(--fs-sm);
   line-height: 1.6;
   /* 中性色：没配模型不是故障，别用警告色吓人 */
-  color: #7b8794;
+  color: var(--ink-500);
 }
 .uncertain {
   margin-top: 16rpx;
-  border-top: 1rpx solid #e6eaee;
+  border-top: 1rpx solid var(--line);
   padding-top: 14rpx;
 }
 .uncertain-hd {
-  font-size: 22rpx;
-  color: #d9642a;
+  font-size: var(--fs-sm);
+  color: var(--warn);
   margin-bottom: 8rpx;
 }
 .uncertain-item {
-  font-size: 22rpx;
+  font-size: var(--fs-sm);
   line-height: 1.6;
-  color: #52606d;
+  color: var(--ink-500);
   margin-bottom: 10rpx;
 }
 .cands {
@@ -631,31 +538,31 @@
   margin-top: 8rpx;
 }
 .cand {
-  font-size: 22rpx;
-  color: #0b6bcb;
-  border: 2rpx solid #0b6bcb;
-  border-radius: 8rpx;
+  font-size: var(--fs-sm);
+  color: var(--brand-600);
+  border: 2rpx solid var(--brand-600);
+  border-radius: var(--r-sm);
   padding: 4rpx 16rpx;
   margin: 0 12rpx 8rpx 0;
 }
 .from-parse {
-  font-size: 20rpx;
-  color: #0f9d58;
-  background: #e8f5ee;
-  border-radius: 6rpx;
+  font-size: var(--fs-sm);
+  color: var(--success);
+  background: var(--success-bg);
+  border-radius: var(--r-sm);
   padding: 2rpx 10rpx;
   margin-right: 10rpx;
 }
 
 /* ── 出发段 ───────────────────────────────── */
 .start-leg {
-  border-left: 8rpx solid #ff7a45;
+  border-left: 8rpx solid var(--accent);
 }
 .leg-line {
   margin-top: 12rpx;
-  font-size: 26rpx;
+  font-size: var(--fs-body);
   font-weight: 600;
-  color: #0fa98a;
+  color: var(--success);
 }
 
 /* ── 路线地图 ─────────────────────────────── */
@@ -665,7 +572,7 @@
 .route-map {
   width: 100%;
   height: 420rpx;
-  border-radius: 12rpx;
+  border-radius: var(--r-sm);
 }
 
 /* ── 步行来源 ─────────────────────────────── */
@@ -675,30 +582,28 @@
   margin-top: 14rpx;
 }
 .src {
-  font-size: 22rpx;
-  border-radius: 6rpx;
+  font-size: var(--fs-sm);
+  border-radius: var(--r-sm);
   padding: 6rpx 14rpx;
   margin: 0 12rpx 8rpx 0;
 }
 .src.good {
-  background: #e8f5ee;
-  color: #0f9d58;
+  background: var(--success-bg);
+  color: var(--success);
 }
 .src.bad {
-  background: #fff1e8;
-  color: #d9642a;
+  background: var(--accent-bg);
+  color: var(--warn);
 }
 .travel-warn {
-  color: #d9642a;
+  color: var(--warn);
   margin-left: 8rpx;
 }
 .badge.unverified {
-  background: #f4f6f8;
-  color: #9aa5b1;
+  background: var(--surface-2);
+  color: var(--ink-500);
   margin-right: 8rpx;
 }
-
-
 
 /* ── 进度（概览卡片顶部）───────────────────── */
 /* 游玩时最常看的信息，放在最上面，不必去地图卡片上找 */
@@ -709,31 +614,31 @@
   padding: 12rpx 0 4rpx;
 }
 .progress-main {
-  font-size: 28rpx;
+  font-size: var(--fs-body);
   font-weight: 600;
-  color: #0b3c6e;
+  color: var(--brand-600);
 }
 .progress-next {
-  font-size: 24rpx;
-  color: #9aa5b1;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
 }
 .progress-done {
-  font-size: 22rpx;
-  color: #0f9d58;
-  border: 2rpx solid #0f9d58;
-  border-radius: 6rpx;
+  font-size: var(--fs-sm);
+  color: var(--success);
+  border: 2rpx solid var(--success);
+  border-radius: var(--r-sm);
   padding: 1rpx 10rpx;
 }
 
 /* ── 出发段（时间轴里的第一段）───────────────── */
 /* 与站点之间的出行段同一套样式 —— 它们本来就是同一类东西 */
 .leg-start .leg-body {
-  background: #eef4fb;
+  background: var(--brand-100);
 }
 .leg-from,
 .leg-to {
-  font-size: 22rpx;
-  color: #6b7785;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
   margin-right: 8rpx;
 }
 
@@ -750,17 +655,17 @@
   padding: 10rpx 0 4rpx;
 }
 .leg-from-name {
-  font-size: 28rpx;
-  color: #6b7785;
+  font-size: var(--fs-body);
+  color: var(--ink-500);
 }
 .leg-to-name {
-  font-size: 30rpx;
+  font-size: var(--fs-h2);
   font-weight: 600;
-  color: #0b3c6e;
+  color: var(--brand-600);
 }
 .leg-arrow {
-  font-size: 26rpx;
-  color: #c3cad3;
+  font-size: var(--fs-body);
+  color: var(--line-strong);
   margin: 0 14rpx;
 }
 .leg-figures {
@@ -770,29 +675,25 @@
   padding: 6rpx 0 2rpx;
 }
 .fig-mode {
-  font-size: 24rpx;
-  color: #0b3c6e;
-  background: #eef4fb;
-  border-radius: 6rpx;
+  font-size: var(--fs-sm);
+  color: var(--brand-600);
+  background: var(--brand-100);
+  border-radius: var(--r-sm);
   padding: 2rpx 12rpx;
 }
 .fig-strong {
-  font-size: 32rpx;
+  font-size: var(--fs-h2);
   font-weight: 600;
-  color: #0b3c6e;
+  color: var(--brand-600);
 }
 .fig {
-  font-size: 26rpx;
-  color: #6b7785;
+  font-size: var(--fs-body);
+  color: var(--ink-500);
 }
 .leg-actions {
-  padding: 12rpx 0 0;
+  display: flex; flex-wrap: wrap; gap: 12rpx; padding: 16rpx 0 0;
 }
-.btn.small {
-  font-size: 26rpx;
-  padding: 12rpx 0;
-  margin: 0;
-}
+
 
 /* ── 内置导航：转向指引 ───────────────────── */
 /*
@@ -801,7 +702,7 @@
 */
 .nav-steps {
   margin-top: 16rpx;
-  border-top: 1rpx solid #f0f2f4;
+  border-top: 1rpx solid var(--line);
   padding-top: 16rpx;
 }
 .nav-head {
@@ -811,15 +712,15 @@
   padding-bottom: 10rpx;
 }
 .nav-title {
-  font-size: 26rpx;
+  font-size: var(--fs-body);
   font-weight: 600;
-  color: #0b3c6e;
+  color: var(--brand-600);
 }
 .nav-step {
   display: flex;
   align-items: flex-start;
   padding: 12rpx 0;
-  border-bottom: 1rpx solid #f7f8f9;
+  border-bottom: 1rpx solid var(--surface-2);
 }
 .nav-step:last-child {
   border-bottom: none;
@@ -831,9 +732,9 @@
   line-height: 36rpx;
   text-align: center;
   border-radius: 50%;
-  background: #0b3c6e;
-  color: #ffffff;
-  font-size: 22rpx;
+  background: var(--brand-600);
+  color: var(--surface);
+  font-size: var(--fs-sm);
   margin-right: 14rpx;
 }
 .nav-body {
@@ -843,13 +744,13 @@
   min-width: 0;
 }
 .nav-text {
-  font-size: 26rpx;
-  color: #2c3540;
+  font-size: var(--fs-body);
+  color: var(--ink-700);
   line-height: 1.5;
 }
 .nav-dist {
-  font-size: 22rpx;
-  color: #9aa5b1;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
   margin-top: 4rpx;
 }
 
@@ -858,86 +759,110 @@
    后者是"直线估算"时必须显眼，它与真实路线在短距离下能差 7 倍。 */
 .leg-src {
   margin-left: 10rpx;
-  font-size: 20rpx;
-  color: #7b8794;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
 }
 .leg-transit {
   display: block;
   margin-top: 6rpx;
-  font-size: 21rpx;
-  color: #0b3c6e;
+  font-size: var(--fs-sm);
+  color: var(--brand-600);
 }
 .leg-reason {
   display: block;
   margin-top: 4rpx;
-  font-size: 20rpx;
-  color: #9aa5b1;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
 }
 /* 当前路线卡片上的多行说明（2026-10-14）
    公交换乘细节与"为什么没有方案"都放在这里，比挤在 figures 那一行更清楚。 */
-.leg-reason-line{font-size:22rpx;color:#9aa5b1;margin-top:6rpx}
-.leg-transit-line{font-size:23rpx;color:#0b3c6e;margin-top:6rpx}
+.leg-reason-line{font-size: var(--fs-xs);color:var(--ink-300);margin-top:6rpx}
+.leg-transit-line{font-size: var(--fs-sm);color:var(--brand-600);margin-top:6rpx}
 /* 没按用户选的出行方式 —— 必须显眼（2026-10-14）。
    用户选了步行却被改成驾车，如果和普通说明一个样式，他会以为系统没理他。 */
 .leg-reason-miss {
-  color: #b26a00;
-  background: #fff7e6;
-  border-radius: 8rpx;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: var(--r-sm);
   padding: 6rpx 10rpx;
 }
 /* ── 逐段出行方式选择（2026-10-14 用户要求）────────────────
    每段一行，行内是各方式的耗时；系统推荐的那个带"推荐"小字样。 */
 .leg-picker { padding-bottom: 12rpx; }
 .lp-head { cursor: pointer; }
-.lp-head-hover { background: #f3f6fa; border-radius: 10rpx; }
-.lp-leg { padding: 14rpx 0; border-top: 1rpx solid #edf1f6; }
+.lp-head-hover { background: var(--surface-2); border-radius: var(--r-sm); }
+.lp-leg { padding: 14rpx 0; border-top: 1rpx solid var(--line); }
 .lp-leg-head { display: flex; align-items: center; margin-bottom: 10rpx; }
 .lp-seq {
   width: 34rpx; height: 34rpx; line-height: 34rpx; text-align: center;
-  border-radius: 50%; background: #e8f0f8; color: #0b3c6e;
-  font-size: 20rpx; margin-right: 10rpx;
+  border-radius: 50%; background: var(--brand-100); color: var(--brand-600);
+  font-size: var(--fs-sm); margin-right: 10rpx;
 }
-.lp-path { font-size: 25rpx; color: #20334a; }
+.lp-path { font-size: var(--fs-body); color: var(--ink-900); }
 .lp-opts { display: flex; flex-wrap: wrap; }
 .lp-opt {
   display: flex; align-items: center; flex-wrap: wrap;
   padding: 10rpx 16rpx; margin: 0 12rpx 12rpx 0;
-  border: 1rpx solid #d9e5ef; border-radius: 12rpx;
-  background: #fbfdff;
+  border: 1rpx solid var(--line-strong); border-radius: var(--r-sm);
+  background: var(--surface);
 }
 /* 选中的那个要一眼看出来 */
-.lp-opt-on { border-color: #0b3c6e; background: #eef4fb; }
-.lp-opt-name { font-size: 24rpx; color: #20334a; margin-right: 8rpx; }
-.lp-opt-min { font-size: 22rpx; color: #65758a; }
+.lp-opt-on { border-color: var(--brand-600); background: var(--brand-100); }
+.lp-opt-name { font-size: var(--fs-sm); color: var(--ink-900); margin-right: 8rpx; }
+.lp-opt-min { font-size: var(--fs-sm); color: var(--ink-500); }
 /* "推荐"小字样 —— 系统的判断（最快），不受用户偏好影响 */
 .lp-badge {
   margin-left: 8rpx; padding: 0 8rpx;
-  font-size: 18rpx; color: #b26a00; background: #fff2d8;
-  border-radius: 6rpx;
+  font-size: var(--fs-xs); color: var(--warn); background: var(--warn-bg);
+  border-radius: var(--r-sm);
 }
-.lp-opt-sub { width: 100%; font-size: 19rpx; color: #7b8794; margin-top: 4rpx; }
-.lp-unavail { font-size: 20rpx; color: #9aa5b1; }
+.lp-opt-sub { width: 100%; font-size: var(--fs-xs); color: var(--ink-500); margin-top: 4rpx; }
+.lp-unavail { font-size: var(--fs-sm); color: var(--ink-500); }
 .lp-actions { display: flex; margin-top: 12rpx; }
 /* 选择器没内容时的说明（2026-10-14）
    卡片不再静默消失，所以要能说清"为什么这里没东西"。 */
-.lp-empty { font-size: 22rpx; color: #9aa5b1; padding: 10rpx 0; line-height: 1.7; }
-.lp-strong { color: #b26a00; font-weight: 600; }
+.lp-empty { font-size: var(--fs-sm); color: var(--ink-500); padding: 10rpx 0; line-height: 1.7; }
+.lp-strong { color: var(--warn); font-weight: 600; }
 
 /* 点站名看地图 —— 给一点按压反馈，否则点了没动静会以为没生效 */
 .node-head-hover {
-  background: #f3f6fa;
-  border-radius: 10rpx;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
 }
 /* ── 逐段方式的来源与"待你选择"（2026-10-14 用户要求）────────
    目标：用户要能一眼看出哪几段是"他自己说过/设过"的、
    哪几段系统只是给了个"最快的建议"、需要他自己定。 */
-.lp-src { font-size: 22rpx; color: #7b8794; margin: 4rpx 0 8rpx 44rpx; }
+.lp-src { font-size: var(--fs-sm); color: var(--ink-500); margin: 4rpx 0 8rpx 44rpx; }
 .lp-needs {
-  font-size: 21rpx;
-  color: #a8621b;
-  background: #fdf3e3;
-  border: 1rpx solid #f0d9b5;
-  border-radius: 6rpx;
+  font-size: var(--fs-sm);
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 1rpx solid var(--warn-line);
+  border-radius: var(--r-sm);
   padding: 2rpx 10rpx;
   margin-left: 12rpx;
 }
+.change-input { width: 100%; min-height: 150rpx; height: 150rpx; box-sizing: border-box; padding: 16rpx; margin-top: 16rpx; background: var(--surface-2); border-radius: var(--r-sm); font-size: var(--fs-body); }
+.change-question { margin-top: 16rpx; padding: 16rpx; background: var(--warn-bg); border-radius: var(--r-sm); font-size: var(--fs-body); }
+.change-choice { margin-top: 10rpx; padding: 12rpx; border: 1rpx solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); }
+.change-choice-selected { border-color: var(--brand-600); color: var(--brand-600); background: var(--brand-100); }
+.change-answer { margin-top: 12rpx; padding: 12rpx; background: var(--surface); border-radius: var(--r-sm); }
+
+/* 状态叠加：当前已到达仍强调正在游览；完成与跳过不误作当前。 */
+.node.visited .line { background: linear-gradient(180deg, var(--reached-line), var(--brand-200)); }
+.node.visited .node-seq { color: var(--success); background: var(--success-bg); }
+.node.current .node-seq { color: var(--surface); background: var(--accent); }
+.node.current.arrived .dot { width: 26rpx; height: 26rpx; background: var(--accent); box-shadow: 0 0 0 8rpx var(--accent-ring); }
+.node.current.arrived .node-body { border-color: var(--accent); }
+.node.current .badge.pending { color: var(--surface); background: linear-gradient(135deg, var(--accent-soft), var(--accent)); }
+.node.current.done .node-body { border-color: var(--line); box-shadow: var(--sh-1); }
+.node.current.done .node-seq { color: var(--success); background: var(--success-bg); }
+.node.skip .node-seq { color: var(--ink-500); background: var(--surface-2); }
+.node-times, .t, .fig-strong, .leg-time { font-variant-numeric: tabular-nums; }
+.page > .btn { margin-bottom: 20rpx; }
+.tick { border-radius: 12rpx; }
+.lp-actions { gap: 12rpx; flex-wrap: wrap; }
+
+.leg-mode, .leg-time, .leg-dist { flex-shrink: 0; white-space: nowrap; }
+
+.leg-estimated.leg-visited .leg-body { background: var(--warn-bg); border-color: var(--warn-line); }

@@ -17,17 +17,26 @@
 
     <!-- 需求输入：一句话，而不是一个个搜地点 -->
     <view class="card">
+      <view class="planning-title">今天想去哪？</view>
+      <view class="sub">说出目的地和时间，帮你安排游览路线。</view>
       <view class="search-row">
-        <input
+        <textarea
           class="search-input"
-          placeholder="说一句话，例如：我下午想去中央大街附近逛逛，五点前结束"
+          placeholder="例如：下午去中央大街逛逛，五点前结束"
           value="{{keyword}}"
+          maxlength="1000"
           confirm-type="search"
           bindinput="onKeyword"
           bindconfirm="doSearch"
+          disabled="{{loading || busy}}"
         />
-        <view class="search-btn" bindtap="doSearch">{{loading ? '…' : '理解'}}</view>
       </view>
+      <view class="planning-examples">
+        <button class="example-chip" data-text="下午去中央大街附近逛逛，五点前结束" bindtap="usePlanningExample" disabled="{{loading || busy}}">中央大街半日游</button>
+        <button class="example-chip" data-text="先去索菲亚教堂，再去太阳岛" bindtap="usePlanningExample" disabled="{{loading || busy}}">教堂和太阳岛</button>
+      </view>
+      <voice-input disabled="{{loading || busy}}" context-key="planning" bindresult="onKeywordVoice" bindstate="onPlanningVoiceState" />
+      <button class="btn search-submit" bindtap="doSearch" disabled="{{loading || busy || planningVoiceActive}}">{{loading ? '正在查找地点…' : '查找地点'}}</button>
 
       <!-- 系统理解成了什么 —— 依据与来源全部摊开，不藏 -->
       <view wx:if="{{intent}}" class="intent">
@@ -83,7 +92,7 @@
           </block>
         </view>
       </view>
-      <view class="sub">设了结束时间就是**硬约束**：系统宁可告诉你做不到，也不会默默超时</view>
+      <view class="sub">路线会在你设定的时间前结束；时间不够时会提示你调整。</view>
 
       <view class="row">
         <text class="k">每站停留</text>
@@ -98,7 +107,7 @@
         <text class="k">按真实步行时间排序</text>
         <switch checked="{{enrichWalk}}" bindchange="onEnrichChange" />
       </view>
-      <view class="sub">开启后每次搜索会多消耗若干次地图配额，换来"哪些地方现在去最方便"的准确顺序</view>
+      <view class="sub">按实际步行路线比较远近；查询可能需要多等一会儿。</view>
 
       <!--
         ══════════ 出行方式**已从这里移除**（2026-10-14 用户要求）══════
@@ -125,7 +134,7 @@
       <view wx:for="{{conflicts}}" wx:key="*this" class="conflict">· {{item}}</view>
       <view class="hint">
         请调整地点选择、出发时间，或放宽结束时间要求。
-        **系统不会替你放宽自己设定的硬约束。**
+        确认调整前，会保留你设定的时间限制。
       </view>
     </view>
 
@@ -142,25 +151,32 @@
         没有可选地点，请输入地点名称搜索。
       </view>
 
-      <view
-        wx:for="{{candidates}}"
-        wx:key="itemId"
-        class="place {{item.selected ? 'on' : ''}}"
-        data-id="{{item.itemId}}"
-        bindtap="toggleCandidate"
-      >
-        <view class="place-left">
-          <view class="tick {{item.selected ? 'on' : ''}}">{{item.selected ? '✓' : ''}}</view>
-          <view class="place-text">
-            <text class="place-name">{{item.name}}</text>
-            <text class="place-meta">
-              {{item.category}}
-              <block wx:if="{{item.distanceText}}"> · {{item.distanceText}}</block>
-              <block wx:if="{{item.durationText}}"> · {{item.durationText}}</block>
-            </text>
+      <block wx:for="{{candidates}}" wx:key="itemId">
+        <view
+          wx:if="{{!autoCandidates || !selected.length || otherCandidatesExpanded || item.selected}}"
+          class="place {{item.selected ? 'on' : ''}}"
+          data-id="{{item.itemId}}"
+          bindtap="toggleCandidate"
+        >
+          <view class="place-left">
+            <view class="tick {{item.selected ? 'on' : ''}}">{{item.selected ? '✓' : ''}}</view>
+            <view class="place-text">
+              <text class="place-name">{{item.name}}</text>
+              <text class="place-meta">
+                {{item.category}}
+                <block wx:if="{{item.distanceText}}"> · {{item.distanceText}}</block>
+                <block wx:if="{{item.durationText}}"> · {{item.durationText}}</block>
+              </text>
+            </view>
           </view>
         </view>
-      </view>
+      </block>
+      <button wx:if="{{autoCandidates && selected.length && unselectedCandidateCount}}"
+        class="candidate-toggle" bindtap="toggleOtherCandidates" hover-class="candidate-toggle-hover"
+        aria-expanded="{{otherCandidatesExpanded}}">
+        {{otherCandidatesExpanded ? '收起未勾选地点' : '展开其他 ' + unselectedCandidateCount + ' 个地点'}}
+        {{otherCandidatesExpanded ? '▴' : '▾'}}
+      </button>
     </view>
 
     <!-- 已选（勾选顺序即游览顺序） -->
@@ -169,7 +185,7 @@
         <text class="k">游览顺序</text>
         <text class="v muted">勾选顺序即顺序</text>
       </view>
-      <view wx:for="{{selected}}" wx:key="itemId" class="sel">
+      <view wx:for="{{selected}}" wx:key="visitId" class="sel">
         <text class="sel-seq">{{index + 1}}</text>
         <view class="sel-body">
           <text class="sel-name">{{item.name}}</text>
@@ -179,7 +195,10 @@
           -->
           <text wx:if="{{item.reason}}" class="sel-reason">{{item.reason}}</text>
         </view>
-        <text class="sel-del" data-id="{{item.itemId}}" bindtap="removeSelected">移除</text>
+        <view class="sel-actions">
+          <button class="visit-again" data-index="{{index}}" bindtap="appendVisit" disabled="{{loading || busy}}">末尾再去一次</button>
+          <text class="sel-del" data-id="{{item.itemId}}" data-visitid="{{item.visitId}}" bindtap="removeSelected">移除</text>
+        </view>
       </view>
     </view>
 
@@ -217,136 +236,8 @@
         <view class="sum-item"><text class="sum-v">{{summary.totalStayMin}}</text><text class="sum-k">分钟停留</text></view>
         <view class="sum-item"><text class="sum-v">{{summary.endAt}}</text><text class="sum-k">预计结束</text></view>
       </view>
-      <button class="btn ghost" bindtap="resetTrip">重新选择地点</button>
+      <button class="section-toggle" bindtap="resetTrip">重新选择地点 ›</button>
     </view>
-
-    <!--
-      路线地图：走到哪了一眼看得出。
-
-      ⚠️ **位置在概览卡之后、逐段选择器之前**（2026-10-14 调整）：
-      生成路线后最想看的是"这条路在地图上长什么样"，
-      放在页面下半部分要滚过好几张卡才看得到。见 `scrollToRouteMap`。
-    -->
-    <view wx:if="{{routeMap}}" class="card map-card">
-      <view class="row">
-        <text class="k">路线地图</text>
-        <text class="v muted">已走过 {{routeMap.reachedCount}} / {{routeMap.totalCount}} 站</text>
-      </view>
-      <map
-        id="routeMap"
-        class="route-map"
-        latitude="{{routeMap.center.latitude}}"
-        longitude="{{routeMap.center.longitude}}"
-        markers="{{routeMap.markers}}"
-        polyline="{{routeMap.polyline}}"
-        include-points="{{routeMap.includePoints}}"
-        show-location="{{false}}"
-      ></map>
-      <view class="sub">{{routeMap.legend}}</view>
-      <view class="sub">点时间轴上的任意一站可以到地图上放大看它在哪。</view>
-    </view>
-
-    <!--
-      ══════════ 逐段出行方式（2026-10-14 用户要求）══════════════
-
-      "点击生成路径后出现界面，让用户分别选择每段路径的出行方式"，
-      并在推荐的方式边上打"推荐"字样。
-
-      ⚠️⚠️ **这里原来写的是 `wx:if="{{legPicker.length}}"`** —— 为空时整块
-      卡片**静默消失**。用户点完生成路线看不到任何东西，也分不清
-      "没有可选的方式"与"这个功能没生效（比如云函数没重新部署）"。
-
-      用户实测报的正是这个："我点击生成路线时还是没有让我选择出行方式啊"。
-
-      **一个可能因为部署问题而不出现的界面，不该静默隐藏。**
-      现在只在"还没生成路线"时才不显示（那时确实没有逐段可选），
-      生成之后一定显示，并在没有候选时说清原因。
-    -->
-    <view wx:if="{{trip}}" class="card leg-picker">
-      <view class="row lp-head" bindtap="toggleLegPicker" hover-class="lp-head-hover">
-        <text class="k">出行方式 · 逐段调整</text>
-        <text class="v muted">{{legPickerOpen ? '收起 ▴' : '展开 ▾'}}</text>
-      </view>
-
-      <view wx:if="{{!legPickerOpen}}" class="sub">
-        各段已按最快自动选好。想自己定某一段，点「展开」。
-      </view>
-
-      <!-- 没有可选数据时说清是哪一种情况，别让用户猜 -->
-      <view wx:if="{{legPickerOpen && !legPicker.length}}" class="lp-empty">
-        <view wx:if="{{!legOptionsCount}}">
-          这一版没有返回可选的出行方式数据。若刚更新过云函数，
-          <text class="lp-strong">请重新部署云函数 api</text> 再试。
-        </view>
-        <view wx:else>
-          这条路线只有 {{legOptionsCount}} 段，但每段都没取到可比较的方式
-          （地图接口可能未配置或配额用尽）。逐段调整暂时没有内容可显示。
-        </view>
-      </view>
-
-      <block wx:if="{{legPickerOpen && legPicker.length}}">
-        <view wx:for="{{legPicker}}" wx:key="toPlaceId" class="lp-leg">
-          <view class="lp-leg-head">
-            <text class="lp-seq">{{item.index}}</text>
-            <text class="lp-path">{{item.fromName}} → {{item.toName}}</text>
-            <!--
-              ⚠️ "待你选择"标记（2026-10-14 用户要求）。
-
-              用户原话："若多个地名则**只自动选择用户说过出行方式的目的地**
-              （我想骑车去哈工大，再去冰雪大世界 —— 只是去哈工大的出行方式
-               选择为骑车，**冰雪大世界依旧需要用户自己选择**）"
-
-              判据是"有没有明确偏好"：他那一句里说了、或「我的」里设了默认，
-              就算有；两者都没有时这里挑的只是"最快的建议"，
-              不该假装成他的决定，所以明确标出来让他选。
-            -->
-            <text wx:if="{{item.needsChoice}}" class="lp-needs">待你选择</text>
-          </view>
-          <view class="lp-src">{{item.sourceNote}}</view>
-
-          <view class="lp-opts">
-            <view
-              wx:for="{{item.options}}"
-              wx:for-item="opt"
-              wx:key="mode"
-              class="lp-opt {{opt.isCurrent ? 'lp-opt-on' : ''}}"
-              data-placeid="{{item.toPlaceId}}"
-              data-mode="{{opt.mode}}"
-              bindtap="onLegModeTap"
-            >
-              <text class="lp-opt-name">{{opt.icon}} {{opt.name}}</text>
-              <text class="lp-opt-min">{{opt.minutes}} 分钟</text>
-              <!--
-                "推荐"字样 —— 这是**系统自己的判断**（最快），
-                不受用户偏好影响。否则用户选了什么就推荐什么，标签毫无信息量。
-              -->
-              <text wx:if="{{opt.recommended}}" class="lp-badge">推荐</text>
-              <!-- 公交换乘细节，让用户能据以比较 -->
-              <text wx:if="{{opt.transitText}}" class="lp-opt-sub">{{opt.transitText}}</text>
-            </view>
-          </view>
-
-          <!-- 这一段取不到的方式：要说清为什么不能选，而不是消失 -->
-          <view wx:if="{{item.unavailable.length}}" class="lp-unavail">
-            <text wx:for="{{item.unavailable}}" wx:for-item="u" wx:key="mode">
-              {{u.modeLabel}}：{{u.reason}}
-            </text>
-          </view>
-        </view>
-
-        <view class="lp-actions">
-          <button class="btn small" bindtap="applyLegModes">应用这些选择</button>
-          <button class="btn ghost small" bindtap="resetLegModes">恢复推荐</button>
-        </view>
-        <view class="sub">应用后会重排到达时间；候选耗时已在生成时取到，不会额外消耗地图配额。</view>
-      </block>
-    </view>
-
-    <!--
-      出发段的卡片版已删 —— 它挪进时间轴了（见下方 .tl 的第一段）。
-      独立卡片放在概览与地图之间，离时间轴太远，读起来不像"第一站之前那一段"，
-      而站点之间是画在时间轴里的，两处不一致。
-    -->
 
     <!--
       当前路线 = **这一段怎么走**（出行方式 + 距离 + 时长），不是"站的顺序"。
@@ -382,35 +273,203 @@
       <view wx:if="{{currentLeg.transitText}}" class="leg-transit-line">{{currentLeg.transitText}}</view>
       <view class="leg-actions">
         <button wx:if="{{!navLeg}}" class="btn small" bindtap="startNavigation" disabled="{{navLoading}}">
-          {{navLoading ? '正在取路线…' : '开始导航'}}
+          {{navLoading ? '正在取路线…' : navError ? '重试获取路线' : '查看路线'}}
         </button>
         <block wx:else>
-          <button class="btn ghost small" bindtap="stopNavigation">退出导航</button>
+          <button class="btn ghost small" bindtap="startNavigation">重新获取路线</button>
+          <button class="btn ghost small" bindtap="stopNavigation">收起路线</button>
         </block>
-        <button class="btn ghost small" bindtap="openInWechatMap">用微信地图打开（有语音）</button>
+        <button class="btn ghost small" bindtap="openInWechatMap">打开地图导航</button>
       </view>
+      <view class="sub">各方式默认展示耗时最短的路线。打开地图后请选择{{currentLeg.mode || '对应的出行方式'}}；路线预览不会随位置实时更新。</view>
 
       <view wx:if="{{navError}}" class="hint">{{navError}}</view>
       <view wx:if="{{navHint}}" class="hint">{{navHint}}</view>
 
       <!-- 内置导航：转向指引（**上游原话**，不自己做文案） -->
-      <view wx:if="{{navLeg && navLeg.steps.length}}" class="nav-steps">
+      <view wx:if="{{navLeg}}" class="nav-steps">
         <view class="nav-head">
-          <text class="nav-title">转向指引</text>
-          <text class="v muted">{{navLeg.distanceMeters}} 米 · {{navLeg.durationMinutes}} 分钟</text>
+          <text class="nav-title">{{navLeg.modeLabel}}路线指引</text>
+          <text class="v muted">{{navLeg.summaryText}}</text>
         </view>
+        <view wx:if="{{navLeg.transitText}}" class="leg-transit-line">{{navLeg.transitText}}</view>
+        <view wx:if="{{navLeg.transitDetail}}" class="hint">{{navLeg.transitDetail}}</view>
         <view wx:for="{{navLeg.steps}}" wx:key="seq" class="nav-step">
           <text class="nav-seq">{{item.seq}}</text>
           <view class="nav-body">
             <text class="nav-text">{{item.instruction}}</text>
             <text wx:if="{{item.distanceMeters}}" class="nav-dist">{{item.distanceMeters}} 米</text>
+            <text wx:if="{{item.viaStopText}}" class="nav-dist">途经：{{item.viaStopText}}</text>
           </view>
         </view>
-        <view class="sub">路径与指令均来自上游；地图上画的是真实步行路径，不是直线示意</view>
+        <view wx:if="{{!navLeg.steps.length}}" class="hint">地图服务未返回分步指引，请打开地图查看。</view>
+        <view class="sub">路径与指引来自地图服务；本次查询时长供出行参考，计划到达时间以确认后的行程为准。</view>
       </view>
 
-      <view class="sub" wx:else>导航交给微信内置地图；应用内逐步导航是后续计划</view>
     </view>
+
+    <!--
+      路线地图：走到哪了一眼看得出。
+
+      ⚠️ **位置在当前路线之后、修改行程之前**（2026-10-14 调整）：
+      生成路线后最想看的是"这条路在地图上长什么样"，
+      放在页面下半部分要滚过好几张卡才看得到。见 `scrollToRouteMap`。
+    -->
+    <view wx:if="{{routeMap}}" class="card map-card">
+      <view class="row">
+        <text class="k">路线地图</text>
+        <text class="v muted">已走过 {{routeMap.reachedCount}} / {{routeMap.totalCount}} 站</text>
+      </view>
+      <map
+        id="routeMap"
+        class="route-map"
+        latitude="{{routeMap.center.latitude}}"
+        longitude="{{routeMap.center.longitude}}"
+        markers="{{routeMap.markers}}"
+        polyline="{{routeMap.polyline}}"
+        include-points="{{routeMap.includePoints}}"
+        show-location="{{false}}"
+      ></map>
+      <view class="sub">{{routeMap.legend}}</view>
+      <view class="sub">点时间轴上的任意一站可以到地图上放大看它在哪。</view>
+    </view>
+
+    <view class="card text-change">
+      <button class="section-toggle" bindtap="toggleChangePanel" disabled="{{changeVoiceActive || busy}}" aria-expanded="{{changePanelOpen}}">用一句话修改行程 <text>{{changePanelOpen ? '收起 ▴' : '展开 ▾'}}</text></button>
+      <view wx:if="{{!changePanelOpen}}" class="sub">调整地点、停留或时间，确认方案后生效。</view>
+      <view hidden="{{!changePanelOpen}}">
+        <view class="sub">例如：坐地铁去，停留五十分钟；去完哈尔滨学院再去哈工大；最后一站改去哈工大。新增或换地点时请先选定具体校区或地址，确认后生效。</view>
+        <textarea class="change-input" value="{{changeText}}" bindinput="onChangeText" maxlength="1000"
+          placeholder="想怎样调整？地点、出行方式、停留或结束时间…" disabled="{{busy}}" />
+        <voice-input disabled="{{loading || busy}}" context-key="{{trip.tripId}}:{{trip.version}}" bindresult="onChangeVoice" bindstate="onChangeVoiceState" />
+        <view wx:if="{{changeInterpretation}}" class="sub">
+          {{changeInterpretation.parser === 'http' ? '由 AI 理解修改' : '由规则理解修改'}}{{changeInterpretation.degraded ? '（AI 暂不可用，已降级）' : ''}}
+        </view>
+        <view wx:for="{{changeTurns}}" wx:key="index" class="sub">{{index + 1}}. {{item}}</view>
+        <view wx:for="{{changeSummary}}" wx:key="index" class="change">· {{item}}</view>
+        <view wx:for="{{changeQuestions}}" wx:key="key" wx:for-item="question" class="change-question">
+          <view>{{question.prompt}}</view>
+          <block wx:if="{{question.kind === 'node' || question.kind === 'place'}}">
+            <view wx:for="{{question.options}}" wx:key="value" wx:for-item="option"
+              class="change-choice {{question.value === option.value ? 'change-choice-selected' : ''}}"
+              data-key="{{question.key}}" data-value="{{option.value}}" bindtap="answerChangeQuestion">{{option.label}}</view>
+            <view wx:if="{{question.answerLabel}}" class="sub">已选：{{question.answerLabel}}</view>
+          </block>
+          <input wx:elif="{{question.kind === 'minutes'}}" class="change-answer" type="number" value="{{question.value || ''}}"
+            placeholder="请输入整数分钟" data-key="{{question.key}}" bindinput="answerChangeQuestion" />
+          <picker wx:elif="{{question.kind === 'clock'}}" mode="time" value="{{question.value || '17:00'}}"
+            data-key="{{question.key}}" bindchange="answerChangeQuestion"><view class="change-choice">{{question.value || '选择结束时间'}}</view></picker>
+          <view wx:else class="sub">请在上面的输入框改写这项要求后重新提交。</view>
+        </view>
+        <view wx:if="{{changeError}}" class="err">{{changeError}}</view>
+        <button class="btn ghost" bindtap="submitTextChange" disabled="{{busy || changeVoiceActive || !changeText || changeNeedsRewrite}}">
+          {{busy === 'text-change' ? '正在理解并计算…' : changeDraftId ? '补充完成，继续生成方案' : '生成修改方案'}}
+        </button>
+        <view class="sub">生成方案后仍需选择确认，确认前原行程不会改变。</view>
+      </view>
+    </view>
+
+    <!--
+      ══════════ 逐段出行方式（2026-10-14 用户要求）══════════════
+
+      "点击生成路径后出现界面，让用户分别选择每段路径的出行方式"，
+      并在推荐的方式边上打"推荐"字样。
+
+      ⚠️⚠️ **这里原来写的是 `wx:if="{{legPicker.length}}"`** —— 为空时整块
+      卡片**静默消失**。用户点完生成路线看不到任何东西，也分不清
+      "没有可选的方式"与"这个功能没生效（比如云函数没重新部署）"。
+
+      用户实测报的正是这个："我点击生成路线时还是没有让我选择出行方式啊"。
+
+      **一个可能因为部署问题而不出现的界面，不该静默隐藏。**
+      现在只在"还没生成路线"时才不显示（那时确实没有逐段可选），
+      生成之后一定显示，并在没有候选时说清原因。
+    -->
+    <view wx:if="{{trip}}" class="card leg-picker">
+      <view class="row lp-head" bindtap="toggleLegPicker" hover-class="lp-head-hover">
+        <text class="k">出行方式 · 逐段调整</text>
+        <text class="v muted">{{legPickerOpen ? '收起 ▴' : '展开 ▾'}}</text>
+      </view>
+
+      <view wx:if="{{!legPickerOpen}}" class="sub">
+        各段已按最快自动选好。想自己定某一段，点「展开」。
+      </view>
+
+      <!-- 没有可选数据时说清是哪一种情况，别让用户猜 -->
+      <view wx:if="{{legPickerOpen && !legPicker.length}}" class="lp-empty">
+        <view wx:if="{{!legOptionsCount}}">
+          暂时没有取得可选的出行方式。
+          <text class="lp-strong">请稍后重新生成路线</text>，或用微信地图查看路线。
+        </view>
+        <view wx:else>
+          当前 {{legOptionsCount}} 段路线暂时没有可比较的出行方式，请稍后再试。
+        </view>
+      </view>
+
+      <block wx:if="{{legPickerOpen && legPicker.length}}">
+        <view wx:for="{{legPicker}}" wx:key="legKey" class="lp-leg">
+          <view class="lp-leg-head">
+            <text class="lp-seq">{{item.index}}</text>
+            <text class="lp-path">{{item.fromName}} → {{item.toName}}</text>
+            <!--
+              ⚠️ "待你选择"标记（2026-10-14 用户要求）。
+
+              用户原话："若多个地名则**只自动选择用户说过出行方式的目的地**
+              （我想骑车去哈工大，再去冰雪大世界 —— 只是去哈工大的出行方式
+               选择为骑车，**冰雪大世界依旧需要用户自己选择**）"
+
+              判据是"有没有明确偏好"：他那一句里说了、或「我的」里设了默认，
+              就算有；两者都没有时这里挑的只是"最快的建议"，
+              不该假装成他的决定，所以明确标出来让他选。
+            -->
+            <text wx:if="{{item.needsChoice}}" class="lp-needs">待你选择</text>
+          </view>
+          <view class="lp-src">{{item.sourceNote}}</view>
+
+          <view class="lp-opts">
+            <view
+              wx:for="{{item.options}}"
+              wx:for-item="opt"
+              wx:key="mode"
+              class="lp-opt {{opt.isCurrent ? 'lp-opt-on' : ''}}"
+              data-placeid="{{item.toPlaceId}}"
+              data-legkey="{{item.legKey}}"
+              data-mode="{{opt.mode}}"
+              bindtap="onLegModeTap"
+            >
+              <text class="lp-opt-name">{{opt.icon}} {{opt.name}}</text>
+              <text class="lp-opt-min">{{opt.minutes}} 分钟</text>
+              <!--
+                "推荐"字样 —— 这是**系统自己的判断**（最快），
+                不受用户偏好影响。否则用户选了什么就推荐什么，标签毫无信息量。
+              -->
+              <text wx:if="{{opt.recommended}}" class="lp-badge">推荐</text>
+              <!-- 公交换乘细节，让用户能据以比较 -->
+              <text wx:if="{{opt.transitText}}" class="lp-opt-sub">{{opt.transitText}}</text>
+            </view>
+          </view>
+
+          <!-- 这一段取不到的方式：要说清为什么不能选，而不是消失 -->
+          <view wx:if="{{item.unavailable.length}}" class="lp-unavail">
+            <text wx:for="{{item.unavailable}}" wx:for-item="u" wx:key="mode">
+              {{u.modeLabel}}：{{u.reason}}
+            </text>
+          </view>
+        </view>
+
+        <view class="lp-actions">
+          <button class="btn small" bindtap="applyLegModes" disabled="{{!!busy}}">{{busy === 'adjust' ? '正在计算…' : '应用这些选择'}}</button>
+          <button class="btn ghost small" bindtap="resetLegModes">恢复推荐</button>
+        </view>
+        <view class="sub">各方式取耗时最短的路线。应用后重新计算到达时间，确认方案后生效，已到达的记录会保留。候选耗时供参考，重新计算会查询地图。</view>
+      </block>
+    </view>
+
+    <!--
+      出发段的卡片版已删 —— 它挪进时间轴了（见下方 .tl 的第一段）。
+      独立卡片放在概览与地图之间，离时间轴太远，读起来不像"第一站之前那一段"，
+      而站点之间是画在时间轴里的，两处不一致。
+    -->
 
     <!-- 步行时间的来源构成：真实路线与估算必须能区分 -->
     <view wx:if="{{walkTimes}}" class="card">
@@ -574,7 +633,7 @@
 
     <!-- ══════════ 调整候选（§5.2 四种展示情况） ══════════ -->
     <block wx:if="{{proposal}}">
-      <view class="card cand-head">
+      <view id="adjustment-proposals" class="card cand-head">
         <view class="row">
           <text class="k">调整方案</text>
           <text class="v muted">{{proposalNote}}</text>
@@ -590,7 +649,7 @@
         </view>
         <view class="hint">
           请选择要放宽的条件：把出发时间提前、减少一个地点，或放宽结束时间要求。
-          **系统不会为了凑出一个方案而放宽你自己设定的硬约束。**
+          确认调整前，会保留你设定的时间限制。
         </view>
       </view>
 
@@ -644,7 +703,8 @@
     </block>
 
     <view class="foot">
-      调整不会自动生效 —— 必须确认后才改写行程（版本 v{{trip.version}}）
+      个人行程按指定时长调整且无额外取舍时直接生效；存在额外取舍或调整团队行程时，先选择方案（版本 v{{trip.version}}）。
     </view>
   </block>
+  <guide-entry />
 </view>

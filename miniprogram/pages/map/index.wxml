@@ -9,12 +9,46 @@
       scale="{{scale}}"
       markers="{{markers}}"
       polyline="{{polyline}}"
-      show-location="{{true}}"
+      show-location="{{false}}"
       enable-zoom="{{true}}"
       enable-scroll="{{true}}"
       bindtap="onMapTap"
       bindregionchange="onMapRegionChange"
-    ></map>
+    >
+      <cover-view wx:if="{{noticeLandingNote}}" class="map-notice" catchtap="holdChatTap">
+        <cover-view class="map-notice-text">{{noticeLandingNote}}</cover-view>
+        <cover-view wx:if="{{notifyLandingFailed}}" class="map-notice-action" bindtap="openTeamSettings">去切换队伍</cover-view>
+        <cover-view wx:else class="map-notice-action" bindtap="dismissNoticeLanding">知道了</cover-view>
+      </cover-view>
+      <cover-view slot="callout">
+        <cover-view wx:for="{{memberChatCallouts}}" wx:key="id" marker-id="{{item.id}}"
+          class="member-callout" style="width: {{item.groupWidth}}px;" catchtap="holdChatTap">
+          <cover-view class="member-callout-message" style="width: {{item.width}}px;">
+            <cover-view wx:for="{{item.lines}}" wx:for-item="line" wx:for-index="lineIndex"
+              wx:key="lineIndex" class="member-callout-message-line">{{line}}</cover-view>
+          </cover-view>
+          <cover-view class="member-callout-name" style="color: {{item.nameColor}};">{{item.name}}</cover-view>
+        </cover-view>
+      </cover-view>
+      <cover-view wx:if="{{crewId && chatPreviewAvailable}}" class="map-chat {{pickMode ? 'map-chat-picking' : ''}}"
+        catchtap="holdChatTap" aria-label="队伍聊天最新消息">
+        <cover-view class="map-chat-heading">队伍消息</cover-view>
+        <cover-view wx:for="{{chatPreview}}" wx:key="messageId" class="map-chat-row">
+          <cover-image wx:if="{{item.avatarUrl}}" class="map-chat-avatar" src="{{item.avatarUrl}}"
+            data-message-id="{{item.messageId}}" binderror="chatAvatarError" />
+          <cover-view wx:else class="map-chat-avatar map-chat-initial">{{item.initial}}</cover-view>
+          <cover-view class="map-chat-bubble">
+            <cover-view class="map-chat-name">{{item.name}}</cover-view>
+            <cover-view class="map-chat-text">{{item.text}}</cover-view>
+          </cover-view>
+        </cover-view>
+        <cover-view wx:if="{{!chatPreview.length}}" class="map-chat-row">
+          <cover-view class="map-chat-avatar map-chat-initial">聊</cover-view>
+          <cover-view class="map-chat-bubble map-chat-empty">在下方输入框和队友聊天</cover-view>
+        </cover-view>
+        <cover-view wx:if="{{chatPreviewNote}}" class="map-chat-note">{{chatPreviewNote}}</cover-view>
+      </cover-view>
+    </map>
 
     <!--
       ══════════ 中间图钉（手动选点模式）══════════════════════
@@ -43,10 +77,10 @@
       改成**地图右下角的两个小控件**。
     -->
     <view class="map-ctl">
-      <view class="ctl-btn" bindtap="startPick" hover-class="ctl-hover">
+      <view class="ctl-btn" bindtap="startPick" hover-class="ctl-hover" role="button" aria-label="拖动地图选择集合点">
         <text class="ctl-icon">✛</text>
       </view>
-      <view class="ctl-btn" bindtap="useGps" hover-class="ctl-hover">
+      <view class="ctl-btn" bindtap="useGps" hover-class="ctl-hover" role="button" aria-label="获取我的位置">
         <text class="ctl-icon">◎</text>
       </view>
     </view>
@@ -58,8 +92,16 @@
     </view>
   </view>
 
+  <team-chat-composer wx:if="{{crewId}}" crew-id="{{crewId}}" bind:sent="onMapChatSent" bind:accessdenied="onMapChatDenied" />
+
   <view class="body">
     <view wx:if="{{coordinateError}}" class="err">{{coordinateError}}</view>
+    <!--
+      订阅提醒落地提示（2026-10-17）。
+      从通知点进来时用一句话交代"你被带到了哪里"；如果目标队伍已不可访问
+      （退出/被移除/解散），这里必须给一个明确的返回入口 ——
+      不能把一个打不开的页面甩给用户。
+    -->
     <!--
       聚焦提示条（2026-10-14 用户要求）。
       从行程页点「到了」跳过来时，这里说明"现在看的是哪一站"，
@@ -79,7 +121,7 @@
       否则地图上就看不到同伴在哪了（而且不报错）：
         · 队员位置 → `refreshTeamLocations()` 调 `loc.list`
         · 集合点   → `loadCrew()` 调 `meet.get` 填 `meetTask`
-      两条都已接上，本页现在**不依赖任何组件**。
+      两条都已接上，本页不依赖 team-panel 提供队伍状态。
 
       ⚠️ **不要把 `team-panel` 加回本页**：
         · 组队与解散在「我的」页（面板的家）
@@ -104,6 +146,7 @@
         <text class="v muted">还没有队伍</text>
       </view>
       <view class="sub">去「我的」页创建小队或输入邀请码加入，之后在这里看队员位置、发起集合。</view>
+      <button class="btn small" bindtap="openTeamSettings">去创建或加入小队</button>
     </view>
 
     <view wx:if="{{crewId}}" class="card">
@@ -111,60 +154,27 @@
         <text class="k">{{crew ? crew.name : '队伍'}}</text>
         <text class="v muted">{{members.length}} 位成员</text>
       </view>
-
-      <!-- 位置共享：主动上报一次，不持续定位 -->
-      <view class="acts">
-        <view class="act" bindtap="toggleSharing">{{sharing ? '关闭位置共享' : '开启位置共享'}}</view>
-        <view class="act" bindtap="reportMyLocation">共享一次当前位置</view>
-        <view class="act" bindtap="showTeamOnMap">查看全队位置</view>
-      </view>
-      <view class="sub">
-        主动上报一次位置，不持续定位。共享前请先点 ◎ 取位置；拖 ✛ 用于选择集合点。
-      </view>
-      <view class="sub">队员位置每 15 秒刷新；过期位置会标注为上次位置。</view>
-      <view wx:if="{{locationError}}" class="err">{{locationError}}</view>
-
-      <!-- 集合：先推荐，再拖动微调 -->
-      <view wx:if="{{!meetTask}}" class="meet-setup">
-        <view class="acts">
-          <view class="act act-primary" bindtap="recommendMeetingPoint">① 推荐一个集合点</view>
-        </view>
-        <view class="sub">
-          算法让**走得最远的那个成员**尽量近，但它不知道"南门还是北门"这类实地信息 ——
-          推荐出来后拖 ✛ 微调，确认无误再发起。
-        </view>
-        <view class="row">
-          <text class="k">集合点名称</text>
-          <input class="field" placeholder="如南门指示牌旁" value="{{pointName}}" bindinput="onPointNameInput" maxlength="20"/>
-        </view>
-        <view class="row">
-          <text class="k">集合时间</text>
-          <picker mode="time" value="{{meetTime}}" bindchange="onMeetTimeChange">
-            <view class="v link">{{meetTime}}</view>
-          </picker>
-        </view>
-        <view class="acts">
-          <view class="act act-primary" bindtap="createMeeting">② 发起集合</view>
-        </view>
-      </view>
-
       <!-- 进行中的集合 -->
       <view wx:if="{{meetTask}}" class="meet-task">
         <view class="row">
           <text class="k">{{meetTask.placeName || '集合点'}}</text>
           <text class="v muted">{{meetTask.statusLabel || meetTask.status}}</text>
         </view>
-        <view class="sub">约定 {{meetTask.timeLabel}} · 到齐 {{meetTask.arrivedLabel}} · 出发 {{meetTask.departedLabel}}</view>
+        <view class="meeting-summary">
+          <view><text class="meeting-time">{{meetTask.timeLabel}}</text><text class="sub"> 约定集合</text></view>
+          <view><text class="meeting-count">{{meetTask.arrivedCount}} / {{meetTask.expectedCount}}</text><text class="sub"> 人已到达</text></view>
+        </view>
+        <view wx:if="{{meetTask.allArrivedAt}}" class="sub">实际到齐 {{meetTask.arrivedLabel}}</view>
         <view wx:for="{{meetTask.participants}}" wx:key="userId" class="row">
           <text class="k">{{item.label}}</text>
           <text class="v muted">{{item.statusLabel}}</text>
         </view>
 
         <view class="acts">
-          <view wx:if="{{meetTask.status === 'proposed' || meetTask.status === 'confirmed'}}" class="act" data-kind="confirm" bindtap="meetAction">确认集合</view>
+          <view wx:if="{{meetTask.status === 'proposed' || meetTask.status === 'confirmed'}}" class="act act-primary" data-kind="confirm" bindtap="meetAction">确认集合</view>
           <view wx:if="{{meetTask.status === 'proposed' || meetTask.status === 'confirmed'}}" class="act" data-kind="decline" bindtap="meetAction">暂不参加</view>
-          <view wx:if="{{meetTask.status === 'confirmed' || meetTask.status === 'active'}}" class="act" data-kind="arrive" bindtap="meetAction">我已到达</view>
-          <view wx:if="{{isOwner}}" class="act" data-kind="cancel" bindtap="meetAction">取消本次集合</view>
+          <view wx:if="{{meetTask.status === 'confirmed' || meetTask.status === 'active'}}" class="act act-primary" data-kind="arrive" bindtap="meetAction">我已到达</view>
+          <view wx:if="{{isOwner}}" class="act warn-act" data-kind="cancel" bindtap="meetAction">取消本次集合</view>
         </view>
 
         <!-- 出发前必须检查后续行程；checkId 是服务端给的凭据 -->
@@ -182,6 +192,76 @@
           <view wx:if="{{departureCheck.canDepart}}" class="acts">
             <view class="act act-primary" bindtap="confirmDepart">确认现在出发</view>
           </view>
+        </view>
+      </view>
+
+      <!-- 自动共享的开关统一位于「我的 → 设置」 -->
+      <view class="acts">
+        <view class="act" bindtap="refreshSharedLocation">立即更新位置</view>
+        <view class="act" bindtap="showTeamOnMap">查看全队位置</view>
+        <view class="act" bindtap="openSharingSettings">位置共享设置</view>
+        <view class="act" bindtap="toggleNotifyPanel">{{notifyPanelOpen ? '收起提醒设置' : '订阅提醒'}}</view>
+      </view>
+
+      <!--
+        ══════════ 订阅提醒（2026-10-17）══════════════════════
+
+        为什么是"点一下才订阅"而不是入队自动订阅：
+        微信的一次性订阅必须由用户主动点击，静默获取授权属于违规；
+        而且每次同意大约等于一次发送额度，不能替用户决定花在哪儿。
+
+        这里不显示"已开启多久"之类的细节 —— 用户只关心"能不能收到提醒"。
+      -->
+      <view wx:if="{{notifyPanelOpen}}" class="notify-panel">
+        <view class="notify-head">关闭小程序后也能收到这些提醒</view>
+        <view wx:if="{{notifyLoading}}" class="notify-note">正在读取提醒设置…</view>
+        <view wx:if="{{notifyLoadError}}" class="err">{{notifyLoadError}}</view>
+        <button wx:if="{{notifyLoadError || (!notifyLoading && !notifyRows.length)}}" class="btn ghost small" bindtap="loadNotifyStatus" disabled="{{notifyLoading || notifyBusy}}">重新读取提醒设置</button>
+        <view wx:for="{{notifyRows}}" wx:key="kind" class="notify-row">
+          <view class="notify-info">
+            <text class="notify-label">{{item.label}}</text>
+            <text class="notify-state {{item.subscribed ? 'on' : ''}}">{{item.subscribed ? '已开启' : '未开启'}}</text>
+          </view>
+          <button wx:if="{{!item.subscribed}}" class="notify-btn" data-kind="{{item.kind}}"
+            disabled="{{notifyBusy || notifyLoading || !item.canRequest}}" bindtap="requestNotify">{{notifyBusy ? '处理中…' : item.canRequest ? '开启' : '模板未就绪'}}</button>
+          <button wx:else class="notify-btn notify-off" data-kind="{{item.kind}}"
+            disabled="{{notifyBusy || notifyLoading}}" bindtap="revokeNotify">{{notifyBusy ? '处理中…' : '关闭'}}</button>
+        </view>
+        <view class="notify-note">
+          {{notifyNote}}
+        </view>
+        <view class="notify-note">{{notifyPolicyNote || '已同意 ≠ 一定送达；每次同意大约可用一次，微信按次数消耗。'}}</view>
+        <button wx:if="{{notifySettingsNeeded}}" class="btn ghost small" bindtap="openNotifySettings">前往微信订阅设置</button>
+      </view>
+      <view class="sub">
+        {{sharing ? '已开启自动共享，进入队伍立即更新位置。' : '自动共享已关闭，可到「我的 → 设置」开启。'}}{{meetTask ? '集合点与全队一致，更新位置只更新本人位置。' : '拖 ✛ 用于选择集合点。'}}
+      </view>
+      <view class="sub">队员位置每 15 秒刷新；过期位置以半透明头像显示。</view>
+      <view wx:if="{{autoLocationError}}" class="err">{{autoLocationError}}</view>
+      <view wx:if="{{locationError}}" class="err">{{locationError}}</view>
+
+      <!-- 集合：先推荐，再拖动微调 -->
+      <view wx:if="{{!meetTask}}" class="meet-setup">
+        <photo-meeting crew-id="{{crewId}}" my-point="{{myPoint}}" bind:selected="onPhotoMeetingSelected" bind:manual="startPick" />
+        <view class="acts">
+          <view class="act act-primary" bindtap="recommendMeetingPoint">① 推荐一个集合点</view>
+        </view>
+        <view class="sub">
+          按大家的平均位置寻找中心周围 1 公里内的地点，找不到就取中心；推荐后可拖 ✛ 微调。
+        </view>
+        <view class="row">
+          <text class="k">集合点名称</text>
+          <input class="field" placeholder="如南门指示牌旁" value="{{pointName}}" bindinput="onPointNameInput" maxlength="20"/>
+        </view>
+        <view class="row">
+          <text class="k">集合时间</text>
+          <picker mode="time" value="{{meetTime}}" bindchange="onMeetTimeChange">
+            <view class="v link">{{meetTime}}</view>
+          </picker>
+        </view>
+        <view class="sub">默认显示当前时间，请手动调整为尚未到达的集合时间。</view>
+        <view class="acts">
+          <view class="act act-primary" bindtap="createMeeting">② 发起集合</view>
         </view>
       </view>
 
@@ -221,7 +301,7 @@
         （2026-10-14 用户要求）。这里只留一行说明，不再放大按钮 ——
         两处都能干同一件事会让人不知道该点哪个。
       -->
-      <view class="sub">用地图右下角的控件：◎ 取我的位置；✛ 拖动地图选**集合点**。</view>
+      <view class="sub">用地图右下角的控件：◎ 取我的位置；✛ 拖动地图选集合点。</view>
       <view wx:if="{{note}}" class="note">{{note}}</view>
     </view>
 
@@ -288,7 +368,7 @@
           </view>
         </view>
         <view class="rule">
-          这些照片用于辨认地点，**不构成**对可达性、入口位置的核验。
+          这些照片用于辨认地点，不构成对可达性、入口位置的核验。
           该地点的核验等级以「{{meetingPoint.verified ? '已实地核验' : '未实地核验'}}」为准。
         </view>
       </block>
@@ -304,4 +384,5 @@
       地点数据来自已录入地点；集合位置由成员共同确认。
     </view>
   </view>
+  <guide-entry scope="team" />
 </view>

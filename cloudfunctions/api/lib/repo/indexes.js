@@ -11,7 +11,7 @@
  *   `ops.verifyIndexes` 会**实测**云上索引是否真的生效（写重复数据看是否被拒）。
  *
  * ⚠️ 修改本表必须同时更新：
- *   1. docs/01_数据模型_v1.md 的索引清单
+ *   1. docs/项目计划书.md#data-model 的索引清单
  *   2. ops.initDb 返回的 manualIndexes 手工清单
  *   3. 云开发控制台里实际的索引
  */
@@ -33,6 +33,16 @@ const UNIQUE_INDEXES = {
   crew_members: [['crewId', 'userId']],
   operations: [['requestId']],
   trip_versions: [['tripId', 'version']],
+  /**
+   * 订阅意向与通知去重（2026-10-17 加）。
+   *
+   * `subscribe_intents`：一次订阅只应有一条，重复点击要累加而不是新增行。
+   * `notice_log`：`dedupeKey` 是**业务事件唯一键**。这一条是"同一句话不发两条通知"
+   *   的物理保证 —— 只用 `_id` 不够：云数据库的 `add()` 会自动生成 `_id`，
+   *   传进去的值不参与唯一性判断，并发下两条都能写进去。
+   */
+  subscribe_intents: [['crewId', 'userId', 'kind']],
+  notice_log: [['dedupeKey']],
 };
 
 /** 云端手工索引清单（与上表一一对应，供 ops.initDb 返回） */

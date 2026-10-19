@@ -89,6 +89,11 @@ async function makeWorld(opts) {
         createPhotoService: opts.createPhotoService || null,
         /** 公交（含地铁）路线服务（lib/transit）—— 同 createMapProvider */
         createTransitProvider: opts.createTransitProvider || null,
+        createSpeechProvider: opts.createSpeechProvider || null,
+        createOcrProvider: opts.createOcrProvider || null,
+        createGuideProvider: opts.createGuideProvider || null,
+        createInviteProvider: opts.createInviteProvider || null,
+        createSubscribeProvider: opts.createSubscribeProvider || null,
       }
     );
   };
@@ -115,7 +120,15 @@ async function makeCrew(world, name) {
     const r = await world[who]('crew.join', { inviteCode });
     if (!r.ok) throw new Error(`${who} 入队失败：${JSON.stringify(r.error)}`);
   }
+  // 夹具明确模拟每位成员主动同意，不能再把建队/入队当作共享授权。
+  for (const who of ['A', 'B', 'C']) await enableLocation(world, who, crewId);
   return { crewId, inviteCode };
+}
+
+async function enableLocation(world, who, crewId) {
+  const { POLICY_VERSION } = require('../cloudfunctions/api/lib/location-consent');
+  const result = await world[who]('loc.stopSharing', { crewId, sharing: true, policyVersion: POLICY_VERSION });
+  if (!result.ok) throw new Error('测试成员开启共享失败：' + JSON.stringify(result.error));
 }
 
 const expectOk = (res) => {
@@ -133,4 +146,4 @@ const expectFail = (res, code) => {
   return res.error;
 };
 
-module.exports = { makeWorld, makeCrew, expectOk, expectFail, NOW, fixtures, C, defaultMapFactory, createMapProvider };
+module.exports = { makeWorld, makeCrew, enableLocation, expectOk, expectFail, NOW, fixtures, C, defaultMapFactory, createMapProvider };

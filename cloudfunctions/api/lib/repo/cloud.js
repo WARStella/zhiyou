@@ -4,7 +4,7 @@
  * 云数据库仓储实现。
  *
  * 注意：云函数内 wx-server-sdk 使用的是 admin 身份，**会绕过数据库安全规则**。
- * 因此 docs/01 §0 决定 1 的"非成员不得读取队伍位置"必须由 lib/authz.js 显式实现，
+ * 因此 docs/项目计划书.md#data-model §0 决定 1 的"非成员不得读取队伍位置"必须由 lib/authz.js 显式实现，
  * 绝不能寄希望于安全规则。
  *
  * 生产环境**不应**被 require（本地测试用 memory 实现）。这里对 wx-server-sdk 做懒加载。
@@ -17,6 +17,8 @@
  */
 
 const { assertStructuredQuery } = require('./query');
+const { cloudTransactionRepo } = require('./transaction');
+const { fail, CODES } = require('../errors');
 
 /**
  * 集合不存在的错误码与文案（不同版本措辞不一，用正则匹配而非精确匹配）。
@@ -91,6 +93,28 @@ function createCloudRepo(opts) {
 
   return {
     __kind: 'cloud',
+
+    async runTransaction(fn, collections) {
+      const run = async () => {
+        let result;
+        await db.runTransaction(async native => {
+          result = await fn(cloudTransactionRepo(native, _));
+          return result;
+        });
+        return result; // 不依赖 SDK 是直接返回值还是包装在 result 中。
+      };
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try { return await run(); }
+        catch (e) {
+          if (e.code === 'DATABASE_TRANSACTION_CONFLICT') throw fail(CODES.VERSION_CONFLICT, '数据正在更新，请重试');
+          if (!isCollectionMissing(e) || attempt > 0) throw e;
+          for (const collection of collections || []) {
+            const result = await this.ensureCollection(collection);
+            if (result.error) throw new Error(result.error);
+          }
+        }
+      }
+    },
 
     /**
      * 显式创建集合。

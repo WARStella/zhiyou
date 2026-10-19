@@ -1,0 +1,23 @@
+<view class="page">
+  <view class="intro">和队友交流集合与行程。语音识别为文字后，可修改再发送。</view>
+  <view wx:if="{{locked}}" class="error">{{error}}</view>
+  <block wx:else>
+    <view wx:if="{{syncError}}" class="sync-error">{{syncError}} <text bindtap="refreshMessages">重新连接</text></view>
+    <scroll-view class="messages" scroll-y scroll-into-view="{{scrollTo}}">
+      <button wx:if="{{hasHistory}}" class="history" size="mini" bindtap="loadHistory" disabled="{{loadingHistory}}">{{loadingHistory ? '加载中…' : '查看更早消息'}}</button>
+      <view wx:if="{{loading}}" class="empty">正在加载消息…</view>
+      <view wx:elif="{{!messages.length}}" class="empty">还没有消息，和队友打个招呼吧。</view>
+      <view wx:for="{{messages}}" wx:key="messageId" id="message-{{item.messageId}}" class="message {{item.isMine ? 'mine' : ''}}">
+        <view class="meta">{{item.nickname || '未命名队友'}}{{item.isMine ? '（我）' : ''}} · {{item.timeLabel}}</view>
+        <text selectable class="bubble">{{item.text}}</text>
+      </view>
+    </scroll-view>
+    <button wx:if="{{newCount}}" class="new-messages" size="mini" bindtap="jumpLatest">查看新消息（{{newCount}}）</button>
+    <view class="composer">
+      <textarea value="{{text}}" maxlength="1000" placeholder="给队友发消息…" bindinput="onText" disabled="{{sending || uncertain}}" />
+      <voice-input context-key="{{voiceContext}}" disabled="{{sending || uncertain}}" hint="录音实时发送至腾讯云转成文字，结束后追加到上方；检查后点击发送。" bind:result="onVoice" />
+      <view class="send-row"><text class="count">{{text.length}}/1000</text><button class="send" size="mini" bindtap="sendMessage" disabled="{{sending || loading || !initialized || (!text && !uncertain)}}">{{sending ? '发送中…' : uncertain ? '重试发送' : '发送'}}</button></view>
+      <view wx:if="{{error}}" class="error">{{error}}</view>
+    </view>
+  </block>
+</view>

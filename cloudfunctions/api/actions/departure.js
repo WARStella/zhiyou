@@ -1,4 +1,5 @@
 'use strict';
+const { reconcileMeeting } = require('../lib/meeting-members');
 const { randomUUID } = require('node:crypto');
 const { assert, CODES, require_fields } = require('../lib/errors');
 const { requireCrewMember } = require('../lib/authz');
@@ -14,9 +15,10 @@ const { loadPlaces } = require('./trip');
 
 async function load(ctx) {
   require_fields(ctx.payload, ['meetTaskId']);
-  const task = await ctx.repo.get(C.MEET_TASKS, ctx.payload.meetTaskId);
+  let task = await ctx.repo.get(C.MEET_TASKS, ctx.payload.meetTaskId);
   assert(task, CODES.NOT_FOUND, '集合任务不存在');
   await requireCrewMember(ctx.repo, task.crewId, ctx.openid);
+  task = await reconcileMeeting(ctx, task._id);
   assert(task.initiatorUserId === ctx.openid, CODES.FORBIDDEN_NOT_MEMBER, '只有发起人可以检查和确认出发');
   assert(ctx.expectedVersion != null, CODES.INVALID_PARAM, '必须携带集合版本 expectedVersion');
   assert(ctx.expectedVersion === task.version, CODES.VERSION_CONFLICT, '集合已更新，请刷新');

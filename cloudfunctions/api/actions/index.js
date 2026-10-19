@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Action 注册表 —— 新增接口只需在此登记，并在 docs/02_接口清单_v0.md 中同步。
+ * Action 注册表 —— 新增接口只需在此登记，并在 docs/项目计划书.md#api-contract 中同步。
  *
  * 命名规范：`域.动作`，域与 service/ 的模块划分一致
  * （team · intent · poi · planner · trip · meet · trace，见计划书 §9）。
@@ -10,6 +10,7 @@
 const user = require('./user');
 const place = require('./place');
 const crew = require('./crew');
+const invitation = require('./invitation');
 const loc = require('./loc');
 const trip = require('./trip');
 const meet = require('./meet');
@@ -18,6 +19,7 @@ const walkCacheCheck = require('./walk-cache-check');
 const intent = require('./intent');
 const ai = require('./ai');
 const team = require('./team');
+const subscribe = require('./subscribe');
 
 module.exports = {
   'ops.cleanupPlaceholderPlaces': require('./cleanup-places'),
@@ -26,6 +28,22 @@ module.exports = {
   'team.progress': team.progress,
   'team.close': team.close,
   'team.cancelMeeting': team.cancelMeeting,
+  'chat.send': require('./chat').send,
+  'chat.list': require('./chat').list,
+  /**
+   * 本人已读游标（2026-10-17）：只有**真正展示之后**才推进，
+   * 拉取接口与地图预取都不自动等于已读。只增不减。
+   */
+  'chat.markRead': require('./chat').markRead,
+  /**
+   * 订阅消息（2026-10-17）—— 只有"本人意向"三个接口。
+   *
+   * ⚠️ 刻意**没有**"给某人发通知"的接口：收件人由服务端从当前有效成员算出，
+   * 客户端既拿不到也指定不了收件人，越权推送在接口层就不存在。
+   */
+  'subscribe.report': subscribe.report,
+  'subscribe.revoke': subscribe.revoke,
+  'subscribe.status': subscribe.status,
   // 用户与运维
   'user.login': user.login,
   'ops.health': user.health,
@@ -79,6 +97,12 @@ module.exports = {
   'crew.leave': crew.leave,
   'crew.get': crew.get,
   'crew.remove': crew.remove,
+  'crew.inviteGet': invitation.get,
+  'crew.inviteCreate': invitation.create,
+  'crew.inviteRevoke': invitation.revoke,
+  'crew.invitePreview': invitation.preview,
+  'crew.inviteJoin': invitation.join,
+  'crew.inviteQr': invitation.qr,
 
   // 位置
   'loc.report': loc.report,
@@ -89,6 +113,7 @@ module.exports = {
   'trip.plan': trip.plan,
   'trip.get': trip.get,
   'trip.adjust': trip.adjust,
+  'trip.adjustText': require('./trip-text').adjustText,
   'trip.confirmChange': trip.confirmChange,
   'trip.progress': trip.progress,
   /** 某一段的真实步行路线与转向指引 —— 内置导航的数据来源 */
@@ -150,4 +175,13 @@ module.exports = {
 
   // 大模型探针（与 map.probe 同套路）
   'ai.probe': ai.probe,
+  'speech.recognize': require('./speech').recognize,
+  'speech.session': require('./speech').session,
+  'ocr.recognize': require('./ocr').recognize,
+  'ocr.searchMeeting': require('./ocr').searchMeeting,
+  'guide.ask': require('./guide').ask,
+  'guide.navigation': require('./guide').navigation,
+  'guide.countPeople': require('./guide').countPeople,
+  'guide.get': require('./guide').get,
+  'guide.close': require('./guide').close,
 };

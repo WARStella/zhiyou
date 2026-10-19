@@ -365,7 +365,7 @@ test('开始导航：取真实路线，并画在地图上（不是直线示意�
   // 地图上要画**真实路径**，不是两个点之间的直线
   assert.equal(page.data.routeMap.navMode, true, '地图要进入导航模式');
   assert.equal(page.data.routeMap.polyline[0].points.length, 3, '画的是解码后的真实路径');
-  assert.match(page.data.routeMap.legend, /真实步行路径/);
+  assert.match(page.data.routeMap.legend, /步行路线/);
 });
 
 test('导航失败时如实报错，不画一条假线', async () => {
@@ -408,7 +408,7 @@ test('上游没给路径点时，画不出线也要说清楚', async () => {
   await new Promise((r) => setImmediate(r));
 
   assert.equal(page.data.navLeg.decoded, false);
-  assert.match(page.data.navError, /不用直线冒充/, '要说清为什么地图上没有线');
+  assert.match(page.data.navError, /仅展示起终点/, '要说清为什么地图上没有线');
 });
 
 test('退出导航后地图回到整条路线的示意', async () => {

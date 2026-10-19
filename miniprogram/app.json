@@ -3,43 +3,53 @@
     "pages/trip/index",
     "pages/map/index",
     "pages/profile/index",
+    "pages/guide/index",
+    "pages/invite/index",
     "pages/index/index",
     "pages/debug-team/index"
   ],
   "window": {
-    "backgroundTextStyle": "light",
-    "backgroundColor": "#F5F6F8",
-    "navigationBarBackgroundColor": "#0B3C6E",
+    "backgroundTextStyle": "dark",
+    "backgroundColor": "#F4F6F9",
+    "navigationBarBackgroundColor": "#F4F6F9",
     "navigationBarTitleText": "智游·灵动",
-    "navigationBarTextStyle": "white"
+    "navigationBarTextStyle": "black"
   },
   "tabBar": {
-    "color": "#9AA5B1",
-    "selectedColor": "#0B3C6E",
+    "color": "#6F7D89",
+    "selectedColor": "#2B5C8A",
     "backgroundColor": "#FFFFFF",
     "borderStyle": "white",
     "list": [
       {
         "pagePath": "pages/trip/index",
-        "text": "行程"
+        "text": "行程",
+        "iconPath": "assets/tabbar/trip.png",
+        "selectedIconPath": "assets/tabbar/trip-active.png"
       },
       {
         "pagePath": "pages/map/index",
-        "text": "队伍"
+        "text": "队伍",
+        "iconPath": "assets/tabbar/team.png",
+        "selectedIconPath": "assets/tabbar/team-active.png"
       },
       {
         "pagePath": "pages/profile/index",
-        "text": "我的"
+        "text": "我的",
+        "iconPath": "assets/tabbar/me.png",
+        "selectedIconPath": "assets/tabbar/me-active.png"
       }
     ]
   },
   "requiredPrivateInfos": [
     "getLocation",
-    "chooseLocation"
+    "chooseLocation",
+    "startLocationUpdate",
+    "onLocationChange"
   ],
   "permission": {
     "scope.userLocation": {
-      "desc": "用于显示你的位置并计算到集合点的步行时间与距离"
+      "desc": "用于队伍共享位置及集合点计算，前台自动更新"
     }
   },
   "style": "v2",

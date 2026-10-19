@@ -7,16 +7,20 @@ const { requireCrewMember, requireCrewOwner, getMembership, canBeTripNode } = re
 const { resolveParams } = require('../lib/params');
 const timelineMod = require('../domain/timeline');
 const { checkFeasibility } = require('../domain/feasibility');
-const { generateCandidates } = require('../domain/planner');
+const { generateCandidates, buildConstraints, _internal: plannerInternal } = require('../domain/planner');
 const constraintMod = require('../domain/constraint');
 const { logEvent, logDecision } = require('../lib/trace');
 const { createMapProvider } = require('../lib/map');
 const { createAmapTransitProvider } = require('../lib/transit/amap');
+const { fetchLegRoute, MODES: NAVIGATION_MODES } = require('../lib/navigation');
 const legTimesMod = require('../lib/leg-times');
 const modeChoice = require('../lib/mode-choice');
 const geo = require('../lib/geo');
 const time = require('../lib/time');
 const C = require('../lib/repo/collections');
+const { preserveHistory } = require('../lib/trip-history');
+const { insertNode } = require('../lib/trip-node-insertion');
+const { requestCount } = require('../lib/map/usage');
 /**
  * 地点的稳定标识 —— **全项目唯一实现在 `lib/place-id.js`**。
  *
@@ -102,12 +106,14 @@ async function fillMissingWalkTimes(ctx) {
     } catch (e) {
       r = { ok: false, reason: 'THREW', message: (e && e.message) || String(e) };
     }
-    out.mapApiCalls++;
+    out.mapApiCalls += requestCount(r);
 
     if (!r.ok) {
       // 取不到就让它回落直线估算，但**必须记下失败** —— 不掩盖、不冒充
       out.failed++;
       out.failures.push({
+        fromPlaceId: leg.from._id,
+        toPlaceId: leg.to._id,
         from: leg.from.name,
         to: leg.to.name,
         reason: r.reason || 'UPSTREAM_FAILED',
@@ -211,7 +217,7 @@ async function fillMissingWalkTimes(ctx) {
         /** 时段：早晚高峰影响驾车与公交，雨雪也常集中在某些时段 */
         timeBucket: time.bucketOf(bucketAt),
         /** 星期几：工作日与周末的人流、班次都不同 */
-        weekday: new Date(bucketAt).getDay(),
+        weekday: time.weekdayOf(bucketAt),
         // ── 距离（真实几何量，可以直接当特征/标签）──
         straightMeters: straightRounded,
         /** 地图返回的**路径距离** —— 本轮的参考标签 */
@@ -306,7 +312,7 @@ async function fillMissingWalkTimes(ctx) {
 function resolveItemOrder(spec, placesById) {
   const out = [];
   const push = (id) => {
-    if (id && placesById[id] && out.indexOf(id) < 0) out.push(id);
+    if (id && placesById[id]) out.push(id);
   };
   for (const item of Array.isArray(spec.places) ? spec.places : []) push(inlinePlaceId(item));
   for (const id of spec.placeIds || []) push(id);
@@ -476,6 +482,7 @@ async function resolveLegTravelTimes(ctx) {
   const { repo, placesById, placeIds, startPoint, makeProvider, makeTransitProvider, params, spec } = ctx;
 
   const ordered = placeIds.map((id) => placesById[id]).filter(Boolean);
+  const items = ctx.items || [];
   const out = { legTimes: {}, legs: [], calls: { matrix: 0, transit: 0 }, persisted: 0 };
 
   // 站点少于 2 个时没有"段"可取 —— 但起点段仍可能有（见 startLeg）
@@ -502,6 +509,7 @@ async function resolveLegTravelTimes(ctx) {
 
   const r = await legTimesMod.resolveTripLegTimes({
     places: ordered,
+    items,
     startPoint,
     providers: { map: mapProvider, transit: makeTransitProvider() },
     opts: {
@@ -531,6 +539,7 @@ async function resolveLegTravelTimes(ctx) {
   /** 逐段的方式与理由 —— 界面要显示"你想用…但…"，所以必须回传 */
   out.legChoices = (r.legs || []).map((l) => ({
     toPlaceId: l.toPlaceId,
+    toNodeId: l.toNodeId,
     mode: l.choice && l.choice.chosen ? l.choice.chosen.mode : null,
     preferredMode: l.choice ? l.choice.preferredMode : null,
     matchedPreference: l.choice ? l.choice.matchedPreference : null,
@@ -555,6 +564,7 @@ async function resolveLegTravelTimes(ctx) {
     const toPlace = placesById[l.toPlaceId];
     return {
       toPlaceId: l.toPlaceId,
+      toNodeId: l.toNodeId,
       toPlaceName: toPlace ? toPlace.name : null,
       fromPlaceId: l.fromPlaceId || null,
       fromPlaceName: l.fromPlaceId && placesById[l.fromPlaceId] ? placesById[l.fromPlaceId].name : null,
@@ -572,7 +582,7 @@ async function resolveLegTravelTimes(ctx) {
   for (const leg of r.legs) {
     const chosen = leg.choice && leg.choice.chosen;
     if (!chosen) continue;
-    out.legTimes[leg.toPlaceId] = {
+    const resolved = {
       minutes: chosen.minutes,
       meters: chosen.meters,
       mode: chosen.mode,
@@ -605,6 +615,9 @@ async function resolveLegTravelTimes(ctx) {
       matchedPreference: leg.choice.matchedPreference,
       preferredMode: leg.choice.preferredMode || null,
     };
+    if (leg.toNodeId) out.legTimes[leg.toNodeId] = resolved;
+    // 兼容旧调用方；重复目的地只按站次索引，不能互相覆盖入站交通。
+    if (placeIds.filter(id => id === leg.toPlaceId).length === 1) out.legTimes[leg.toPlaceId] = resolved;
   }
 
   /**
@@ -613,7 +626,7 @@ async function resolveLegTravelTimes(ctx) {
    * `persistLegTimes` 会自己跳过。
    */
   try {
-    out.persisted = await legTimesMod.persistLegTimes(repo, C, r.entries);
+    out.persisted = ctx.persistCache === false ? 0 : await legTimesMod.persistLegTimes(repo, C, r.entries);
   } catch (e) {
     // 缓存写失败不该让规划失败 —— 它只是省下次的配额
     console.error('[resolveLegTravelTimes] 写缓存失败', e && e.message);
@@ -905,12 +918,13 @@ async function plan(ctx) {
    * 起点是**移动的**，所以不进 `walkableTo` 缓存（缓存是地点↔地点的，
    * 存一个每次都不同的位置没有意义），每次都实时取或估算。
    */
-  assert(spec.startPoint == null || geo.coord(spec.startPoint), CODES.INVALID_PARAM, '出发位置坐标无效：纬度须在 [-90, 90]、经度须在 [-180, 180] 范围内');
+  const startCoordinate = geo.coord(spec.startPoint);
+  assert(spec.startPoint == null || startCoordinate, CODES.INVALID_PARAM, '出发位置坐标无效：纬度须在 [-90, 90]、经度须在 [-180, 180] 范围内');
   const startPoint =
-    geo.coord(spec.startPoint)
+    startCoordinate
       ? {
-          latitude: spec.startPoint.latitude,
-          longitude: spec.startPoint.longitude,
+          latitude: startCoordinate.latitude,
+          longitude: startCoordinate.longitude,
           label: spec.startPoint.label || '我的位置',
         }
       : null;
@@ -964,6 +978,7 @@ async function plan(ctx) {
     repo,
     placesById,
     placeIds: itemIds,
+    items,
     startPoint,
     makeProvider,
     makeTransitProvider,
@@ -986,7 +1001,7 @@ async function plan(ctx) {
    * 而它们会打架（老接口说 upstream、多方式对比说 estimated）。
    */
   let startLeg = null;
-  const startOverride = itemIds.length ? travelResolve.legTimes[itemIds[0]] : null;
+  const startOverride = items.length ? travelResolve.legTimes[items[0].nodeId] || travelResolve.legTimes[itemIds[0]] : null;
 
   if (startPoint && startOverride && typeof startOverride.minutes === 'number') {
     const firstPlace = placesById[itemIds[0]];
@@ -1071,7 +1086,7 @@ async function plan(ctx) {
       } catch (e) {
         r = { ok: false, reason: 'THREW', message: (e && e.message) || String(e) };
       }
-      walkFill.mapApiCalls++;
+      walkFill.mapApiCalls += requestCount(r);
 
       if (r.ok) {
         startLeg = {
@@ -1123,6 +1138,30 @@ async function plan(ctx) {
     placesById,
   });
 
+  // 以实际采用的行程段统一失败账：包含起点段，不把已换用真实方案的路段写成估算。
+  const failures = (tl.legs || []).filter(l => l.travelSource === 'estimated').map(l => {
+    const index = itemIds.indexOf(l.placeId);
+    const fromId = index > 0 ? itemIds[index - 1] : null;
+    const prior = walkFill.failures.find(f => f.toPlaceId === l.placeId && f.fromPlaceId === fromId) ||
+      (index === 0 ? walkFill.failures.find(f => f.to === l.placeName && !f.toPlaceId) : null);
+    return Object.assign({
+      fromPlaceId: fromId, toPlaceId: l.placeId,
+      from: fromId ? placesById[fromId].name : (startPoint && startPoint.label) || '我的位置',
+      to: l.placeName, reason: 'ESTIMATED_FALLBACK',
+      message: l.travelCandidateReason || '未取到真实路线，使用直线估算',
+    }, prior || {});
+  });
+  if (startLeg && startLeg.minutes == null && startLeg.fallbackReason) failures.unshift({
+    fromPlaceId: null, toPlaceId: itemIds[0], from: startPoint.label, to: startLeg.toPlaceName,
+    reason: startLeg.fallbackReason, message: startLeg.reason || null,
+  });
+  const mapApiCallsByType = {
+    walking: walkFill.mapApiCalls,
+    matrix: travelResolve.calls.matrix,
+    transit: travelResolve.calls.transit,
+  };
+  const mapApiCalls = Object.values(mapApiCallsByType).reduce((sum, count) => sum + count, 0);
+
   const decisionBase = {
     ts: now,
     kind: 'plan',
@@ -1138,7 +1177,7 @@ async function plan(ctx) {
     params,
     durationMs: Date.now() - started,
     /** 本次规划真实消耗的地图接口调用次数（11/8、11/12 成本核算要用） */
-    mapApiCalls: walkFill.mapApiCalls,
+    mapApiCalls,
   };
 
   /**
@@ -1156,9 +1195,10 @@ async function plan(ctx) {
     bySource: legSources,
     fetchedFromMap: walkFill.fetched,
     fromCache: walkFill.fromCache,
-    upstreamFailed: walkFill.failed,
-    failures: walkFill.failures,
-    mapApiCalls: walkFill.mapApiCalls,
+    upstreamFailed: failures.length,
+    failures,
+    mapApiCalls,
+    mapApiCallsByType,
     /**
      * ⚠️ **训练样本的记账**（2026-10-13 加）。
      *
@@ -1173,10 +1213,10 @@ async function plan(ctx) {
     samplesRecorded: walkFill.samplesRecorded || 0,
     sampleWriteFailed: walkFill.sampleWriteFailed || 0,
     note:
-      walkFill.failed > 0
-        ? `有 ${walkFill.failed} 段没能从地图服务取到路线，已回落为**直线估算**（时间可能明显偏小）`
-        : walkFill.fetched > 0
-          ? `本次从地图服务取回 ${walkFill.fetched} 段真实步行路线，已缓存，下次规划零成本`
+      failures.length > 0
+        ? `有 ${failures.length} 段未取到真实路线；其中 ${failures.filter(f => f.reason !== 'TOO_FAR_TO_WALK').length} 段使用**直线估算**（时间可能明显偏小），无可用耗时的路段不提供步行建议。本次地图请求 ${mapApiCalls} 次`
+        : mapApiCalls > 0
+          ? `本次地图请求 ${mapApiCalls} 次（步行路线 ${mapApiCallsByType.walking}、距离矩阵 ${mapApiCallsByType.matrix}、公交地铁 ${mapApiCallsByType.transit}），可缓存的真实耗时已缓存`
           : '全部路段均使用已有记录，未消耗地图配额',
     sourceMeaning: {
       survey: '踏勘实测，最可信',
@@ -1328,6 +1368,9 @@ async function get(ctx) {
       plannedEndAt: trip.plannedEndAt,
       params: trip.params,
       generatedBy: trip.generatedBy,
+      constraints: trip.constraints || [],
+      changeContext: trip.changeContext || null,
+      startPoint: trip.startPoint || null,
     },
     currentNodeIndex,
     freshness: { computedAt: new Date(ctx.now ? ctx.now : Date.now()).toISOString() },
@@ -1353,7 +1396,7 @@ async function get(ctx) {
 /**
  * 提交调整请求。
  *
- * **本接口不修改行程**，只产生变更提案与候选（docs/02 §3 第 1 条）。
+ * **本接口不修改行程**，只产生变更提案与候选（docs/项目计划书.md#api-contract §3 第 1 条）。
  * 生效的唯一路径是 trip.confirmChange。
  */
 async function adjust(ctx) {
@@ -1373,9 +1416,62 @@ async function adjust(ctx) {
     .filter((n) => n.status === 'pending' || n.status === 'arrived')
     .sort((a, b) => a.seq - b.seq);
 
-  assert(baseNodes.length > 0, CODES.INVALID_PARAM, '行程已全部完成，没有可调整的节点');
+  const adding = p.trigger.type === 'batch' && Array.isArray((p.trigger.payload || {}).operations) &&
+    p.trigger.payload.operations.some(op => op && op.type === 'add_node');
+  assert(p.trigger.type !== 'add_node', CODES.INVALID_PARAM, '新增地点需使用批量修改并校验节点与插入位置');
+  assert(p.trigger.type !== 'skip_remaining', CODES.INVALID_PARAM, '取消剩余行程需使用批量修改并校验完整的待前往站点范围');
+  assert(baseNodes.length > 0 || adding, CODES.INVALID_PARAM, '行程已全部完成，没有可调整的节点');
+  if (ctx.expectedVersion != null) assert(ctx.expectedVersion === trip.version, CODES.VERSION_CONFLICT,
+    '行程已更新，请刷新后重新调整');
+  if (p.trigger.type === 'batch') {
+    const ops = p.trigger.payload && p.trigger.payload.operations;
+    const pending = baseNodes.map(n => Object.assign({}, n));
+    const nodeIds = new Set((trip.nodes || []).map(n => n.nodeId));
+    assert(Array.isArray(ops) && ops.length > 0 && ops.length <= 10, CODES.INVALID_PARAM, '批量修改需要 1—10 个操作');
+    for (const op of ops) {
+      assert(op && ['extend_stay', 'shorten_stay', 'set_stay', 'skip_node', 'skip_remaining', 'protect_node', 'change_end_time', 'replace_node', 'add_node', 'change_travel_mode'].includes(op.type) &&
+        op.payload && typeof op.payload === 'object', CODES.INVALID_PARAM, '不支持的批量修改');
+      if (op.type === 'skip_remaining') {
+        const remaining = pending.filter(n => n.status === 'pending');
+        const ids = op.payload.nodeIds;
+        assert(Array.isArray(ids) && ids.length > 0 && ids.length === remaining.length && new Set(ids).size === ids.length &&
+          remaining.every(n => ids.includes(n.nodeId)), CODES.INVALID_PARAM, '取消剩余行程只能包含全部尚未到达的站点');
+        remaining.forEach(n => { n.status = 'skipped'; });
+      } else if (op.type === 'add_node') {
+        const ap = op.payload;
+        assert(typeof ap.nodeId === 'string' && ap.nodeId.length > 0 && ap.nodeId.length <= 128 && !nodeIds.has(ap.nodeId) &&
+          typeof ap.newPlaceId === 'string' && ap.newPlaceId.length > 0 && ['end', 'start', 'after'].includes(ap.insertion),
+          CODES.INVALID_PARAM, '新增地点需要唯一节点 ID、有效地点及明确的插入位置');
+        if (ap.insertion === 'after') assert(pending.some(n => n.nodeId === ap.afterNodeId && n.status !== 'skipped'),
+          CODES.INVALID_PARAM, '新增地点的参照站不存在或已跳过');
+        nodeIds.add(ap.nodeId);
+        insertNode(pending, { nodeId: ap.nodeId, placeId: ap.newPlaceId, status: 'pending' }, ap);
+      } else if (op.type === 'change_end_time') {
+        assert(Number.isFinite(new Date(op.payload.endAt).getTime()), CODES.INVALID_PARAM, '结束时间无效');
+      } else {
+        const target = pending.find(n => n.nodeId === op.payload.nodeId && n.status !== 'skipped');
+        assert(target, CODES.INVALID_PARAM, '批量修改只能操作当前行程未完成的节点');
+        if (op.type === 'change_travel_mode') assert(target.status === 'pending' &&
+          modeChoice.MODE_OPTIONS.some(option => option.value === op.payload.mode),
+          CODES.INVALID_PARAM, '出行方式必须有效，且只能修改前往待游览站点的路段');
+        if (op.type === 'protect_node') op.payload = Object.assign({}, op.payload,
+          { placeId: target.placeId, confirmedAt: now, sourceMemberIds: [openid] });
+        if (op.type === 'replace_node') {
+          assert(target.status === 'pending' && typeof op.payload.newPlaceId === 'string' && op.payload.newPlaceId,
+            CODES.INVALID_PARAM, '只能替换待游览站点，且须选定目标地点');
+          target.placeId = op.payload.newPlaceId;
+        }
+        if (op.type === 'skip_node') target.status = 'skipped';
+        if (/stay$/.test(op.type)) {
+          const amount = op.type === 'set_stay' ? op.payload.stayMin : op.payload.deltaMin;
+          assert(Number.isInteger(amount) && amount > 0 && amount <= 1440, CODES.INVALID_PARAM, '修改时长应为 1—1440 整数分钟');
+        }
+      }
+    }
+  }
 
-  const extraIds = [p.trigger.payload && p.trigger.payload.newPlaceId].filter(Boolean);
+  const triggers = p.trigger.type === 'batch' ? p.trigger.payload.operations : [p.trigger];
+  const extraIds = Array.from(new Set(triggers.map(t => t.payload && t.payload.newPlaceId).filter(Boolean)));
 
   /**
    * ⚠️ **从行程节点的地点快照重建，不回库读**（2026-10-13 改）。
@@ -1387,13 +1483,16 @@ async function adjust(ctx) {
   const { map: placesById } = placesFromNodes(baseNodes);
 
   /**
-   * 换地点/加地点时的"新地点"仍要回库读 —— 那通常是**踏勘核验过的**地点
-   * （`placeId` 有值），而库里只放踏勘数据。
+   * 自然语言选点使用服务器草稿中的检索快照；其余地点仍从地点库读取。
+   * changePlaces 是内部上下文，不从客户端 payload 接受坐标或地点快照。
    */
   if (extraIds.length) {
-    const extra = await loadPlaces(repo, extraIds);
+    const trusted = ctx.changePlaces || {};
+    Object.assign(placesById, trusted);
+    const extra = await loadPlaces(repo, extraIds.filter(id => !placesById[id]));
     assert(extra.missing.length === 0, CODES.NOT_FOUND, `地点不存在：${extra.missing.join(', ')}`);
     Object.assign(placesById, extra.map);
+    assert(extraIds.every(id => canBeTripNode(placesById[id])), CODES.INVALID_PARAM, '目标地点缺少有效名称或坐标');
   }
 
   assert(
@@ -1403,18 +1502,118 @@ async function adjust(ctx) {
   );
 
   const params = resolveParams(Object.assign({}, trip.params, p.params));
-  const constraints = constraintMod.normalize(trip.constraints || []);
+  const fullConstraints = constraintMod.normalize(trip.constraints || []);
+  // 已完成的必去地点已经满足，重算剩余节点时不再当作缺失；完整约束随提案保留。
+  const completedPlaces = new Set((trip.nodes || []).filter(n => n.status === 'done').map(n => n.placeId));
+  const constraints = fullConstraints.map(c => c.key === 'mustVisit'
+    ? Object.assign({}, c, { value: (Array.isArray(c.value) ? c.value : [c.value]).filter(id => !completedPlaces.has(id)) }) : c);
+  const nextConstraints = buildConstraints(fullConstraints, p.trigger);
+  // 本次明确换去/新增的地点及其参照站不能被修复策略悄悄删掉；只约束本轮。
+  const requestedDestinations = new Map();
+  const requestedModes = new Map();
+  const anchors = new Set();
+  const cancelledRemainingIds = new Set();
+  triggers.forEach(t => {
+    if (t.type === 'skip_remaining') for (const id of t.payload.nodeIds) {
+      cancelledRemainingIds.add(id); requestedDestinations.delete(id); requestedModes.delete(id); anchors.delete(id);
+    }
+    if (['replace_node', 'add_node'].includes(t.type)) requestedDestinations.set(t.payload.nodeId, t.payload.newPlaceId);
+    if (t.type === 'change_travel_mode') requestedModes.set(t.payload.nodeId, t.payload.mode);
+    if (t.type === 'add_node' && t.payload.insertion === 'after') anchors.add(t.payload.afterNodeId);
+    if (t.type === 'skip_node') requestedDestinations.delete(t.payload.nodeId);
+    if (t.type === 'skip_node') requestedModes.delete(t.payload.nodeId);
+  });
+  const requiredPlaces = Array.from(requestedDestinations.values()).concat(Array.from(anchors).map(id =>
+    requestedDestinations.get(id) || (baseNodes.find(n => n.nodeId === id) || {}).placeId).filter(Boolean),
+    Array.from(requestedModes.keys()).map(id => requestedDestinations.get(id) ||
+      (baseNodes.find(n => n.nodeId === id) || {}).placeId).filter(Boolean));
+  if (requiredPlaces.length) constraints.push({ key: 'mustVisit', value: Array.from(new Set(requiredPlaces)),
+    hardness: 'hard', confirmedAt: now, sourceMemberIds: [openid] });
 
   // 行程进行中从"现在"重算；未开始则从计划出发时刻重算
-  const startAt = trip.status === 'active' ? now : new Date(trip.plannedStartAt);
+  const startAt = ['active', 'finished'].includes(trip.status) ? now : new Date(trip.plannedStartAt);
+  const lastDone = (trip.nodes || []).filter(n => n.status === 'done').sort((a, b) => b.seq - a.seq)[0];
+  const routeStart = lastDone ? lastDone.location || (lastDone.placeSnapshot || {}).location || trip.startPoint : trip.startPoint;
+  assert(!requestedModes.has((baseNodes[0] || {}).nodeId) || routeStart, CODES.INVALID_PARAM,
+    '修改前往首站的出行方式需要出发位置，请先定位并重新生成行程');
 
-  const result = generateCandidates({
+  const candidateInput = {
     baseNodes,
     trigger: p.trigger,
     constraints,
     placesById,
     params,
     startAt,
+    preserveTravel: true,
+    startPoint: routeStart || null,
+  };
+  let result = generateCandidates(candidateInput);
+  let adjustmentMapApiCalls = 0;
+  {
+    const edges = new Map(), legTimesByEdge = {};
+    // 在修复策略压缩/删除站点之前取数，避免估算先判失败而漏查真实路线。
+    const requestedRoute = plannerInternal.applyTrigger(plannerInternal.toItems(baseNodes), p.trigger, placesById, params).items;
+    const routes = [requestedRoute].concat(result.candidates.map(c => c.nodes));
+    for (const route of routes) route.forEach((n, index, ns) => {
+      const from = index ? ns[index - 1] : null;
+      const oldIndex = baseNodes.findIndex(b => b.nodeId === n.nodeId && b.placeId === n.placeId);
+      const same = oldIndex >= 0 && (index === 0 ? oldIndex === 0 : oldIndex > 0 && from &&
+        baseNodes[oldIndex - 1].placeId === from.placeId && baseNodes[oldIndex - 1].nodeId === from.nodeId);
+      if (!from && baseNodes.some(b => b.nodeId === n.nodeId && b.status === 'arrived')) return;
+      if ((same && !requestedModes.has(n.nodeId)) || (!from && !routeStart)) return;
+      edges.set(JSON.stringify([from ? from.nodeId : null, n.nodeId]), { from, to: n });
+    });
+    for (const [key, edge] of edges) {
+      const original = baseNodes.find(n => n.nodeId === edge.to.nodeId);
+      const times = await resolveLegTravelTimes({ repo, placesById,
+        placeIds: edge.from ? [edge.from.placeId, edge.to.placeId] : [edge.to.placeId],
+        items: edge.from ? [edge.from, edge.to] : [edge.to],
+        startPoint: edge.from ? null : routeStart,
+        makeProvider: () => (ctx.createMapProvider || createMapProvider)(process.env.MAP_PROVIDER),
+        makeTransitProvider: () => (ctx.createTransitProvider || createAmapTransitProvider)({}), params,
+        spec: { preferredMode: requestedModes.has(edge.to.nodeId) ? requestedModes.get(edge.to.nodeId)
+          : original && original.travelPreferredMode }, persistCache: false,
+      });
+      adjustmentMapApiCalls += times.calls.matrix + times.calls.transit;
+      const resolved = times.legTimes[edge.to.nodeId] || times.legTimes[edge.to.placeId];
+      if (requestedModes.has(edge.to.nodeId)) assert(resolved, CODES.INVALID_PARAM,
+        `无法修改前往“${placesById[edge.to.placeId].name}”的出行方式：` +
+        ((times.legs.find(leg => leg.toPlaceId === edge.to.placeId) || {}).choice || {}).reason);
+      if (resolved) legTimesByEdge[key] = resolved;
+    }
+    if (edges.size) result = generateCandidates(Object.assign({}, candidateInput, { legTimesByEdge }));
+    // 上游查询期间再次检查版本和权限，不能把旧行程计算结果作为新方案返回。
+    const fresh = await repo.get(C.TRIPS, trip._id);
+    assert(fresh && fresh.version === trip.version, CODES.VERSION_CONFLICT, '行程已更新，请刷新后重新调整');
+    if (trip.mode === 'team') await requireCrewOwner(repo, trip.crewId, openid);
+  }
+  result.candidates = result.candidates.map(candidate => Object.assign({}, candidate, {
+    notes: candidate.notes.concat(candidate.nodes.filter(n => requestedModes.has(n.nodeId) && n.travelReason)
+      .map(n => ({ code: 'TRAVEL_MODE_RESULT', nodeId: n.nodeId, message: `前往“${n.placeName}”：${n.travelReason}` }))),
+    // 主动结束时保留最后一站的跳过事实，页面可显示全部走完并退出导航。
+    nodes: preserveHistory(trip.nodes, candidate.nodes.concat(baseNodes.filter(n => cancelledRemainingIds.has(n.nodeId) ||
+      (!candidate.nodes.length && triggers.some(t => t.type === 'skip_node' && t.payload.nodeId === n.nodeId)))
+      .map(n => Object.assign({}, n, { status: 'skipped' })))),
+  }));
+
+  // 用户主动缩短的时间已在输入框确认；只有额外压缩、删除或低于建议下限才需要再选。
+  const requested = p.trigger.payload || {};
+  const requestedNode = baseNodes.find(n => n.nodeId === requested.nodeId);
+  const requestedDelta = Number(requested.deltaMin);
+  const requestedStay = requestedNode ? Math.max(0, requestedNode.plannedStayMin - requestedDelta) : null;
+  result.candidates.forEach(c => {
+    const im = c.impact || {};
+    const target = c.nodes.find(n => n.nodeId === requested.nodeId);
+    const requestedShortening = p.trigger.type === 'shorten_stay' && requestedNode &&
+      Number.isFinite(requestedDelta) && requestedDelta > 0 && requestedStay > 0 &&
+      target && target.plannedStayMin === requestedStay &&
+      !(c.quality.minStayViolations || []).some(v => v.nodeId === requested.nodeId);
+    const removed = (im.removedNodeIds || []).length;
+    const shortened = (im.shortenedNodeIds || []).filter(id =>
+      !(requestedShortening && id === requested.nodeId)).length;
+    c.tradeoff = { removed, shortened, requestedShortening: Boolean(requestedShortening),
+      has: removed > 0 || shortened > 0 };
+    c.requiresConfirmation = trip.mode === 'team' || p.autoApply === 'never' || c.tradeoff.has;
   });
 
   const proposal = await repo.insert(C.CHANGE_PROPOSALS, {
@@ -1423,6 +1622,8 @@ async function adjust(ctx) {
     status: 'proposed',
     trigger: p.trigger,
     candidates: result.candidates,
+    nextConstraints,
+    ...(ctx.changeInterpretation ? { naturalLanguage: ctx.changeInterpretation, changePlaces: ctx.changePlaces || {} } : {}),
     selectedCandidateId: null,
     confirmations: [],
     decidedAt: null,
@@ -1440,6 +1641,8 @@ async function adjust(ctx) {
       baseVersion: trip.version,
       triggerType: p.trigger.type,
       triggerPayload: p.trigger.payload || {},
+      ...(ctx.changeInterpretation ? { parser: ctx.changeInterpretation.parser,
+        promptVersion: ctx.changeInterpretation.promptVersion, degraded: ctx.changeInterpretation.degraded } : {}),
       nodeCount: baseNodes.length,
     },
     candidates: result.candidates.map((c) => ({
@@ -1454,27 +1657,8 @@ async function adjust(ctx) {
     algoVersion: result.algoVersion,
     params,
     durationMs: Date.now() - started,
-    mapApiCalls: 0,
+    mapApiCalls: adjustmentMapApiCalls,
     result: result.feasibleCount > 0 ? 'ok' : 'no_feasible',
-  });
-
-  /**
-   * 这次候选**牺牲了别的安排**吗？
-   *
-   * 判据用 `impact` 里已有的数据，不另立标准：
-   *   · 删掉了某个节点，或把某个节点的停留压到下限以下 → **有取舍**，必须让用户选；
-   *   · 只是把后续整体往后推（没有任何东西被牺牲） → **没有取舍**，
-   *     此时"确认"只是让用户多点一次，不产生任何信息。
-   */
-  const tradeoffOf = (c) => {
-    const im = c.impact || {};
-    const removed = (im.removedNodeIds || []).length;
-    const shortened = (im.shortenedNodeIds || []).length;
-    return { removed, shortened, has: removed > 0 || shortened > 0 };
-  };
-  result.candidates.forEach((c) => {
-    c.tradeoff = tradeoffOf(c);
-    c.requiresConfirmation = c.tradeoff.has;
   });
 
   /**
@@ -1534,7 +1718,9 @@ async function adjust(ctx) {
         excludedReasons: result.excludedReasons,
         noFeasible: false,
         autoApplied: { candidateId: autoTarget.candidateId, strategy: autoTarget.strategy },
-        note:
+        note: autoTarget.tradeoff.requestedShortening
+          ? `已将「${requestedNode.placeName}」停留从 ${requestedNode.plannedStayMin} 分钟缩短至 ${requestedStay} 分钟，调整已生效。`
+          :
           '本次调整没有牺牲任何已有安排，已直接生效。' +
           '若出现取舍（需要压缩或删除某个节点），系统仍会先给出候选让你选择。',
       }),
@@ -1558,7 +1744,7 @@ async function adjust(ctx) {
       confirmationRule:
         trip.mode === 'team'
           ? '团队行程一律需要成员确认（§8.1）'
-          : '仅当调整牺牲了已有安排（压缩或删除节点）时才需要确认',
+          : '仅当调整存在额外取舍（牺牲其他安排、额外压缩或删除节点、停留低于建议下限）时才需要确认',
     },
     { version: trip.version }
   );
@@ -1612,7 +1798,7 @@ async function confirmChange(ctx) {
     });
   }
 
-  const nodes = (candidate.nodes || []).map((n, i) => Object.assign({}, n, { seq: i }));
+  const nodes = preserveHistory(trip.nodes, candidate.nodes);
 
   /**
    * ⚠️ **必须显式给版本号，不提供"没给就用当前版本"的兜底。**
@@ -1630,11 +1816,21 @@ async function confirmChange(ctx) {
     '缺少 expectedVersion：确认变更必须基于明确的版本号（它属于请求信封，不在 payload 里）'
   );
   const expectedVersion = ctx.expectedVersion;
+  const textOps = proposal.naturalLanguage ? proposal.trigger.payload.operations || [] : [];
+  const lastTextTarget = textOps.slice().reverse().find(op => /stay$/.test(op.type) || ['replace_node', 'add_node'].includes(op.type)) ||
+    textOps.slice().reverse().find(op => op.payload.nodeId);
 
   const res = await repo.updateCas(C.TRIPS, trip._id, expectedVersion, {
     nodes,
     plannedEndAt: candidate.impact.changedEndAt,
-    status: 'active',
+    status: nodes.some(n => ['pending', 'arrived'].includes(n.status)) ? 'active' : 'finished',
+    ...(Array.isArray(proposal.nextConstraints) ? { constraints: proposal.nextConstraints } : {}),
+    ...(proposal.naturalLanguage ? { changeContext: {
+      lastTargetNodeId: (lastTextTarget && lastTextTarget.payload.nodeId) ||
+        (trip.changeContext || {}).lastTargetNodeId || null,
+      lastText: proposal.naturalLanguage.rawText, updatedAt: now,
+      parser: proposal.naturalLanguage.parser, promptVersion: proposal.naturalLanguage.promptVersion,
+    } } : {}),
   });
 
   if (!res.updated) {
@@ -1647,7 +1843,7 @@ async function confirmChange(ctx) {
   await repo.insert(C.TRIP_VERSIONS, {
     tripId: trip._id,
     version: res.doc.version,
-    snapshot: { nodes, params: res.doc.params },
+    snapshot: { nodes, params: res.doc.params, constraints: res.doc.constraints, changeContext: res.doc.changeContext || null },
     reason: 'adjust',
     changeProposalId: proposal._id,
     createdByUserId: openid,
@@ -1690,6 +1886,18 @@ async function confirmChange(ctx) {
       // 把"改了什么"原样回给界面，供 §5.2 的四条展示规则使用
       changes: candidate.notes || [],
       impact: candidate.impact,
+      startPoint: res.doc.startPoint || null,
+      startLeg: nodes[0] && nodes[0].status !== 'skipped' && nodes[0].travelFromStart ? {
+        minutes: nodes[0].travelFromPrevMin, meters: nodes[0].travelFromPrevMeters,
+        mode: nodes[0].travelMode, source: nodes[0].travelSource, provider: nodes[0].travelProvider,
+        reason: nodes[0].travelReason, transit: nodes[0].travelTransit, toPlaceName: nodes[0].placeName,
+      } : null,
+      summary: {
+        endAt: res.doc.plannedEndAt,
+        totalStayMin: nodes.filter(n => n.status !== 'skipped').reduce((sum, n) => sum + (n.plannedStayMin || 0), 0),
+        totalWalkMin: nodes.filter(n => n.status !== 'skipped' && n.travelMode === 'walking').reduce((sum, n) => sum + (n.travelFromPrevMin || 0), 0),
+        totalWalkMeters: nodes.filter(n => n.status !== 'skipped' && n.travelMode === 'walking').reduce((sum, n) => sum + (n.travelFromPrevMeters || 0), 0),
+      },
     },
     { version: res.doc.version }
   );
@@ -1754,7 +1962,7 @@ async function progress(ctx) {
     ctx.expectedVersion != null,
     CODES.INVALID_PARAM,
     '缺少 expectedVersion：进度更新必须基于明确的版本号，否则无法防止"用旧状态覆盖新状态"。' +
-      '注意它属于请求信封，不在 payload 里（见 docs/02 §1）。'
+      '注意它属于请求信封，不在 payload 里（见 docs/项目计划书.md#api-contract §1）。'
   );
 
   const res = await repo.updateCas(C.TRIPS, trip._id, ctx.expectedVersion, {
@@ -1810,12 +2018,12 @@ function matchStayByText(map, name) {
  * ── 起点怎么取（优先级从高到低）────────────────────────────
  *
  *   ① `fromPoint`：**客户端当前位置** —— 导航本来就该从"你在哪"算起；
- *   ② 上一站的位置；
- *   ③ `trip.params.startPoint`：计划时的出发位置（旧行程可能没有）。
+ *   ② 目标前最近的已到达/完成站的位置；
+ *   ③ `trip.startPoint`：计划时的出发位置（旧行程可能没有）。
  *
  * 三者都没有就如实失败，**不编一个起点**。
  *
- * ⚠️ 每次调用**真实消耗 1 次地图配额**（`walkTimes` 会如实计数）。
+ * 按 provider 的 requestCount 记录真实地图调用，缺 Key/不支持时不记为已请求。
  */
 async function legRoute(ctx) {
   const { repo, openid, env } = ctx;
@@ -1827,28 +2035,32 @@ async function legRoute(ctx) {
   if (!trip) throw fail(CODES.NOT_FOUND, '行程不存在');
   if (trip.mode === 'team') await requireCrewOwner(repo, trip.crewId, openid);
   else assert(trip.ownerUserId === openid, CODES.FORBIDDEN_NOT_MEMBER, '无权读取该行程');
+  if (ctx.expectedVersion != null) assert(ctx.expectedVersion === trip.version, CODES.VERSION_CONFLICT, '行程已更新，请刷新导航');
 
-  const nodes = trip.nodes || [];
+  const nodes = (trip.nodes || []).slice().sort((a, b) => a.seq - b.seq);
   const isReached = (s) => s === 'arrived' || s === 'done';
 
-  /** 目标节点：显式给 nodeId 用它；否则用"当前站"（第一个没走完的） */
+  /** 目标节点：显式给 nodeId 用它；否则用顺序首个 pending（跳过站不作为目标）。 */
   let idx = -1;
   if (p.nodeId) {
     idx = nodes.findIndex((n) => n.nodeId === p.nodeId);
     assert(idx >= 0, CODES.NOT_FOUND, '节点不存在');
   } else {
-    idx = nodes.findIndex((n) => !isReached(n.status));
+    idx = nodes.findIndex((n) => n.status === 'pending');
     assert(idx >= 0, CODES.NOT_FOUND, '行程已全部走完，没有需要导航的下一站');
   }
 
   const to = nodes[idx];
-  assert(to && to.location, CODES.INVALID_PARAM, '该节点没有坐标，无法导航');
+  const validPoint = point => point && Number.isFinite(point.latitude) && Number.isFinite(point.longitude) &&
+    Math.abs(point.latitude) <= 90 && Math.abs(point.longitude) <= 180;
+  assert(to && validPoint(to.location), CODES.INVALID_PARAM, '该节点没有坐标，无法导航');
 
   const startFromTrip = trip.startPoint;
+  const previous = nodes.slice(0, idx).reverse().find(n => isReached(n.status) && validPoint(n.location));
   const from =
-    (p.fromPoint && typeof p.fromPoint.latitude === 'number' && p.fromPoint) ||
-    (idx > 0 && nodes[idx - 1] && nodes[idx - 1].location) ||
-    (startFromTrip && typeof startFromTrip.latitude === 'number' && startFromTrip) ||
+    (validPoint(p.fromPoint) && p.fromPoint) ||
+    (previous && previous.location) ||
+    (validPoint(startFromTrip) && startFromTrip) ||
     null;
 
   if (!from) {
@@ -1873,16 +2085,18 @@ async function legRoute(ctx) {
     });
   }
 
-  const provider = (ctx.createMapProvider || createMapProvider)(
-    p.provider || process.env.MAP_PROVIDER,
-    { key: env === 'dev' ? p.overrideKey : undefined, timeoutMs: p.timeoutMs }
-  );
-
+  const plannedMode = idx === 0 ? (trip.startLeg && trip.startLeg.mode) || to.travelMode : to.travelMode;
+  const mode = p.mode || plannedMode || 'walking';
+  assert(NAVIGATION_MODES.includes(mode), CODES.INVALID_PARAM, '该路段没有有效的出行方式，请先选择出行方式');
   let r;
   try {
-    r = await provider.walkingRoute(from, to.location);
+    r = await fetchLegRoute({ mode, from, to: to.location,
+      makeRoadProvider: () => (ctx.createMapProvider || createMapProvider)(p.provider || process.env.MAP_PROVIDER,
+        { key: env === 'dev' ? p.overrideKey : undefined, timeoutMs: p.timeoutMs }),
+      makeTransitProvider: () => (ctx.createTransitProvider || createAmapTransitProvider)({}),
+    });
   } catch (e) {
-    r = { ok: false, reason: 'THREW', message: (e && e.message) || String(e) };
+    r = { ok: false, mode, requestCount: 1, reason: 'THREW', message: (e && e.message) || String(e) };
   }
 
   await logEvent(repo, {
@@ -1893,25 +2107,34 @@ async function legRoute(ctx) {
     result: r.ok ? 'ok' : 'error',
     errCode: r.ok ? null : r.reason || 'UPSTREAM_FAILED',
     durationMs: Date.now() - started,
-    mapApiCalls: 1,
-    detail: { tripId: trip._id, nodeId: to.nodeId, provider: provider.name },
+    mapApiCalls: r.requestCount,
+    detail: { tripId: trip._id, nodeId: to.nodeId, provider: r.provider, mode },
   });
+  const latest = await repo.get(C.TRIPS, p.tripId);
+  assert(latest && latest.version === trip.version, CODES.VERSION_CONFLICT, '行程已更新，请刷新导航');
+  if (latest.mode === 'team') await requireCrewOwner(repo, latest.crewId, openid);
+  else assert(latest.ownerUserId === openid, CODES.FORBIDDEN_NOT_MEMBER, '无权读取该行程');
 
   if (!r.ok) {
     return resp.ok({
       ok: false,
       reason: r.reason,
+      mode,
       status: r.status || null,
       message: r.message,
       hint: r.hint || null,
       legs: [],
-      mapApiCalls: 1,
+      mapApiCalls: r.requestCount,
     });
   }
 
   return resp.ok({
     ok: true,
+    mode,
+    provider: r.provider,
+    transit: r.transit || null,
     tripId: trip._id,
+    version: trip.version,
     nodeId: to.nodeId,
     placeName: to.placeName,
     /** 上一次的段序号（第几段）与总段数，界面用来显示"第 k / n 段" */
@@ -1927,8 +2150,8 @@ async function legRoute(ctx) {
      * 而不是画一条直线冒充真实路线。
      */
     route: r.route,
-    mapApiCalls: 1,
-    note: '每次导航消耗 1 次地图配额；路径与指令均来自上游，未做改写',
+    mapApiCalls: r.requestCount,
+    note: '路线预览来自地图服务；实时导航请打开地图并选择相同出行方式。',
   });
 }
 

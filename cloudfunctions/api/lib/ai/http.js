@@ -94,6 +94,7 @@ const SYSTEM_PROMPT = `你是一个城市徒步游览的需求解析器。把用
   系统会逐个搜索 —— 只给一个会导致另一个地方完全搜不到。
 - searchKeywords 里**不要**放动词、时间、数量（不要"哈工大玩一小时"，只要"哈工大"）。
 - searchKeywords 必须按用户要求的游览先后排列，保留「先去、再去、最后去」的顺序，不按距离或路线便利性重排。
+- 明确返回同一个地点时保留重复站次，例如「先去哈工大，再去中央大街，最后回到哈工大」应为 ["哈工大", "中央大街", "哈工大"]，不能去重。
 - 用户明确不想去的地方**不要**放进 searchKeywords。
 - ⚠️ **出行方式的词不要混进 searchKeywords**。用户说「我想骑车去哈工大」，
   检索词只有「哈工大」，**不是**「骑车去哈工大」也不是「骑车」——
@@ -157,7 +158,7 @@ function createHttpParser(opts) {
 
   return {
     name: 'http',
-    promptVersion: PROMPT_VERSION,
+    promptVersion: opts.promptVersion || PROMPT_VERSION,
     model,
     /** 没配 Key 就是不可用 —— 由调用方降级到规则解析，而不是报错 */
     available: Boolean(key),
@@ -199,8 +200,10 @@ function createHttpParser(opts) {
              * 随机性会直接污染分数。理解任务也不需要创造性。
              */
             messages: [
-              { role: 'system', content: SYSTEM_PROMPT },
-              { role: 'user', content: String(text == null ? '' : text) },
+              { role: 'system', content: opts.systemPrompt || SYSTEM_PROMPT },
+              { role: 'user', content: opts.systemPrompt
+                ? JSON.stringify({ text, context: o.context || {} })
+                : String(text == null ? '' : text) },
             ],
             response_format: { type: 'json_object' },
           }),
@@ -264,7 +267,7 @@ function createHttpParser(opts) {
         httpStatus: res.httpStatus,
         timingMs,
         usage: body.usage || null,
-        promptVersion: PROMPT_VERSION,
+        promptVersion: opts.promptVersion || PROMPT_VERSION,
         model,
         /**
          * 模型的**原始输出**（截断）。

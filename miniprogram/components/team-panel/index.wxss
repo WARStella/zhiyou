@@ -1,12 +1,15 @@
-.panel{background:#fff;border:1rpx solid #d9e5ef;border-radius:20rpx;padding:24rpx;margin:20rpx 0;color:#20334a;font-size:27rpx;line-height:1.7}.title{font-size:34rpx;font-weight:700}.subtitle{font-size:29rpx;font-weight:600;margin-top:24rpx}.hint{font-size:24rpx;color:#65758a;word-break:break-all}.error{color:#aa3028;background:#fff0ed;padding:14rpx;border-radius:10rpx}.row{padding:14rpx 0;border-bottom:1rpx solid #edf1f6}input{background:#f3f6fa;padding:18rpx;border-radius:10rpx;margin-top:16rpx}button{font-size:26rpx;background:#0b3c6e;color:white;margin:12rpx 8rpx 12rpx 0}button.secondary{background:#edf2f8;color:#294c72}
+.panel{background:var(--surface);border:1rpx solid var(--line-strong);border-radius: var(--r-md);padding:24rpx;margin:20rpx 0;color:var(--ink-900);font-size: var(--fs-body);line-height:1.7}.title{font-size: var(--fs-h1);font-weight:700}.subtitle{font-size: var(--fs-body);font-weight:600;margin-top:24rpx}.hint{font-size: var(--fs-sm);color:var(--ink-500);word-break:break-all}.error{color:var(--danger);background:var(--danger-bg);padding:14rpx;border-radius: var(--r-sm)}.row{padding:14rpx 0;border-bottom:1rpx solid var(--line)}.tp-input {background:var(--surface-2);padding:18rpx;border-radius: var(--r-sm);margin-top:16rpx}.tp-btn {font-size: var(--fs-body);background:var(--brand-600);color: var(--surface);margin:12rpx 8rpx 12rpx 0}.tp-btn.secondary{background:var(--brand-50);color:var(--brand-700)}
 
 /* ── 折叠表头（2026-10-14）─────────────────────────────────
    面板很长（共同路线 + 位置与集合 + 候选方案），展开着会把地图和
    当前路线挤到屏幕外，而它做的事是间歇性的。 */
 .head{display:flex;align-items:center;justify-content:space-between;padding:6rpx 0}
-.head-hover{background:#f3f6fa;border-radius:10rpx}
-.head-sub{font-size:23rpx;color:#65758a;margin-top:4rpx}
-.chevron{font-size:28rpx;color:#65758a;margin-left:16rpx}
+.head-hover{background:var(--surface-2);border-radius: var(--r-sm)}
+.head-sub{font-size: var(--fs-sm);color:var(--ink-500);margin-top:4rpx}
+.chevron{font-size: var(--fs-body);color:var(--ink-500);margin-left:16rpx}
 /* 收起时表头就是全部内容，给它一点与下方卡片的间距 */
 .head .title{flex:1}
 .body{margin-top:20rpx}
+.tp-btn { min-height: 68rpx; box-sizing: border-box; padding: 12rpx 24rpx; line-height: 1.5; border-radius: var(--r-pill); background: linear-gradient(135deg, var(--btn-g1), var(--btn-g2)); }
+.tp-btn::after { border: none; }
+.tp-btn.button-disabled, .tp-btn:disabled { background: var(--line-strong); color: var(--ink-500); box-shadow: none; }

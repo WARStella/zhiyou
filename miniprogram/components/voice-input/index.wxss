@@ -1,0 +1,11 @@
+.voice-input { margin-top: 16rpx; }
+.voice-controls { display: flex; align-items: center; gap: 16rpx; }
+.voice-controls .voice-button, .voice-controls .voice-cancel { margin: 0; font-size: var(--fs-sm); border-radius: var(--r-sm); }
+.voice-button { color: var(--brand-600); background: var(--brand-100); }
+.voice-button.recording { color: var(--danger); background: var(--danger-bg); }
+.voice-cancel { color: var(--ink-500); background: var(--surface-2); }
+.voice-hint { margin-top: 10rpx; font-size: var(--fs-xs); color: var(--ink-500); line-height: 1.6; }
+.voice-preview { display: block; margin-top: 10rpx; padding: 14rpx; background: var(--surface-2); font-size: var(--fs-body); line-height: 1.6; color: var(--ink-700); }
+.voice-error { margin-top: 10rpx; font-size: var(--fs-sm); line-height: 1.6; color: var(--danger); }
+
+.voice-button.button-disabled, .voice-button:disabled, .voice-cancel.button-disabled, .voice-cancel:disabled { color: var(--ink-500); background: var(--surface-2); }

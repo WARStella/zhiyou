@@ -9,7 +9,7 @@
  *   - 缺 Key / 无效 Key 必须被识别为失败
  *   - 请求 URL 里的 Key 必须被脱敏
  *
- * 这几条对应 docs/01 §3 的错误码纪律与计划书 11/12 的密钥要求。
+ * 这几条对应 docs/项目计划书.md#data-model §3 的错误码纪律与计划书 11/12 的密钥要求。
  */
 
 const test = require('node:test');

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * 授权校验 —— docs/01 §0 决定 1 的唯一落地处。
+ * 授权校验 —— docs/项目计划书.md#data-model §0 决定 1 的唯一落地处。
  *
  * 云函数用 admin 身份访问数据库，会绕过安全规则，所以：
  *   任何队伍相关请求的第一步都是 requireCrewMember()。
@@ -214,7 +214,7 @@ function assertCanBeTripNode(place) {
 
 /**
  * 位置读取权限：本人可读；他人需为同队成员且已开启共享。
- * 关闭共享时**不返回坐标**，只返回状态（docs/01 §2.9）。
+ * 关闭共享时**不返回坐标**，只返回状态（docs/项目计划书.md#data-model §2.9）。
  */
 function canReadLocation(viewerMember, targetMember) {
   if (!viewerMember || !targetMember) return false;

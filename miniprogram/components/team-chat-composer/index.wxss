@@ -1,0 +1,30 @@
+:host { display: block; width: 100%; }
+.composer { display: block; width: 100%; box-sizing: border-box; padding: 20rpx 24rpx 14rpx;
+  background: var(--surface); border-bottom: 1rpx solid var(--line); }
+.input-row { display: flex; align-items: center; width: 100%; }
+/* 原生 input 明确占满容器；话筒绝对定位，避免两个 flex 子项挤占文字宽度。 */
+.input-shell { position: relative; flex: 1 1 0%; width: 0; min-width: 0; height: 88rpx;
+  box-sizing: border-box; background: var(--surface-2); border: 1rpx solid var(--line-strong); border-radius: var(--r-lg); }
+.voice { position: absolute; left: 0; top: 0; z-index: 2;
+  width: 68rpx; height: 86rpx; line-height: 86rpx; padding: 0; margin: 0;
+  color: var(--brand-600); background: transparent; border-radius: var(--r-md); font-size: var(--fs-xs); }
+.voice::after, .send::after { border: none; }
+.voice.recording { color: var(--danger); background: var(--danger-bg); }
+.mic { position: relative; height: 48rpx; width: 40rpx; margin: 19rpx 0 19rpx 4rpx; }
+.mic-head { position: absolute; left: 12rpx; top: 2rpx; width: 12rpx; height: 23rpx; border: 3rpx solid var(--brand-600); border-radius: var(--r-sm); }
+.mic-base { position: absolute; left: 6rpx; top: 15rpx; width: 24rpx; height: 20rpx; border: 3rpx solid var(--brand-600);
+  border-top: none; border-radius: 0 0 var(--r-md) var(--r-md); }
+.mic-stem { position: absolute; left: 19rpx; top: 37rpx; height: 8rpx; width: 3rpx; background: var(--brand-600); }
+.chat-input { display: block; width: 100%; height: 86rpx; box-sizing: border-box;
+  padding: 0 16rpx 0 78rpx; background: transparent; font-size: var(--fs-body); color: var(--ink-900); }
+.chat-placeholder { color: var(--ink-500); }
+.send { width: 100rpx; height: 76rpx; line-height: 76rpx; padding: 0; margin: 0 0 0 14rpx; flex: 0 0 100rpx;
+  color: var(--surface); background: var(--brand-600); font-size: var(--fs-body); border-radius: var(--r-sm); }
+.send.button-disabled, .send:disabled { color: var(--ink-300); background: var(--line); }
+.hint { color: var(--ink-500); font-size: var(--fs-xs); margin-top: 12rpx; line-height: 1.5; }
+.voice-status { display: flex; justify-content: space-between; align-items: center; margin-top: 12rpx; font-size: var(--fs-sm); color: var(--brand-600); }
+.cancel { margin: 0; padding: 0 18rpx; font-size: var(--fs-sm); color: var(--brand-600); background: var(--brand-50); }
+.preview { display: block; color: var(--ink-500); background: var(--surface-2); font-size: var(--fs-body); padding: 12rpx; margin-top: 12rpx; line-height: 1.5; }
+.error { margin-top: 12rpx; color: var(--danger); font-size: var(--fs-sm); line-height: 1.5; }
+
+.voice.button-disabled, .voice:disabled { color: var(--ink-500); }

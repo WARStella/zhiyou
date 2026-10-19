@@ -1,0 +1,4 @@
+ultralytics==8.4.178
+fastapi==0.143.3
+uvicorn==0.54.0
+Pillow==12.3.0

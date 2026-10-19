@@ -3,7 +3,7 @@
 /**
  * 时间工具。
  *
- * 铁律（docs/01_数据模型_v1.md §2.9、§2.10）：
+ * 铁律（docs/项目计划书.md#data-model §2.9、§2.10）：
  *  - 服务端时间是权威。客户端的 clientAt 只用于诊断时钟偏差。
  *  - 三个集合时间（plannedMeetAt / allArrivedAt / departedAt）绝不互相推断。
  */
@@ -59,7 +59,7 @@ const ceilMin = (later, earlier) => Math.max(1, Math.ceil(diffMin(later, earlier
  * ⚠️ **维度越多，需要的样本越多。** 所以首版只分四段，不再细 ——
  * 一个维度分十档，就意味着每档都要攒够样本才能用。
  *
- * 时区：项目统一按**北京时间**（docs/01 的时间约定）。
+ * 时区：项目统一按**北京时间**（docs/项目计划书.md#data-model 的时间约定）。
  */
 function bucketOf(date) {
   /**
@@ -79,6 +79,13 @@ function bucketOf(date) {
   return 'night';
 }
 
+/** 北京时间星期：0=周日，与时段口径一致，不依赖服务器 TZ。 */
+function weekdayOf(date) {
+  if (date == null) return null;
+  const ms = new Date(date).getTime();
+  return Number.isFinite(ms) ? new Date(ms + 8 * HOUR).getUTCDay() : null;
+}
+
 module.exports = {
   MIN,
   HOUR,
@@ -92,4 +99,5 @@ module.exports = {
   freshness,
   ceilMin,
   bucketOf,
+  weekdayOf,
 };

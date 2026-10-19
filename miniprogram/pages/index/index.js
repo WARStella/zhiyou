@@ -60,7 +60,7 @@ Page({
     this.call('ai.probe', {}, '大模型接口探针')
   },
 
-  /** 实测六种写入形态：决定嵌套对象/对象数组能否整体替换（见 docs/01 §0 决定 4） */
+  /** 实测六种写入形态：决定嵌套对象/对象数组能否整体替换（见 docs/项目计划书.md#data-model §0 决定 4） */
   runSelfTest() {
     this.call('ops.selfTest', {}, '写入形态自检')
   },

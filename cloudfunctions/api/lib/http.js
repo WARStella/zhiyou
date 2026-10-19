@@ -22,7 +22,7 @@ class HttpError extends Error {
   constructor(message, info, code) {
     super(message);
     this.name = 'HttpError';
-    // 默认与 docs/01 §3 错误码对齐；调用方可覆盖（如大模型上游用 AI_UPSTREAM_FAILED）
+    // 默认与 docs/项目计划书.md#data-model §3 错误码对齐；调用方可覆盖（如大模型上游用 AI_UPSTREAM_FAILED）
     this.code = code || 'UPSTREAM_MAP_FAILED';
     this.details = info || null;
     this.expected = true;

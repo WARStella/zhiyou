@@ -44,7 +44,14 @@ function component(w, who) {
   const wx = { getStorageSync:k=>storage[k], setStorageSync:(k,v)=>storage[k]=v, removeStorageSync:k=>delete storage[k], showModal:o=>o.success({confirm:true}), switchTab:()=>{}, setClipboardData:()=>{} };
   const file=path.join(__dirname,'../miniprogram/components/team-panel/index.js');
   vm.runInNewContext(fs.readFileSync(file,'utf8'),{
-    Component:d=>definition=d, wx, require:name=>name.endsWith('stay-duration') ? {requestMinutes:()=>Promise.resolve(25)} : ({callApi:(...args)=>{calls.push(args);return w[who](...args)}}),
+    Component:d=>definition=d, wx, require:name=> {
+      if (name.endsWith('stay-duration')) return {requestMinutes:()=>Promise.resolve(25)};
+      if (name.endsWith('member-labels')) return require('../miniprogram/utils/member-labels');
+      if (name.endsWith('location-consent')) return require('../miniprogram/utils/location-consent');
+      if (name.endsWith('invitation-link')) return require('../miniprogram/utils/invitation-link');
+      if (name.endsWith('/api')) return {callApi:(...args)=>{calls.push(args);return w[who](...args)}};
+      throw new Error('未配置组件依赖：' + name);
+    },
     Date: class extends Date { constructor(...args){super(...(args.length?args:[w.NOW]));} static now(){return w.NOW.getTime();} },
   });
   const p={data:JSON.parse(JSON.stringify(definition.data)),properties:{personalTripId:'',point:null,source:''},setData(d){Object.assign(this.data,d)},triggerEvent(name,data){events.push({name,data})},events,calls};

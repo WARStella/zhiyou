@@ -367,7 +367,7 @@ function createFakeProvider(opts) {
       input = input || {};
       const keyword = input.keyword || '';
 
-      const base = { provider: 'fake', keyword, boundary: null, requestUrl: '(fake provider: no HTTP request)' };
+      const base = { provider: 'fake', keyword, boundary: null, requestCount: 0, requestUrl: '(fake provider: no HTTP request)' };
 
       if (!key) {
         return Object.assign(base, {

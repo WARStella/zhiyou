@@ -1,0 +1,27 @@
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+
+# 本机设置、密钥和凭据
+project.private.config.json
+secrets/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials.json
+
+# 日志、临时文件和实测原始采集结果
+*.log
+.tmp/
+tmp/
+COMMIT_MSG.tmp
+.git-msg.tmp
+data/harbin/raw/
+data/harbin/batches/
+
+.DS_Store
+Thumbs.db
+desktop.ini

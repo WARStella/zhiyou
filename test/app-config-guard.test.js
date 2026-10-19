@@ -93,6 +93,8 @@ test('用到的位置接口必须在 requiredPrivateInfos 里声明', () => {
         const src = fs.readFileSync(full, 'utf8');
         if (/wx\.getLocation\s*\(/.test(src)) used.add('getLocation');
         if (/wx\.chooseLocation\s*\(/.test(src)) used.add('chooseLocation');
+        if (/wxCall\('startLocationUpdate'/.test(src)) used.add('startLocationUpdate');
+        if (/wx\.onLocationChange\s*\(/.test(src)) used.add('onLocationChange');
       }
     }
   };

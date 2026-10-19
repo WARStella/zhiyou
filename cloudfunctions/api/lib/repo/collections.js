@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * 集合名常量。与 docs/01_数据模型_v1.md §2 一一对应。
+ * 集合名常量。与 docs/项目计划书.md#data-model §2 一一对应。
  * 代码里禁止出现裸字符串集合名。
  */
 module.exports = {
@@ -13,6 +13,8 @@ module.exports = {
   CHANGE_PROPOSALS: 'change_proposals',
   CREWS: 'crews',
   CREW_MEMBERS: 'crew_members',
+  CREW_MESSAGES: 'crew_messages',
+  GUIDE_SESSIONS: 'guide_sessions',
   LOCATIONS: 'locations',
   MEET_TASKS: 'meet_tasks',
   OPERATIONS: 'operations',
@@ -35,4 +37,21 @@ module.exports = {
    */
   WALK_SAMPLES: 'walk_samples',
   PRIVACY_CONSENTS: 'privacy_consents',
+  /**
+   * **订阅意向** —— 用户对某支队伍、某类通知"表达过同意"的记录（2026-10-17 加）。
+   *
+   * ⚠️ 它不是"可发送额度"。微信的一次性订阅次数由微信掌握，
+   * 这里只记"问过、同意了、拒绝过、已撤销"，真实能否发送始终看微信返回。
+   * 唯一键 `(crewId, userId, kind)`：一次订阅只更新一条，不累积重复行。
+   */
+  SUBSCRIBE_INTENTS: 'subscribe_intents',
+  /**
+   * **通知日志与事件去重**（2026-10-17 加）。
+   *
+   * 同一业务事件（一条消息、一次集合创建）只能发一次通知 ——
+   * 聊天自己的失败重试、并发刷新都可能再次触发，所以先在库里抢一个
+   * 唯一键 `dedupeKey`，抢不到就说明已经有人处理过。
+   * 同时记录每个收件人的结果，留给"发送结果可查"与事后排查。
+   */
+  NOTICE_LOG: 'notice_log',
 };

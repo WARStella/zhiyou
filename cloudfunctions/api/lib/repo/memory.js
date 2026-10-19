@@ -125,6 +125,52 @@ function createMemoryRepo(opts) {
   const repo = {
     __kind: 'memory',
 
+    async runTransaction(fn, collections, attempt = 0) {
+      const reads = new Map();
+      const writes = new Map();
+      const key = (coll, id) => JSON.stringify([coll, id]);
+      const tx = {
+        async get(coll, id) {
+          const k = key(coll, id);
+          if (writes.has(k)) return clone(writes.get(k).doc);
+          if (!reads.has(k)) reads.set(k, { coll, id, doc: clone(bag(coll).get(id) || null) });
+          return clone(reads.get(k).doc);
+        },
+        async insert(coll, data) {
+          const id = data._id || nextId(coll);
+          if (await this.get(coll, id)) throw new Error('事务新增文档已存在');
+          const doc = Object.assign({ createdAt: new Date(clock()), updatedAt: new Date(clock()) }, clone(data), { _id: id });
+          writes.set(key(coll, id), { coll, id, doc });
+          return clone(doc);
+        },
+        async update(coll, id, patch) {
+          const before = await this.get(coll, id);
+          if (!before) throw new Error('事务更新文档不存在');
+          writes.set(key(coll, id), { coll, id,
+            doc: Object.assign({}, before, clone(patch), { updatedAt: new Date(clock()) }) });
+        },
+      };
+      const result = await fn(tx);
+      for (const read of reads.values()) {
+        if (JSON.stringify(read.doc) !== JSON.stringify(bag(read.coll).get(read.id) || null)) {
+          if (attempt < 7) return this.runTransaction(fn, collections, attempt + 1);
+          const error = new Error('事务读取的数据已更新');
+          error.transactionConflict = true;
+          throw error;
+        }
+      }
+      const staged = new Map();
+      for (const { coll, id, doc } of writes.values()) {
+        if (!staged.has(coll)) staged.set(coll, new Map(bag(coll)));
+        const target = staged.get(coll);
+        assertUnique(target, coll, doc, id);
+        target.set(id, doc);
+      }
+      // 校验完毕后同步提交所有文档；异常和冲突不会留下部分写入。
+      for (const [coll, rows] of staged) store.set(coll, rows);
+      return result;
+    },
+
     /**
      * 内存实现没有"集合"这一层概念，集合按需出现。
      * 保留此方法与云实现对齐接口 —— memory 天然满足"集合不存在 = 空结果"的语义，

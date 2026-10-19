@@ -23,6 +23,7 @@ const api = require('../../utils/api')
 const { requestMinutes } = require('../../utils/stay-duration')
 const { suggestOrder } = require('../../utils/route-order')
 const { isValidPoint } = require('../../utils/coordinates')
+const { appendSpeech } = require('../../utils/speech-input')
 
 /**
  * 用户可以选的出行方式 —— **与后端 `lib/mode-choice.js` 的 MODE_OPTIONS 同一份口径**。
@@ -130,6 +131,8 @@ function describeTransit(t) {
  *      正确判据是**下一站到了没有**：到了下一站，才说明这一段走完了。
  */
 const isReached = (status) => status === 'arrived' || status === 'done'
+const navigationKey = (trip, leg) => trip && leg ? JSON.stringify([trip.tripId, trip.version,
+  leg.toNodeId, leg.rawMode, leg.toLocation.latitude, leg.toLocation.longitude]) : ''
 
 const PROGRESS_ACTIONS = {
   pending: [{ status: 'arrived', label: '到了' }],
@@ -173,6 +176,7 @@ function todayAt(text) {
 function selectedOf(c, reason) {
   return {
     itemId: c.itemId,
+    visitId: api.newRequestId(),
     /** 库里踏勘过的地点才有；没有就是 null */
     placeId: c.placeId || null,
     poiId: c.poiId || null,
@@ -189,6 +193,9 @@ Page({
   data: {
     // ── 需求输入 ──
     keyword: '',
+    changePanelOpen: false,
+    planningVoiceActive: false,
+    changeVoiceActive: false,
     /** 意图解析结果（解释 + 待确认项）—— 界面要让人看见"系统理解成了什么" */
     intent: null,
     startAtText: '',
@@ -293,6 +300,9 @@ Page({
     // ── 候选（搜索结果或已知地点）──
     mode: 'browse', // browse | search
     candidates: [],
+    unselectedCandidateCount: 0,
+    autoCandidates: false,
+    otherCandidatesExpanded: false,
     rankingNote: '',
     locating: false,
 
@@ -317,6 +327,15 @@ Page({
     proposalMode: null,
     proposalNote: '',
     proposalCandidates: [],
+    changeText: '',
+    changeDraftId: '',
+    changeQuestions: [],
+    changeAnswers: {},
+    changeInterpretation: null,
+    changeSummary: [],
+    changeTurns: [],
+    changeError: '',
+    changeNeedsRewrite: false,
 
     // ── 状态 ──
     loading: false,
@@ -326,6 +345,40 @@ Page({
     conflicts: [],
     planRejected: false,
   },
+
+  async onShow() {
+    this.navigationVisible = true
+    const created = wx.getStorageSync('zhiyou-guide-created-trip')
+    if (created && created.tripId) {
+      const token = (this.tripLoadToken || 0) + 1
+      this.tripLoadToken = token
+      this.setData({ loading: true, error: '' })
+      try {
+        const res = await api.callApi('trip.get', { tripId: created.tripId })
+        if (token !== this.tripLoadToken || this.navigationVisible === false) return
+        if (!res || !res.ok) throw new Error(res && res.error && res.error.message || '无法读取助手生成的行程，请重试')
+        const latest = wx.getStorageSync('zhiyou-guide-created-trip')
+        if (!latest || latest.tripId !== created.tripId) return
+        this.applyFetchedTrip(res.data.trip, created.tripId, '已载入助手生成的行程', null)
+        wx.removeStorageSync('zhiyou-guide-created-trip')
+      } catch (e) {
+        if (token === this.tripLoadToken && this.navigationVisible !== false) this.setData({ loading: false, error: e.message || '读取行程失败，请重新进入行程页' })
+      }
+    }
+    const pending = wx.getStorageSync('zhiyou-guide-trip-refresh')
+    if (pending && this.data.trip && pending.tripId === this.data.trip.tripId) {
+      wx.removeStorageSync('zhiyou-guide-trip-refresh')
+      if (pending.version > this.data.trip.version) await this.refreshTextTrip(pending.tripId, '已同步助手确认的新行程')
+    }
+    if (this.data.trip) this.rebuildFromNodes()
+  },
+  onHide() {
+    this.navigationVisible = false
+    this.tripLoadToken = (this.tripLoadToken || 0) + 1
+    this.cancelNavigationRequest()
+    this.setData({ navLoading: false })
+  },
+  onUnload() { this.navigationVisible = false; this.tripLoadToken = (this.tripLoadToken || 0) + 1; this.navigationRequested = false; this.cancelNavigationRequest() },
 
   onLoad() {
     const now = new Date()
@@ -437,6 +490,26 @@ Page({
     this.setData({ keyword: e.detail.value })
   },
 
+  usePlanningExample(e) {
+    if (!this.data.loading && !this.data.busy) this.setData({ keyword: e.currentTarget.dataset.text })
+  },
+
+  toggleChangePanel() {
+    if (this.data.changeVoiceActive || this.data.busy) return
+    this.setData({ changePanelOpen: !this.data.changePanelOpen })
+  },
+
+  onPlanningVoiceState(e) { this.setData({ planningVoiceActive: Boolean(e.detail.active) }) },
+  onChangeVoiceState(e) { this.setData({ changeVoiceActive: Boolean(e.detail.active) }) },
+
+  onKeywordVoice(e) {
+    if (this.data.trip || this.data.loading || this.data.busy) return
+    if (e.detail.contextKey !== undefined && e.detail.contextKey !== 'planning') return
+    const value = appendSpeech(this.data.keyword, e.detail.text, 1000)
+    if (value === null) { wx.showToast({ title: '语音为空或合并后超过1000字，请分段输入', icon: 'none' }); return }
+    this.onKeyword({ detail: { value } })
+  },
+
   onEnrichChange(e) {
     this.setData({ enrichWalk: e.detail.value })
   },
@@ -468,6 +541,7 @@ Page({
    * 让用户选（§6.2）。
    */
   doSearch() {
+    if (this.data.loading || this.data.busy || this.data.planningVoiceActive) return
     const that = this
     const text = (this.data.keyword || '').trim()
     if (!text) {
@@ -611,7 +685,10 @@ Page({
     if (!picked || !picked.itemIds || !picked.itemIds.length) {
       this.setData({
         selected: [],
+        autoCandidates: true,
+        otherCandidatesExpanded: false,
         candidates: candidates.map((x) => Object.assign({}, x, { selected: false })),
+        unselectedCandidateCount: candidates.length,
         note: (picked && picked.note) || '按你的需求没找到合适的地点，请换个说法或直接搜索',
       })
       return
@@ -633,6 +710,9 @@ Page({
 
     this.setData({
       selected: selected,
+      autoCandidates: true,
+      otherCandidatesExpanded: false,
+      unselectedCandidateCount: candidates.filter(x => !ids.includes(x.itemId)).length,
       candidates: candidates.map((x) =>
         Object.assign({}, x, { selected: ids.indexOf(x.itemId) >= 0 })
       ),
@@ -691,6 +771,7 @@ Page({
               error: d.message || '检索失败',
               note: d.hint || '',
               candidates: [],
+              unselectedCandidateCount: 0, autoCandidates: false, otherCandidatesExpanded: false,
             })
             return
           }
@@ -763,10 +844,16 @@ Page({
     const marked = list.map((x) =>
       Object.assign({}, x, { selected: selectedIds.indexOf(x.itemId) >= 0 })
     )
-    this.setData({ candidates: marked, mode: mode, rankingNote: rankingNote || '' })
+    this.setData({ candidates: marked, mode: mode, rankingNote: rankingNote || '',
+      unselectedCandidateCount: marked.filter(x => !x.selected).length,
+      autoCandidates: false, otherCandidatesExpanded: false })
   },
 
   // ══════════ 选择 ══════════
+
+  toggleOtherCandidates() {
+    this.setData({ otherCandidatesExpanded: !this.data.otherCandidatesExpanded })
+  },
 
   /** 点候选项：加入 / 移出已选。**勾选顺序即游览顺序。** */
   toggleCandidate(e) {
@@ -783,31 +870,31 @@ Page({
     const at = selected.findIndex((x) => x.itemId === id)
 
     if (at >= 0) {
-      selected.splice(at, 1)
+      selected = selected.filter(x => x.itemId !== id)
     } else {
       selected.push(selectedOf(item, ''))
     }
 
-    const selectedIds = selected.map((x) => x.itemId)
-    this.setData({
-      selected: selected,
-      note: '',
-      candidates: this.data.candidates.map((x) =>
-        Object.assign({}, x, { selected: selectedIds.indexOf(x.itemId) >= 0 })
-      ),
-    })
+    this.updateSelection(selected, { note: '' })
   },
 
   removeSelected(e) {
     const id = e.currentTarget.dataset.id
-    const selected = this.data.selected.filter((x) => x.itemId !== id)
-    const selectedIds = selected.map((x) => x.itemId)
-    this.setData({
-      selected: selected,
-      candidates: this.data.candidates.map((x) =>
-        Object.assign({}, x, { selected: selectedIds.indexOf(x.itemId) >= 0 })
-      ),
-    })
+    const visitId = e.currentTarget.dataset.visitid
+    this.updateSelection(this.data.selected.filter(x => visitId ? x.visitId !== visitId : x.itemId !== id))
+  },
+
+  updateSelection(selected, extra) {
+    const ids = new Set(selected.map(x => x.itemId))
+    const candidates = this.data.candidates.map(x => ({ ...x, selected: ids.has(x.itemId) }))
+    this.setData({ ...extra, selected, candidates, unselectedCandidateCount: candidates.filter(x => !x.selected).length })
+  },
+
+  appendVisit(e) {
+    if (this.data.loading || this.data.busy) return
+    const item = this.data.selected[Number(e.currentTarget.dataset.index)]
+    if (!item) return
+    this.updateSelection(this.data.selected.concat(selectedOf(item, '再次前往')), { note: '已在末尾增加一次到访，按当前顺序规划。' })
   },
 
   // ══════════ 需求条件 ══════════
@@ -852,6 +939,8 @@ Page({
 
   chooseRouteOrder(startPoint) {
     const requested = this.data.selected.slice()
+    // 返回曾到访的地点是明确的路线顺序，不能把两次到访挪到一起。
+    if (new Set(requested.map(x => x.itemId)).size !== requested.length) return Promise.resolve(requested)
     const optimized = suggestOrder(requested, startPoint)
     if (optimized.every((x, i) => x.itemId === requested[i].itemId)) return Promise.resolve(requested)
     return new Promise(resolve => {
@@ -989,9 +1078,9 @@ Page({
    *
    * ── 两条设计决定 ────────────────────────────────────────
    *
-   * ① **候选耗时直接复用规划结果**，不重新取数。
+   * ① **选择器复用候选耗时作为参考**。
    *    后端规划时已经把四种方式的耗时都拿到了（`legOptions`），
-   *    所以用户换一种方式**不需要新的地图调用** —— 又快又不烧配额。
+   *    应用选择时在原行程上重新查询、计算并生成确认方案。
    *
    * ② **改完要点「应用」才生效**，不是选一下就重排。
    *    逐段选择会改整条行程的时间线（后面每站的到达时间都跟着变），
@@ -1062,6 +1151,7 @@ Page({
     const hasDefaultMode = Boolean(this.data.preferredMode) && this.data.preferredMode !== 'auto'
 
     return legs.map(function (leg, i) {
+      const legKey = leg.toNodeId && legs.filter(x => x.toPlaceId === leg.toPlaceId).length > 1 ? leg.toNodeId : leg.toPlaceId
       /**
        * 选择优先级（从高到低）：
        *   ① 用户在**逐段选择器里点过的**（最具体，且是最近的意图）
@@ -1070,7 +1160,7 @@ Page({
        */
       const fromUserWords = modeForName(leg.toPlaceName)
       const chosen =
-        picked[leg.toPlaceId] || fromUserWords || leg.chosenMode || leg.recommendedMode
+        picked[legKey] || fromUserWords || leg.chosenMode || leg.recommendedMode
 
       /**
        * 这一段的来源，界面据此说清"这是谁定的"：
@@ -1086,7 +1176,7 @@ Page({
        *      · 有默认偏好 → 系统按它预选，标成"按你的默认"（可以改）
        *      · 没有任何偏好（偏好是"自动"）→ 标成"待你选择"
        */
-      const source = picked[leg.toPlaceId]
+      const source = picked[legKey]
         ? 'user'
         : fromUserWords
           ? 'words'
@@ -1096,6 +1186,8 @@ Page({
       return {
         index: i + 1,
         toPlaceId: leg.toPlaceId,
+        legKey,
+        toNodeId: leg.toNodeId,
         toName: leg.toPlaceName || '这一站',
         fromName: leg.isFirstLeg ? '我的位置' : leg.fromPlaceName || '上一站',
         selected: chosen,
@@ -1116,7 +1208,7 @@ Page({
         }),
         /** 这一段取不到的方式（如公交没配 Key）—— 要说清为什么不能选 */
         unavailable: leg.unavailable || [],
-        changed: Boolean(picked[leg.toPlaceId] && picked[leg.toPlaceId] !== leg.chosenMode),
+        changed: Boolean(picked[legKey] && picked[legKey] !== leg.chosenMode),
         /** 这一段的方式是怎么定下来的 —— 界面据此标注来源（见上面 source 的说明） */
         source: source,
         sourceNote:
@@ -1152,7 +1244,7 @@ Page({
    * ⚠️ 只改本地选中态，**不发请求** —— 见 `buildLegPicker` 的说明②。
    */
   onLegModeTap(e) {
-    const toPlaceId = e.currentTarget.dataset.placeid
+    const toPlaceId = e.currentTarget.dataset.legkey || e.currentTarget.dataset.placeid
     const mode = e.currentTarget.dataset.mode
     if (!toPlaceId || !mode) return
 
@@ -1160,7 +1252,7 @@ Page({
     legModes[toPlaceId] = mode
     /** 就地更新选中态，避免整块重建导致列表跳动 */
     const picker = (this.data.legPicker || []).map(function (row) {
-      if (row.toPlaceId !== toPlaceId) return row
+      if ((row.legKey || row.toPlaceId) !== toPlaceId) return row
       return Object.assign({}, row, {
         selected: mode,
         selectedLabel: modeInfo(mode, (row.options.find(o => o.mode === mode) || {}).transit).name || '',
@@ -1203,9 +1295,32 @@ Page({
    * 所以这次调用**基本不需要新的地图配额**。
    */
   applyLegModes() {
-    if (!this.data.selected || !this.data.selected.length) return
-    this.setData({ legPickerOpen: false })
-    this.createTrip()
+    if (this.data.busy || this.data.loading) return
+    if (!this.data.trip) return this.createTrip()
+    const tripId = this.data.trip.tripId, version = this.data.trip.version
+    const nodes = this.data.rawNodes || []
+    const operations = []
+    for (const row of this.data.legPicker || []) {
+      if (!row.changed) continue
+      const matches = nodes.filter(n => row.toNodeId ? n.nodeId === row.toNodeId : n.placeId === row.toPlaceId)
+      if (matches.length !== 1) continue
+      const target = matches[0]
+      if (target.status !== 'pending') continue
+      const currentMode = target.seq === 0 && this.data.startLeg ? this.data.startLeg.rawMode : target.travelMode
+      if (row.selected && row.selected !== currentMode) operations.push({ type: 'change_travel_mode', payload: { nodeId: target.nodeId, mode: row.selected } })
+    }
+    if (!operations.length) { this.setData({ legPickerOpen: false, note: '没有需要修改的待前往路段' }); return }
+    if (operations.length > 10) { this.setData({ error: '一次最多修改 10 段，请分批应用选择' }); return }
+    this.setData({ busy: 'adjust', error: '' })
+    const current = () => this.data.trip && this.data.trip.tripId === tripId && this.data.trip.version === version
+    return api.callApi('trip.adjust', { tripId, autoApply: 'never', trigger: { type: 'batch', payload: { operations } } }, { expectedVersion: version })
+      .then(res => {
+        if (!current()) return
+        if (!res || !res.ok) { this.setData({ busy: '', error: res && res.error && res.error.message || '调整失败，请重试' }); return }
+        this.setData({ legPickerOpen: false })
+        if (res.data.applied) this.applyTrip(res.data, '出行方式与到达时间已更新')
+        else this.applyProposal(res.data)
+      }).catch(err => { if (current()) this.setData({ busy: '', error: err && err.errMsg || '调整失败，请重试' }) })
   },
 
   /** 当前节点 = 第一个未走完的节点 */
@@ -1309,18 +1424,32 @@ Page({
    * 所以这里**只重算随状态变化的部分**，其余保持不动 ——
    * 否则记录一次进度会把总步行时间、出发段这些信息清掉。
    */
-  rebuildFromNodes() {
+  rebuildFromNodes(options = {}) {
     const nodes = this.data.rawNodes || []
+    const currentLeg = this.buildCurrentLeg(nodes, this.data.startLeg)
+    const key = navigationKey(this.data.trip, currentLeg)
+    const stale = this.data.navLeg && this.data.navLeg.routeKey !== key
+    const staleRequest = this.navigationRequestKey && this.navigationRequestKey !== key
+    if (this.data.navLeg || this.data.navLoading) this.navigationRequested = true
+    if (stale || staleRequest || !currentLeg) this.cancelNavigationRequest()
+    if (!currentLeg) this.navigationRequested = false
+    const navLeg = stale || !currentLeg ? null : this.data.navLeg
     this.setData(
       {
         timeline: this.buildTimelineView(nodes),
         currentNodeIndex: this.currentIndexOf(nodes),
-        routeMap: this.buildRouteMap(nodes, this.data.startPoint, this.data.navLeg),
+        routeMap: this.buildRouteMap(nodes, this.data.startPoint, navLeg),
         // 当前出行段随进度变化：走完一站，这一段就换成"从这一站去下一站"
-        currentLeg: this.buildCurrentLeg(nodes, this.data.startLeg),
+        currentLeg, navLeg,
+        ...((stale || staleRequest || !currentLeg) ? { navLoading: false, navError: '', navHint: currentLeg ? '已更新下一站，正在同步导航路线。' : '' } : {}),
       },
-      () => this.fitRouteMap()
+      () => { this.fitRouteMap(); if (options.refreshNavigation !== false) this.resumeNavigation() }
     )
+  },
+  cancelNavigationRequest() { this.navigationToken = (this.navigationToken || 0) + 1; this.navigationRequestKey = '' },
+  resumeNavigation() {
+    if (!this.data.currentLeg) { this.navigationRequested = false; return }
+    if (this.navigationVisible !== false && this.navigationRequested && !this.data.navLeg && !this.data.navLoading) return this.startNavigation()
   },
 
   /**
@@ -1356,6 +1485,29 @@ Page({
    * 用后端返回的行程刷新界面（生成与确认变更都走这里）
    */
   applyTrip(d, note) {
+    // 确认调整可能不带候选；只复用起终点未改变的候选参考值。
+    if (d.legOptions === undefined && this.data.trip && this.data.trip.tripId === d.tripId) {
+      const oldNodes = this.data.rawNodes || [], newNodes = d.nodes || []
+      const legOptions = (this.data.rawLegOptions || []).filter(leg => {
+        const old = oldNodes.filter(n => leg.toNodeId ? n.nodeId === leg.toNodeId : n.placeId === leg.toPlaceId)
+        if (old.length !== 1) return false
+        const oi = oldNodes.indexOf(old[0]), ni = newNodes.findIndex(n => n.nodeId === old[0].nodeId && n.placeId === old[0].placeId)
+        return ni >= 0 && (oi === 0 ? ni === 0 : ni > 0 && oldNodes[oi - 1].nodeId === newNodes[ni - 1].nodeId && oldNodes[oi - 1].placeId === newNodes[ni - 1].placeId)
+      }).map(leg => {
+        const n = newNodes.find(n => leg.toNodeId ? n.nodeId === leg.toNodeId : n.placeId === leg.toPlaceId)
+        const chosenMode = n.travelMode && n.travelMode !== 'none' ? n.travelMode : (d.startLeg && d.startLeg.mode || leg.chosenMode)
+        return Object.assign({}, leg, { chosenMode, options: (leg.options || []).map(o => o.mode === chosenMode && Number.isFinite(n.travelFromPrevMin)
+          ? Object.assign({}, o, { minutes: n.travelFromPrevMin, transit: n.travelTransit || null }) : o) })
+      })
+      d = Object.assign({}, d, { legOptions })
+      this.setData({ legModes: {} })
+    }
+    this.tripLoadToken = (this.tripLoadToken || 0) + 1
+    const keepNavigation = Boolean(this.data.trip && this.data.trip.tripId === d.tripId &&
+      (this.navigationRequested || this.data.navLeg || this.data.navLoading))
+    this.cancelNavigationRequest()
+    this.navigationRequested = keepNavigation
+    if (!this.data.trip || this.data.trip.tripId !== d.tripId) this.textChangeToken = (this.textChangeToken || 0) + 1
     const nodes = d.nodes || []
     const currentIndex = Math.max(
       0,
@@ -1410,6 +1562,7 @@ Page({
 
     this.setData({
       loading: false,
+      busy: '',
       trip: d.tripId ? { tripId: d.tripId, version: d.version } : this.data.trip,
       /** 保留原始节点 —— 记录进度时只回传 nodes，要拿它重建界面 */
       rawNodes: nodes,
@@ -1426,7 +1579,8 @@ Page({
             totalWalkMeters: d.summary.totalWalkMeters,
           }
         : null,
-      routeMap: this.buildRouteMap(nodes, d.startPoint, this.data.navLeg),
+      routeMap: this.buildRouteMap(nodes, d.startPoint, null),
+      navLeg: null, navLoading: false, navError: '', navHint: '',
       walkTimes: d.walkTimes || null,
       startPoint: d.startPoint || null,
       startLeg: startLegView,
@@ -1438,6 +1592,7 @@ Page({
       proposalMode: null,
       proposalCandidates: [],
       planRejected: false,
+      changeDraftId: '', changeQuestions: [], changeAnswers: {}, changeNeedsRewrite: false,
       note: note || '',
       error: '',
       /**
@@ -1517,6 +1672,7 @@ Page({
        */
       this.scrollToRouteMap()
       this.rememberActiveTrip(d.tripId, d.version)
+      this.resumeNavigation()
     })
   },
 
@@ -1712,26 +1868,23 @@ Page({
      * `decoded: false` 时**什么都不画**，并如实说明 —— 宁可没有线，
      * 也不能拿示意图冒充真实路线。
      */
-    if (navLeg && navLeg.route && navLeg.route.decoded && Array.isArray(navLeg.route.points) && navLeg.route.points.length >= 2) {
-      const path = navLeg.route.points.every(isValidPoint) ? navLeg.route.points : [];
-      const endpoints = [startPoint, navLeg.toLocation].filter(isValidPoint)
-      const focus = navLeg.fromIndex != null ? navLeg.route.points : path;
+    if (navLeg) {
+      const route = navLeg.route || {}
+      const parts = Array.isArray(route.polylines) ? route.polylines : [{ mode: navLeg.mode, points: route.points || [] }]
+      const lines = parts.filter(p => Array.isArray(p.points) && p.points.length >= 2 && p.points.every(isValidPoint))
+        .map(p => ({ points: p.points, color: p.mode === 'walking' && (navLeg.mode === 'transit' || navLeg.mode === 'subway') ? '#708090' : '#0B3C6E',
+          dottedLine: p.mode === 'walking' && (navLeg.mode === 'transit' || navLeg.mode === 'subway'), width: 6, arrowLine: true, borderColor: '#FFFFFF', borderWidth: 2 }))
+      const path = [].concat(...lines.map(p => p.points))
+      const origin = navLeg.fromLocation || startPoint
+      const endpoints = [origin, navLeg.toLocation].filter(isValidPoint)
       return {
         center: path[0] || endpoints[0] || located[0].location,
-        includePoints: path.length ? path : endpoints,
-        polyline: path.length ? [
-          {
-            points: path,
-            color: '#0B3C6E',
-            width: 6,
-            arrowLine: true,
-            borderColor: '#FFFFFF',
-            borderWidth: 2,
-          },
-        ] : [],
-        markers: [startPoint, navLeg.toLocation]
-          .filter(isValidPoint)
-          .map((p, i) => ({
+        includePoints: path.concat(endpoints),
+        polyline: lines,
+        markers: [origin, navLeg.toLocation]
+          .map((p, i) => ({ p, i }))
+          .filter(({ p }) => isValidPoint(p))
+          .map(({ p, i }) => ({
             id: i,
             latitude: p.latitude,
             longitude: p.longitude,
@@ -1749,13 +1902,12 @@ Page({
               textAlign: 'center',
             },
           })),
-        reachedCount: 0,
-        totalCount: 0,
+        reachedCount: located.filter(n => isReached(n.status)).length,
+        totalCount: located.length,
         nextName: navLeg.placeName || null,
         navMode: true,
-        legend: !path.length ? '导航路径坐标异常，请重新获取路线' :
-          `真实步行路径（上游返回 ${path.length} 个点），不是顺序示意` +
-          (focus === path ? '' : ''),
+        legend: !path.length ? '路径坐标缺失或坐标异常，仅显示起终点；请查看指引或重新获取路线' :
+          (navLeg.modeLabel || '步行') + '路线 · ' + (route.partial ? '部分分段缺失，详见指引；' : '') + ((navLeg.mode === 'transit' || navLeg.mode === 'subway') ? '灰色虚线为步行接驳，蓝色为乘车路段' : '路径来自地图服务'),
       };
     }
 
@@ -1892,19 +2044,22 @@ Page({
    * `wx.openLocation` / 步行路线规划直接用得上，不必再回查一遍。
    */
   buildCurrentLeg(nodes, startLeg) {
-    const located = (nodes || []).filter(n => isValidPoint(n.location))
+    const located = (nodes || []).filter(n => n.status !== 'skipped' && isValidPoint(n.location)).slice().sort((a, b) => a.seq - b.seq)
     if (!located.length) return null
+    const targetIndex = located.findIndex(n => n.status === 'pending')
+    if (targetIndex < 0) return null
 
     let lastReached = -1
     located.forEach((n, i) => {
-      if (isReached(n.status)) lastReached = i
+      if (i < targetIndex && isReached(n.status)) lastReached = i
     })
 
     const totalLegs = located.length
 
     // ① 还没出发：我的位置 → 第 1 站
     if (lastReached < 0) {
-      const first = located[0]
+      const first = located[targetIndex]
+      if ((nodes || [])[0].nodeId !== first.nodeId) startLeg = null
       /**
        * ⚠️ 这一段**也是**多方式接入的一部分，而我上一批只改了第三段。
        *
@@ -1916,10 +2071,11 @@ Page({
        *
        * 数据来自 `startLeg`（`trip.plan` 的起点段，由 `leg-times` 选出方式）。
        */
-      const startMode = startLeg && (startLeg.rawMode || startLeg.mode) ? (startLeg.rawMode || startLeg.mode) : 'walking'
+      const startMode = startLeg ? (startLeg.rawMode || 'walking') : (first.travelMode || 'walking')
       return {
         from: (startLeg && startLeg.label) || '我的位置',
         to: first.placeName,
+        rawMode: startMode,
         mode: modeInfo(startMode, startLeg && startLeg.transit).name,
         modeIcon: modeInfo(startMode, startLeg && startLeg.transit).icon,
         reason: (startLeg && startLeg.reason) || '',
@@ -1934,45 +2090,47 @@ Page({
         // 导航要用：目的地的坐标
         toLocation: first.location,
         toPlaceId: first.placeId,
-        legIndex: 1,
+        toNodeId: first.nodeId,
+        legIndex: targetIndex + 1,
         totalLegs: totalLegs,
         isStart: true,
       }
     }
 
     // ② 全部走完
-    if (lastReached >= located.length - 1) return null
-
     // ③ 从刚走到的这一站，去下一站
     const fromNode = located[lastReached]
-    const next = located[lastReached + 1]
+    const next = located[targetIndex]
+    const adjacent = (nodes || []).findIndex(n => n.nodeId === next.nodeId) === (nodes || []).findIndex(n => n.nodeId === fromNode.nodeId) + 1
     return {
       from: fromNode.placeName,
       to: next.placeName,
+      rawMode: next.travelMode || 'walking',
       /**
        * ⚠️ 这里原来是：
        *     next.travelMode === 'walking' ? '步行' : next.travelMode === 'none' ? '' : '步行'
        * —— **非步行的一律兜底成"步行"**。接入公交/驾车后那是错的：
        * 一段 63 分钟的 126 路会被显示成"步行 63 分钟"。
        */
-      mode: next.travelMode === 'none' ? '' : modeInfo(next.travelMode, next.travelTransit).name,
-      modeIcon: next.travelMode === 'none' ? '' : modeInfo(next.travelMode, next.travelTransit).icon,
+      mode: !adjacent || next.travelMode === 'none' ? '' : modeInfo(next.travelMode, next.travelTransit).name,
+      modeIcon: !adjacent || next.travelMode === 'none' ? '' : modeInfo(next.travelMode, next.travelTransit).icon,
       /** 为什么选这个方式（"公交比步行省 78 分钟"）—— 只给结论不给理由，用户没法判断 */
-      reason: next.travelReason || '',
+      reason: adjacent ? next.travelReason || '' : '已跳过或改变中间站点，请获取新的导航路线。',
       /** 公交的换乘细节 */
-      transitText: describeTransit(next.travelTransit),
-      minutes: next.travelFromPrevMin,
-      meters: next.travelFromPrevMeters,
-      source: next.travelSource,
-      sourceLabel: SOURCE_LABEL[next.travelSource] || '',
+      transitText: adjacent ? describeTransit(next.travelTransit) : '',
+      minutes: adjacent ? next.travelFromPrevMin : null,
+      meters: adjacent ? next.travelFromPrevMeters : null,
+      source: adjacent ? next.travelSource : null,
+      sourceLabel: adjacent ? SOURCE_LABEL[next.travelSource] || '' : '',
       /**
        * 「直线估算」与真实路线在短距离下能差 7 倍（实测 10 米 → 76 米），
        * 必须标出来 —— 否则用户会以为所有时间一样可信。
        */
-      estimated: next.travelSource === 'estimated',
+      estimated: adjacent && next.travelSource === 'estimated',
       toLocation: next.location,
       toPlaceId: next.placeId,
-      legIndex: lastReached + 2,
+      toNodeId: next.nodeId,
+      legIndex: targetIndex + 1,
       totalLegs: totalLegs,
       isStart: false,
     }
@@ -1996,20 +2154,33 @@ Page({
       return
     }
 
-    this.setData({ navLoading: true, navError: '', navLeg: null })
+    const tripId = this.data.trip.tripId, version = this.data.trip.version
+    const mode = this.data.currentLeg.rawMode || 'walking'
+    const nodeId = this.data.currentLeg.toNodeId, key = navigationKey(this.data.trip, this.data.currentLeg)
+    this.navigationRequested = true
+    this.cancelNavigationRequest()
+    const token = this.navigationToken
+    this.navigationRequestKey = key
+    const current = () => token === this.navigationToken && this.navigationVisible !== false &&
+      key === navigationKey(this.data.trip, this.data.currentLeg)
+    this.setData({ navLoading: true, navError: '', navHint: '', navLeg: null,
+      routeMap: this.buildRouteMap(this.data.rawNodes, this.data.startPoint, null) })
 
     /**
      * 传当前位置最准 —— 导航本来就该从"你在哪"算起，而不是从计划时的出发点。
      * 取不到位置就用行程里存的出发位置（服务端会依次回退）。
      */
-    this.tryLocate()
+    return this.tryLocate()
       .then(function (from) {
+        if (!current()) return
         return api.callApi('trip.legRoute', {
-          tripId: that.data.trip.tripId,
+          tripId, nodeId, mode,
           fromPoint: from || undefined,
-        })
+        }, { expectedVersion: version })
       })
       .then(function (res) {
+        if (!current()) return
+        that.navigationRequestKey = ''
         if (!res || res.ok !== true) {
           that.setData({
             navLoading: false,
@@ -2017,7 +2188,8 @@ Page({
           })
           return
         }
-        const d = res.data
+        const d = res.data || {}
+        if (d.mode && d.mode !== mode) { that.setData({ navLoading: false, navError: '返回路线与所选方式不一致，请重试' }); return }
         if (d.ok === false) {
           // 上游失败（配额、Key、起终点重合…）—— 如实展示，不画一条直线冒充
           that.setData({
@@ -2032,6 +2204,12 @@ Page({
           {
             navLoading: false,
             navLeg: {
+              routeKey: key, nodeId, fromLocation: d.from,
+              mode: d.mode || mode,
+              modeLabel: modeInfo(d.mode || mode, d.transit).name,
+              transitText: describeTransit(d.transit),
+              summaryText: [Number.isFinite(d.distanceMeters) ? d.distanceMeters + ' 米' : '', Number.isFinite(d.durationMinutes) ? d.durationMinutes + ' 分钟' : ''].filter(Boolean).join(' · '),
+              transitDetail: d.transit ? [Number.isFinite(d.transit.walkingMeters) ? '步行接驳 ' + d.transit.walkingMeters + ' 米' : '', Number.isFinite(d.transit.transferCount) ? '换乘 ' + d.transit.transferCount + ' 次' : '', Number.isFinite(d.transit.costYuan) ? '参考票价 ' + d.transit.costYuan + ' 元' : ''].filter(Boolean).join(' · ') : '',
               placeName: d.placeName,
               legIndex: d.legIndex,
               totalLegs: d.totalLegs,
@@ -2044,11 +2222,11 @@ Page({
               route: d.route || null,
               toLocation: d.to,
             },
-            navHint: '',
+            navHint: d.route && d.route.partial ? '部分接驳段没有路径坐标，地图仅展示已返回的分段，请结合指引查看。' : '',
             navError:
               d.route && d.route.decoded
                 ? ''
-                : '上游没有返回可用的路径点，地图上不画线（不用直线冒充真实路线）',
+                : '地图服务未返回可用的路径点，仅展示起终点和已有指引，可重新获取路线。',
           },
           /**
            * 必须**重建地图**，不能只调 fitRouteMap ——
@@ -2056,17 +2234,21 @@ Page({
            * 不重建就还是原来那条"顺序示意"的线。
            * `rebuildFromNodes` 内部会把 navLeg 传下去，并在之后重新框视野。
            */
-          () => that.rebuildFromNodes()
+          () => that.rebuildFromNodes({ refreshNavigation: false })
         )
       })
       .catch(function (err) {
+        if (!current()) return
+        that.navigationRequestKey = ''
         that.setData({ navLoading: false, navError: (err && err.errMsg) || '取路线失败' })
       })
   },
 
   /** 退出导航，地图回到"整条路线"的示意 */
   stopNavigation() {
-    this.setData({ navLeg: null, navError: '', navHint: '' }, () => this.rebuildFromNodes())
+    this.navigationRequested = false
+    this.cancelNavigationRequest()
+    this.setData({ navLeg: null, navLoading: false, navError: '', navHint: '' }, () => this.rebuildFromNodes({ refreshNavigation: false }))
   },
 
   /** 交给微信内置地图（有语音播报，但要跳出小程序） */
@@ -2097,10 +2279,11 @@ Page({
     const that = this
     const { nodeid: nodeId, status } = e.currentTarget.dataset
     if (!this.data.trip || !status) return
+    const tripId = this.data.trip.tripId
 
     this.setData({ busy: 'progress', error: '' })
 
-    api
+    return api
       /**
        * ⚠️ `expectedVersion` 必须放在**第三个参数**（信封层），不能写进 payload。
        *
@@ -2117,6 +2300,7 @@ Page({
         { expectedVersion: this.data.trip.version }
       )
       .then(function (res) {
+        if (!that.data.trip || that.data.trip.tripId !== tripId) return
         if (!res || res.ok !== true) {
           const e2 = res && res.error
           that.setData({
@@ -2139,7 +2323,7 @@ Page({
             rawNodes: freshNodes,
           },
           () => {
-            that.rebuildFromNodes()
+            that.rebuildFromNodes({ refreshNavigation: status !== 'arrived' })
             /**
              * ── 点「到了」后跳到地图页并放大到这一站 ──────────────
              * （2026-10-14 用户要求："点击到了以后**跳转到地图页面**，
@@ -2166,7 +2350,97 @@ Page({
 
   // ══════════ 调整 ══════════
 
-  /** 快捷调整：生成候选（**不直接改行程** —— 生效必须走确认） */
+  onChangeText(e) {
+    this.setData({ changeText: e.detail.value, changeDraftId: '', changeQuestions: [],
+      changeAnswers: {}, changeNeedsRewrite: false, changeError: '' })
+  },
+
+  onChangeVoice(e) {
+    if (!this.data.trip || this.data.loading || this.data.busy) return
+    if (e.detail.contextKey !== undefined && e.detail.contextKey !== this.data.trip.tripId + ':' + this.data.trip.version) return
+    const value = appendSpeech(this.data.changeText, e.detail.text, 1000)
+    if (value === null) { wx.showToast({ title: '语音为空或合并后超过1000字，请分段输入', icon: 'none' }); return }
+    // 复用手动输入路径：使旧追问失效，保留尚未确认的方案供下一次合并。
+    this.onChangeText({ detail: { value } })
+  },
+
+  answerChangeQuestion(e) {
+    const key = e.currentTarget.dataset.key
+    const value = e.currentTarget.dataset.value === undefined ? e.detail.value : e.currentTarget.dataset.value
+    const answers = Object.assign({}, this.data.changeAnswers, { [key]: value })
+    const questions = this.data.changeQuestions.map(q => q.key !== key ? q : Object.assign({}, q, { value,
+      answerLabel: ((q.options || []).find(o => o.value === value) || {}).label || value }))
+    this.setData({ changeAnswers: answers, changeQuestions: questions })
+  },
+
+  async submitTextChange() {
+    const trip = this.data.trip
+    if (!trip || this.data.busy || this.data.changeVoiceActive) return
+    const text = this.data.changeText.trim()
+    if (!text) { this.setData({ changeError: '请输入想怎样修改行程' }); return }
+    const draftId = this.data.changeDraftId
+    const token = this.textChangeToken = (this.textChangeToken || 0) + 1
+    const previous = this.data.proposal && this.data.proposal.isText ? this.data.proposal.proposalId : null
+    const payload = draftId ? { tripId: trip.tripId, draftId, answers: this.data.changeAnswers }
+      : { tripId: trip.tripId, text, ...(previous ? { previousProposalId: previous } : {}) }
+    this.setData({ busy: 'text-change', changeError: '', error: '' })
+    try {
+      const res = await api.callApi('trip.adjustText', payload, { expectedVersion: trip.version })
+      if (!this.data.trip || this.data.trip.tripId !== trip.tripId || token !== this.textChangeToken) return
+      if (this.data.trip.version !== trip.version) {
+        this.setData({ changeDraftId: '', changeQuestions: [], changeAnswers: {}, changeError: '行程已更新，请基于当前行程重新提交修改。' })
+        return
+      }
+      if (!res || !res.ok) {
+        const err = (res && res.error) || {}
+        if (err.code === 'VERSION_CONFLICT') {
+          this.setData({ changeDraftId: '', changeQuestions: [], changeAnswers: {}, proposal: null,
+            proposalMode: null, proposalCandidates: [] })
+          await this.refreshTextTrip(trip.tripId)
+        }
+        this.setData({ changeError: err.code === 'VERSION_CONFLICT'
+          ? '行程已更新，已尝试刷新；请核对当前行程后重新提交修改。' : err.message || '理解修改失败，请重试' })
+        return
+      }
+      const d = res.data
+      this.setData({ changeInterpretation: d.interpretation, changeSummary: (d.interpretation && d.interpretation.summary) || [],
+        changeTurns: (d.interpretation && d.interpretation.turns) || [text] })
+      if (d.needsClarification) {
+        this.setData({ changeDraftId: d.draftId, changeQuestions: d.questions || [],
+          changeNeedsRewrite: (d.questions || []).some(q => q.kind === 'rewrite'),
+          note: '还需确认修改要求，原行程保持不变。' })
+        return
+      }
+      this.setData({ changeDraftId: '', changeQuestions: [], changeAnswers: {}, changeNeedsRewrite: false, changeText: '' })
+      this.applyProposal(d)
+      this.setData({ 'proposal.isText': true })
+    } catch (err) {
+      if (token === this.textChangeToken) this.setData({ changeError: err.message || err.errMsg || '理解修改失败，请重试' })
+    } finally {
+      if (token === this.textChangeToken) this.setData({ busy: '' })
+    }
+  },
+
+  async refreshTextTrip(tripId, note) {
+    const res = await api.callApi('trip.get', { tripId })
+    if (!res || !res.ok || !this.data.trip || this.data.trip.tripId !== tripId) return
+    this.applyFetchedTrip(res.data.trip, tripId, note || '行程已刷新，请重新确认修改', this.data.startPoint)
+  },
+
+  applyFetchedTrip(t, tripId, note, fallbackStart) {
+    const nodes = (t.nodes || []).slice().sort((a, b) => a.seq - b.seq)
+    const first = nodes[0] && nodes[0].status !== 'skipped' ? nodes[0] : null
+    this.applyTrip({ tripId, version: t.version, nodes, startPoint: t.startPoint || fallbackStart || null,
+      startLeg: first && first.travelFromStart ? { minutes: first.travelFromPrevMin, meters: first.travelFromPrevMeters,
+        mode: first.travelMode, source: first.travelSource, provider: first.travelProvider,
+        reason: first.travelReason, transit: first.travelTransit, toPlaceName: first.placeName } : null, summary: {
+      endAt: t.plannedEndAt, totalStayMin: nodes.filter(n => n.status !== 'skipped').reduce((s, n) => s + (n.plannedStayMin || 0), 0),
+      totalWalkMin: nodes.filter(n => n.status !== 'skipped' && n.travelMode === 'walking').reduce((s, n) => s + (n.travelFromPrevMin || 0), 0),
+      totalWalkMeters: nodes.filter(n => n.status !== 'skipped' && n.travelMode === 'walking').reduce((s, n) => s + (n.travelFromPrevMeters || 0), 0),
+    } }, note)
+  },
+
+  /** 快捷调整：个人行程无额外取舍时直接生效，其余展示候选。 */
   async nodeAction(e) {
     const that = this
     const { nodeid: nodeId, key } = e.currentTarget.dataset
@@ -2190,7 +2464,7 @@ Page({
 
     this.setData({ busy: 'adjust', error: '' })
 
-    api
+    return api
       // expectedVersion 走第三个参数（信封层），见 trip.progress 处的说明
       .callApi(
         'trip.adjust',
@@ -2250,6 +2524,8 @@ Page({
       proposal: { proposalId: d.proposalId, baseVersion: d.baseVersion },
       proposalMode: mode,
       proposalNote: note,
+      note: feasible.length ? '调整尚未生效，请查看下方方案并选择；也可以保持原计划。'
+        : '调整尚未生效：没有可行方案，请调整条件后重试。',
       proposalCandidates: candidates.map((c) => ({
         candidateId: c.candidateId,
         label: c.strategyLabel,
@@ -2264,7 +2540,7 @@ Page({
         qualityOk: c.quality ? c.quality.meetsBasicQuality : true,
       })),
       error: '',
-    })
+    }, () => wx.pageScrollTo({ selector: '#adjustment-proposals', duration: 250, fail: () => {} }))
   },
 
   discardProposal() {
@@ -2272,6 +2548,8 @@ Page({
       proposal: null,
       proposalMode: null,
       proposalCandidates: [],
+      changeDraftId: '', changeQuestions: [], changeAnswers: {}, changeNeedsRewrite: false,
+      changeInterpretation: null, changeSummary: [], changeTurns: [],
       note: '已放弃本次调整',
     })
   },
@@ -2284,7 +2562,7 @@ Page({
 
     this.setData({ busy: 'confirm', error: '' })
 
-    api
+    return api
       // expectedVersion 走第三个参数（信封层）—— 传错位置会让版本校验静默失效
       .callApi(
         'trip.confirmChange',
@@ -2300,6 +2578,10 @@ Page({
               ? '行程已被更新，该确认已失效，请重新调整'
               : (e2 && e2.message) || '确认失败'
           that.setData({ busy: '', error: hint })
+          if (e2 && e2.code === 'VERSION_CONFLICT') {
+            that.setData({ changeDraftId: '', changeQuestions: [], changeAnswers: {} })
+            return that.refreshTextTrip(that.data.trip.tripId).then(() => that.setData({ error: hint }))
+          }
           return
         }
         that.applyTrip(res.data, '已确认调整并生效')
@@ -2310,8 +2592,17 @@ Page({
   },
 
   resetTrip() {
+    const previousId = this.data.trip && this.data.trip.tripId
+    const saved = wx.getStorageSync('zhiyou-active-trip')
+    if (saved && saved.tripId === previousId) wx.removeStorageSync('zhiyou-active-trip')
+    this.tripLoadToken = (this.tripLoadToken || 0) + 1
+    this.navigationRequested = false
+    this.cancelNavigationRequest()
+    this.textChangeToken = (this.textChangeToken || 0) + 1
     this.setData({
+      busy: '',
       trip: null,
+      currentLeg: null, navLeg: null, navLoading: false, navError: '', navHint: '', routeMap: null,
       rawNodes: [],
       timeline: [],
       summary: null,
@@ -2322,6 +2613,9 @@ Page({
       proposalCandidates: [],
       planRejected: false,
       conflicts: [],
+      changeText: '', changeDraftId: '', changeQuestions: [], changeAnswers: {},
+      changeInterpretation: null, changeSummary: [], changeTurns: [], changeError: '', changeNeedsRewrite: false,
+      changePanelOpen: false,
       note: '已返回地点选择',
     })
   },

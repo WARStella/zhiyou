@@ -85,7 +85,7 @@ test('照片一律标记为未核验（联网抓取 ≠ 踏勘实拍）', async 
   /**
    * ⚠️ 这条是整组测试里最重要的一条。
    * 只要它变成 true，界面就会把网图当"已核验"展示，
-   * 而这正是 docs/01 §2.2.2 与计划书 §6.6 要防的事。
+   * 而这正是 docs/项目计划书.md#data-model §2.2.2 与计划书 §6.6 要防的事。
    */
   assert.equal(ph.verified, false, '联网抓来的图永远不是踏勘实拍');
   assert.equal(ph.provider, 'amap');

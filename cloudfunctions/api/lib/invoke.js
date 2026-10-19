@@ -63,7 +63,7 @@ function describeError(e, stage) {
  * 提成常量之后，`test/injection-points.test.js` 会断言它，
  * 漏改会变成一条明确的失败，而不是一个需要靠猜的诊断。
  */
-const SERVICE_INJECTIONS = ['createMapProvider', 'createPhotoService', 'createTransitProvider'];
+const SERVICE_INJECTIONS = ['createMapProvider', 'createPhotoService', 'createTransitProvider', 'createSpeechProvider', 'createOcrProvider', 'createGuideProvider', 'createInviteProvider', 'createSubscribeProvider'];
 
 /**
  * @param {object} event {action, requestId, expectedVersion, payload}
@@ -111,6 +111,17 @@ async function invoke(event, ctx) {
      * 公交走高德的 transit/integrated。
      */
     createTransitProvider: ctx.createTransitProvider || null,
+    createSpeechProvider: ctx.createSpeechProvider || null,
+    createOcrProvider: ctx.createOcrProvider || null,
+    createGuideProvider: ctx.createGuideProvider || null,
+    createInviteProvider: ctx.createInviteProvider || null,
+    /**
+     * 订阅消息发送器（`lib/subscribe`，2026-10-17）。
+     *
+     * 线上是 `cloud.openapi.subscribeMessage.send` 云调用；
+     * 测试注入替身，**绝不拿用户真实的订阅次数做回归**。
+     */
+    createSubscribeProvider: ctx.createSubscribeProvider || null,
   };
 
   // 记录执行到了哪一步：定位"错误发生在幂等包装里还是业务里"往往是最关键的一步
@@ -183,9 +194,18 @@ async function invoke(event, ctx) {
      * 改成失败，而失败原因与守卫毫无关系。
      */
     stage = 'idempotency';
+    // 自然语言提案重放也要检查当前身份与版本，避免退出队伍后重放旧响应。
+    if (action === 'trip.adjustText') await require('../actions/trip-text').authorizeChange(callCtx);
     const r = await withIdempotency(
       ctx.repo,
-      { requestId, userId: ctx.openid, action, now: ctx.now },
+      // 未提交转写与短期签名均不落幂等响应缓存；语音接口不自动重试。
+      // 聊天每次实时鉴权，不从通用缓存重放退出前的内容；发送由消息 ID 在事务内去重。
+      /**
+       * 订阅消息的接口同样**不走通用响应缓存**：意向可以随时被
+       * `subscribe.revoke` 或"微信返回不可达"撤回，重放一份旧的"已订阅"
+       * 会让界面骗人。
+       */
+      { requestId: action.startsWith('crew.invite') || action.startsWith('subscribe.') || ['speech.recognize', 'speech.session', 'chat.list', 'chat.send', 'chat.markRead', 'ocr.recognize', 'ocr.searchMeeting', 'guide.ask', 'guide.get', 'guide.close', 'guide.navigation', 'guide.countPeople'].includes(action) ? null : requestId, userId: ctx.openid, action, now: ctx.now },
       runHandler
     );
     response = r.response;

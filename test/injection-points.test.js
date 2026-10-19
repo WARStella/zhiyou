@@ -65,6 +65,7 @@ test('漏传注入点会立刻报错，而不是静默回落到真实实现', as
     createMapProvider: null,
     createPhotoService: null,
     createTransitProvider: null,
+    createSpeechProvider: null, createOcrProvider: null, createGuideProvider: null, createInviteProvider: null, createSubscribeProvider: null,
   };
 
   // 对照组：字段齐全时必须正常

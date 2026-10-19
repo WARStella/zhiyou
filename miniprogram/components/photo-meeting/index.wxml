@@ -1,0 +1,33 @@
+<view class="photo-meeting">
+  <view class="heading">拍照找集合点</view>
+  <view class="description">拍站牌、门牌或入口牌，识别名称后查找附近地点。</view>
+  <view class="actions">
+    <button class="pm-btn" size="mini" bindtap="choose" disabled="{{busy || blocked}}">{{imagePath ? '重新拍照 / 选图' : '拍照 / 从相册选择'}}</button>
+    <button class="pm-btn" size="mini" bindtap="manual">地图手动选点</button>
+  </view>
+  <image wx:if="{{imagePath}}" class="photo" src="{{imagePath}}" mode="aspectFit" />
+  <view wx:if="{{imagePath}}" class="description">点击识别后，所选图片经云函数发送至腾讯云提取文字。图片不保存到本项目云存储或业务数据库。</view>
+  <view wx:if="{{imagePath}}" class="actions">
+    <button class="pm-btn pm-btn-primary" size="mini" type="primary" bindtap="recognize" disabled="{{busy || blocked}}">识别这张照片</button>
+    <button class="pm-btn" size="mini" bindtap="clear">清除照片与结果</button>
+  </view>
+  <view wx:if="{{lines.length}}" class="lines">
+    <view wx:for="{{lines}}" wx:key="id" class="line {{item.lowConfidence ? 'uncertain' : ''}}"
+      data-text="{{item.text}}" bindtap="useLine">{{item.text}}{{item.lowConfidence ? '（请核对）' : ''}}</view>
+  </view>
+  <view class="search-row">
+    <input class="keyword" value="{{keyword}}" bindinput="onKeyword" placeholder="输入或修改地点名称" maxlength="60" disabled="{{busy || blocked}}" />
+    <button class="pm-btn" size="mini" bindtap="search" disabled="{{busy || blocked}}">搜索附近</button>
+  </view>
+  <view wx:if="{{busy}}" class="description">{{stage === 'recognizing' ? '正在识别图片…' : stage === 'searching' ? '正在搜索附近地点…' : '请完成当前操作…'}}</view>
+  <view wx:if="{{note}}" class="description">{{note}}</view>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+  <view wx:for="{{candidates}}" wx:key="id" class="candidate">
+    <view class="candidate-name">{{item.name}}</view>
+    <view class="description">{{item.address || '暂无详细地址'}} · 直线 {{item.distanceMeters}} 米</view>
+    <view class="actions">
+      <button class="pm-btn" size="mini" data-id="{{item.id}}" bindtap="preview" disabled="{{busy || blocked}}">查看位置</button>
+      <button class="pm-btn pm-btn-primary" size="mini" type="primary" data-id="{{item.id}}" bindtap="select" disabled="{{busy || blocked}}">选为集合点</button>
+    </view>
+  </view>
+</view>

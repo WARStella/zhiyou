@@ -262,9 +262,17 @@ function autoPick(candidates, req) {
    * **用户说的"冰雪大世界"是一个地方，不是十个。**
    * 所以每个名字**只取一个最接近的**（见 bestMatch）。
    */
+  const namedMatches = new Map();
   for (const kw of named) {
+    if (namedMatches.has(kw)) {
+      take(namedMatches.get(kw), `再次前往「${kw}」`);
+      continue;
+    }
     const best = bestMatch(candidates, kw, seen);
-    if (best) take(best, mustTexts.indexOf(kw) >= 0 ? '必去' : `你提到的「${kw}」`);
+    if (best) {
+      namedMatches.set(kw, best);
+      take(best, mustTexts.indexOf(kw) >= 0 ? '必去' : `你提到的「${kw}」`);
+    }
   }
 
 
@@ -498,7 +506,7 @@ async function search(ctx) {
    * 排序与预选的测试就是靠它构造场景的。
    * 这里**不越权拦截** —— 真的搜不到东西由上游如实报错。
    */
-  const keywordList = provided.length ? provided : [''];
+  const keywordList = provided.length ? [...new Set(provided)] : [''];
 
   const perKeyword = [];
   let mapApiCalls = 0;

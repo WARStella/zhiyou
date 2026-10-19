@@ -1,0 +1,13 @@
+.page { padding: 36rpx 28rpx 64rpx; min-height: 100vh; box-sizing: border-box; background: transparent; color: var(--ink-900); }
+.hero { font-size: var(--fs-display); font-weight: 700; margin-top: 18rpx; }
+.subtitle, .hint { color: var(--ink-500); font-size: var(--fs-body); line-height: 1.8; margin-top: 14rpx; }
+.card { background: var(--surface); padding: 30rpx; border-radius: var(--r-lg); margin-top: 30rpx; }
+.title { font-size: var(--fs-h1); font-weight: 700; overflow-wrap: break-word; margin-top: 12rpx; }
+.eyebrow { color: var(--brand-600); font-size: var(--fs-sm); }
+button { margin-top: 22rpx; font-size: var(--fs-body); border-radius: var(--r-sm); }
+.primary { background: var(--brand-600); color: var(--surface); }
+.plain { background: transparent; color: var(--brand-700); }
+.error { margin-top: 24rpx; background: var(--danger-bg); color: var(--danger); padding: 22rpx; border-radius: var(--r-sm); font-size: var(--fs-body); line-height: 1.7; }
+.notice { margin-top: 22rpx; padding: 20rpx; background: var(--success-bg); border-radius: var(--r-sm); font-size: var(--fs-body); line-height: 1.8; }
+.actions { display: flex; gap: 18rpx; flex-wrap: wrap; }
+.qr { width: 100%; height: 430rpx; display: block; margin-top: 24rpx; }

@@ -31,7 +31,7 @@ test('未知接口与未登录都返回结构化错误，不抛异常', async ()
   assert.ok(e1.message.includes('not.an.action'));
 
   const { invoke } = require('../cloudfunctions/api/lib/invoke');
-  const res = await invoke({ action: 'user.login', payload: {} }, { repo: w.repo, openid: null, createMapProvider: null, createPhotoService: null, createTransitProvider: null });
+  const res = await invoke({ action: 'user.login', payload: {} }, { repo: w.repo, openid: null, createMapProvider: null, createPhotoService: null, createSpeechProvider: null, createOcrProvider: null, createGuideProvider: null, createInviteProvider: null, createSubscribeProvider: null, createTransitProvider: null });
   expectFail(res, 'AUTH_REQUIRED');
 });
 
@@ -310,7 +310,7 @@ test('集合全流程：发起 → 确认 → 到齐(②) → 出发(③)，三�
   const rec = expectOk(await w.A('meet.recommend', { crewId }));
   assert.ok(rec.candidates.length >= 2);
   assert.ok(rec.candidates[0].estimates.length === 3);
-  assert.match(rec.rule, /minimax/);
+  assert.match(rec.rule, /平均中心/);
 
   const best = rec.candidates[0];
   const plannedMeetAt = new Date(NOW.getTime() + 30 * 60000);
@@ -447,7 +447,8 @@ test('ops.initDb：显式创建全部集合，**不灌任何地点**，并拒绝
   const before = await w.repo.count(C.PLACES, {});
 
   const res = expectOk(await w.A('ops.initDb', { confirm: true }));
-  assert.equal(res.collectionsEnsured, 15, '必须把 15 个集合都显式建出来');
+  assert.equal(res.collectionsEnsured, Object.values(C).length, '必须显式创建登记表中的全部集合');
+  assert.ok(res.collectionsCreated.includes(C.CREW_MESSAGES), '聊天集合也必须初始化');
   assert.ok(Array.isArray(res.collectionsCreated));
   assert.ok(res.manualIndexes.length >= 10, '必须返回需要手工创建的索引清单');
 
@@ -556,7 +557,7 @@ test('非预期错误：开发环境暴露定位信息，生产环境一律隐�
   // ① 失败在幂等包装里（operations 集合）
   const devEarly = await invoke(
     { action: 'user.login', requestId: 'r1', payload: {} },
-    { repo: makeFailingRepo('operations'), openid: 'openid_A', env: 'dev', createMapProvider: null, createPhotoService: null, createTransitProvider: null }
+    { repo: makeFailingRepo('operations'), openid: 'openid_A', env: 'dev', createMapProvider: null, createPhotoService: null, createSpeechProvider: null, createOcrProvider: null, createGuideProvider: null, createInviteProvider: null, createSubscribeProvider: null, createTransitProvider: null }
   );
   assert.equal(devEarly.ok, false);
   assert.equal(devEarly.error.code, 'INTERNAL');
@@ -568,14 +569,14 @@ test('非预期错误：开发环境暴露定位信息，生产环境一律隐�
   // ② 失败在业务处理里（users 集合）
   const devLate = await invoke(
     { action: 'user.login', requestId: 'r2', payload: {} },
-    { repo: makeFailingRepo('users'), openid: 'openid_A', env: 'dev', createMapProvider: null, createPhotoService: null, createTransitProvider: null }
+    { repo: makeFailingRepo('users'), openid: 'openid_A', env: 'dev', createMapProvider: null, createPhotoService: null, createSpeechProvider: null, createOcrProvider: null, createGuideProvider: null, createInviteProvider: null, createSubscribeProvider: null, createTransitProvider: null }
   );
   assert.equal(devLate.error.details.stage, 'handler');
 
   // ③ 生产环境：同一错误，不泄露任何内部结构
   const prod = await invoke(
     { action: 'user.login', requestId: 'r3', payload: {} },
-    { repo: makeFailingRepo('users'), openid: 'openid_A', env: 'prod', createMapProvider: null, createPhotoService: null, createTransitProvider: null }
+    { repo: makeFailingRepo('users'), openid: 'openid_A', env: 'prod', createMapProvider: null, createPhotoService: null, createSpeechProvider: null, createOcrProvider: null, createGuideProvider: null, createInviteProvider: null, createSubscribeProvider: null, createTransitProvider: null }
   );
   assert.equal(prod.ok, false);
   assert.equal(prod.error.code, 'INTERNAL');
@@ -1220,7 +1221,7 @@ test('ops.selfTest：前置步骤失败时后续标记为跳过，而不是级�
       adminOpenids: ['openid_A'],
       createMapProvider: null,
       createPhotoService: null,
-      createTransitProvider: null,
+      createSpeechProvider: null, createOcrProvider: null, createGuideProvider: null, createInviteProvider: null, createSubscribeProvider: null, createTransitProvider: null,
     }
   );
 
@@ -1342,7 +1343,7 @@ test('ops.verifyIndexes：索引缺失时必须报出来，而不是静默通过
       adminOpenids: ['openid_A'],
       createMapProvider: null,
       createPhotoService: null,
-      createTransitProvider: null,
+      createSpeechProvider: null, createOcrProvider: null, createGuideProvider: null, createInviteProvider: null, createSubscribeProvider: null, createTransitProvider: null,
     }
   );
 

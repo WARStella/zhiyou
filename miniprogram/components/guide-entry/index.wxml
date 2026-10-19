@@ -1,0 +1,7 @@
+<view wx:if="{{visible}}" class="guide-fab {{dragging ? 'guide-fab-dragging' : ''}}"
+  style="left: {{left}}px; top: {{top}}px;" aria-role="button" aria-label="游览助手，轻点打开，可拖动位置"
+  catchtouchstart="touchStart" catchtouchmove="touchMove" catchtouchend="touchEnd"
+  catchtouchcancel="touchCancel" catchtap="openGuide">
+  <view class="guide-fab-icon">AI</view>
+  <view class="guide-fab-label">游览助手</view>
+</view>

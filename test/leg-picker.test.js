@@ -374,29 +374,20 @@ test('生成路线后附带可选的出行方式数量 —— 卡片据此决定
   assert.equal(withOptions.data.legOptionsCount, 2);
 });
 
-test('选完点「应用」才重新规划，且逐段选择真的发出去了', async () => {
-  const page = pageWithLegOptions(LEG_OPTIONS);
-  /**
-   * ⚠️ `createTrip` 读的是 `selected[].itemId`（不是 `placeId`）——
-   * 它拿这个做提前返回的判据。我第一版夹具写成 `placeId`，
-   * 于是 `createTrip` 直接 return，测试看到的是"没发请求"。
-   */
-  page.setData({ selected: [{ itemId: 'p_n0', name: '哈工大', location: { latitude: 45.77, longitude: 126.61 } }] });
-  page.onLegModeTap({ currentTarget: { dataset: { placeid: 'p_n0', mode: 'walking' } } });
-  const before = page.__calls.length;
-
-  page.applyLegModes();
-  /**
-   * ⚠️ **必须等**：`createTrip` 先 `tryLocate()`（异步），
-   * 请求在它的 `.then()` 里才发出去。不等的话断言的是"还没发"，
-   * 而那不是被测代码的问题。
-   */
-  await new Promise((r) => setTimeout(r, 30));
-
-  assert.ok(page.__calls.length > before, '要发一次 trip.plan');
-  assert.equal(page.data.legPickerOpen, false, '应用后收起面板');
-
-  const call = page.__calls[page.__calls.length - 1];
-  assert.equal(call.action, 'trip.plan');
-  assert.deepEqual(call.payload.legModes, { p_n0: 'walking' }, '逐段选择必须真的发出去');
+test('选完点应用时调整原行程并等待确认，保留已到达记录', async () => {
+  const page = pageWithLegOptions(LEG_OPTIONS, { api: { 'trip.adjust': { ok: true, data: { proposalId: 'proposal', baseVersion: 1, candidates: [] } } } });
+  try {
+    page.setData({ rawNodes: page.data.rawNodes.map((n, i) => i === 0 ? { ...n, status: 'done' } : n) });
+    page.onLegModeTap({ currentTarget: { dataset: { placeid: 'p_n1', mode: 'driving' } } });
+    await page.applyLegModes();
+    const call = page.__calls.at(-1);
+    assert.equal(call.action, 'trip.adjust');
+    assert.equal(call.payload.tripId, 't1');
+    assert.equal(call.payload.autoApply, 'never');
+    assert.equal(call.options.expectedVersion, 1);
+    assert.deepEqual(call.payload.trigger.payload.operations, [{ type: 'change_travel_mode', payload: { nodeId: 'n1', mode: 'driving' } }]);
+    assert.equal(page.data.rawNodes[0].status, 'done');
+    assert.equal(page.data.trip.version, 1);
+    assert.equal(page.data.legPickerOpen, false);
+  } finally { page.restore(); }
 });

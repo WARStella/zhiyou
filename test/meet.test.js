@@ -159,7 +159,7 @@ test('出发后评估后续影响：延迟导致不可行时一次性提出调�
   assert.ok(impact.conflicts.length > 0, '要带上冲突原因');
 });
 
-test('集合点推荐：minimax 规则，且返回候选排除原因', () => {
+test('集合点推荐：按离成员平均中心的距离排序，且返回候选排除原因', () => {
   const members = [
     { userId: 'openid_A', point: { latitude: 45.7755, longitude: 126.6174 }, reportedAt: NOW, source: 'gps' },
     { userId: 'openid_B', point: { latitude: 45.7812, longitude: 126.6186 }, reportedAt: NOW, source: 'manual' },
@@ -174,8 +174,7 @@ test('集合点推荐：minimax 规则，且返回候选排除原因', () => {
   });
 
   assert.ok(r.candidates.length >= 2);
-  // 防洪纪念塔位于三人之间，最远步行时间应最小
-  assert.equal(r.candidates[0].placeId, 'p_fanghong', 'minimax 应选中三人中间的集合点');
+  assert.ok(r.center, '要返回成员平均中心');
 
   // 夹具中 confidence 为 low 的地点被排除，与实地核验状态无关。
   const why = r.excluded.find((x) => x.placeId === 'p_unverified');
@@ -186,9 +185,8 @@ test('集合点推荐：minimax 规则，且返回候选排除原因', () => {
 
   // 每个候选都要有各成员步行时间
   assert.equal(r.candidates[0].estimates.length, 3);
-  // 最远步行时间单调不减
-  const maxes = r.candidates.map((c) => c.maxWalkMin);
-  for (let i = 1; i < maxes.length; i++) assert.ok(maxes[i] >= maxes[i - 1], '候选应按 minimax 排序');
+  const distances = r.candidates.map(c => c.centerDistanceMeters);
+  for (let i = 1; i < distances.length; i++) assert.ok(distances[i] >= distances[i - 1], '候选应按离中心距离排序');
 
   // 排除原因必须给出，而不是静默丢弃
   const bad = r.excluded.find((e) => e.placeId === 'p_unverified');
@@ -217,7 +215,7 @@ test('集合点推荐：位置过期时不给推荐，而是明确说明需要�
   assert.match(r.excluded[0].message, /过期/);
 });
 
-test('集合点推荐：距离过远时排除，并说明有多远', () => {
+test('集合点推荐：地点超出中心周围 1 公里时排除，并说明距离', () => {
   const members = [
     { userId: 'openid_A', point: { latitude: 45.7755, longitude: 126.6174 }, reportedAt: NOW, source: 'gps' },
     { userId: 'openid_B', point: { latitude: 45.7812, longitude: 126.6186 }, reportedAt: NOW, source: 'gps' },
@@ -230,7 +228,7 @@ test('集合点推荐：距离过远时排除，并说明有多远', () => {
     ctx,
   });
   assert.equal(r.candidates.length, 0);
-  const e = r.excluded.find((x) => x.reason === 'TOO_FAR');
-  assert.ok(e, '应因距离过远被排除');
-  assert.ok(e.meters > 3000, '必须给出实际估计距离');
+  const e = r.excluded.find((x) => x.reason === 'OUTSIDE_CENTER_RADIUS');
+  assert.ok(e, '应因超出中心搜索半径被排除');
+  assert.ok(e.centerDistanceMeters > 1000, '必须给出地点距中心超过 1 公里的距离');
 });

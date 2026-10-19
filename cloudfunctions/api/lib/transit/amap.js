@@ -173,6 +173,7 @@ function createAmapTransitProvider(opts) {
 
       const base = {
         provider: 'amap-transit',
+        requestCount: 0,
         operation: 'direction/transit/integrated',
         apiVersion: 'v3',
         from: from || null,
@@ -228,6 +229,7 @@ function createAmapTransitProvider(opts) {
       const started = Date.now();
       let res;
       try {
+        base.requestCount++;
         res = await http(requestUrl, { timeoutMs });
       } catch (e) {
         return Object.assign(base, {
@@ -282,7 +284,7 @@ function createAmapTransitProvider(opts) {
           ? infocode === OK_INFOCODE
           : !info || /^ok$/i.test(String(info)));
 
-      const parsed = ok ? parseTransit(body) : null;
+      const parsed = ok ? parseTransit(body, { includeGeometry: input.includeGeometry, fastest: strategy === STRATEGY.FASTEST }) : null;
 
       return Object.assign(base, {
         ok,
@@ -323,10 +325,15 @@ function createAmapTransitProvider(opts) {
  *   · `cost`            票价（可展示，也是"最经济"的依据）
  *   · `segments`        换乘概览（界面上要说清"坐几号线、在哪换"）
  */
-function parseTransit(body) {
+function parseTransit(body, opts) {
   const route = body.route || {};
-  const transits = (Array.isArray(route.transits) && route.transits) || [];
-  const first = transits[0] || null;
+  const transits = ((Array.isArray(route.transits) && route.transits) || []).slice();
+  if (opts && opts.fastest) transits.sort((a, b) =>
+    (toNumber(a.duration) == null ? Infinity : Number(a.duration)) - (toNumber(b.duration) == null ? Infinity : Number(b.duration)));
+  const usable = t => (opts && opts.includeGeometry ? [toNumber(t.duration), toNumber(t.distance)] : [toNumber(t.duration)])
+    .every(n => n !== null && n >= 0);
+  const first = (opts && opts.fastest ? transits.find(t => usable(t) && (t.segments || []).some(s =>
+    s.bus && Array.isArray(s.bus.buslines) && s.bus.buslines.length)) : transits[0]) || null;
 
   /**
    * ⚠️ 下面这些路径是**实测确认过的**（2026-10-14，见
@@ -372,7 +379,8 @@ function parseTransit(body) {
       }
 
       const buslines = (seg.bus && Array.isArray(seg.bus.buslines) && seg.bus.buslines) || [];
-      for (const line of buslines) {
+      // 同一 segment 的 buslines 是备选线路，不是连续换乘。
+      for (const line of buslines.slice(0, 1)) {
         const name = line.name || null;
         const type = String(line.type || '');
         steps.push({
@@ -452,18 +460,19 @@ function parseTransit(body) {
   }
 
   const bestSteps = stepsOf(first);
-  const subwayRoutes = transits.filter(t => summaryOf(t).hasSubway && toNumber(t.duration) !== null)
+  const subwayRoutes = transits.filter(t => summaryOf(t).hasSubway && usable(t))
     .sort((a, b) => Number(a.duration) - Number(b.duration));
   const subway = subwayRoutes[0];
 
   return {
     /** 上游可能给 5 个方案；全部给出来，"最少换乘/最少步行"才有比较依据 */
     routes: transits.slice(0, 5).map(summaryOf),
-    bestSubway: subway ? Object.assign(summaryOf(subway), { steps: stepsOf(subway) }) : null,
+    bestSubway: subway ? Object.assign(summaryOf(subway), { steps: stepsOf(subway) }, opts && opts.includeGeometry ? { route: geometryOf(subway) } : {}) : null,
     best: Object.assign(summaryOf(first), {
       steps: bestSteps,
       /** 有几步是坐车 —— 0 表示"其实全靠走"，那就不该推荐公交 */
       transitStepCount: bestSteps.filter((s) => s.kind === 'transit').length,
+      ...(opts && opts.includeGeometry ? { route: geometryOf(first) } : {}),
     }),
     /** 起终点整体信息（route 层，不是某个方案） */
     routeSummary: {
@@ -476,6 +485,33 @@ function parseTransit(body) {
   };
 }
 
+// 每条上游折线单独保留；缺失的接驳段不能用直线补齐。
+function geometryOf(transit) {
+  const polylines = [];
+  let partial = false;
+  let unsupported = false;
+  const add = (raw, mode, distance) => {
+    const pieces = typeof raw === 'string' ? raw.split(';') : [];
+    const points = pieces.map(parseAmapLocation);
+    if (points.length >= 2 && points.every(Boolean)) polylines.push({ mode, points });
+    else if (distance == null || Number(distance) > 0) partial = true;
+  };
+  for (const seg of transit.segments || []) {
+    const walking = seg.walking || {};
+    const walkingSteps = Array.isArray(walking.steps) ? walking.steps : [];
+    if (Number(walking.distance) > 0 && !walkingSteps.length) partial = true;
+    for (const step of walkingSteps) add(step.polyline, 'walking', step.distance == null ? walking.distance : step.distance);
+    const line = seg.bus && Array.isArray(seg.bus.buslines) && seg.bus.buslines[0];
+    if (line) add(line.polyline, /地铁/.test(line.type || '') ? 'subway' : 'transit', line.distance);
+    if ((seg.railway && (seg.railway.id || seg.railway.name)) || (seg.taxi && Number(seg.taxi.distance) > 0)) {
+      partial = true;
+      unsupported = true;
+    }
+  }
+  const points = polylines.flatMap(p => p.points);
+  return { polylines, points, pointCount: points.length, decoded: polylines.length > 0, partial, unsupported };
+}
+
 /** 高德的坐标是 `"经度,纬度"` 字符串 */
 function parseAmapLocation(raw) {
   if (typeof raw !== 'string') return null;
@@ -483,7 +519,7 @@ function parseAmapLocation(raw) {
   if (parts.length !== 2) return null;
   const lng = Number(parts[0]);
   const lat = Number(parts[1]);
-  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
+  if (!parts.every(p => p.trim()) || !Number.isFinite(lng) || !Number.isFinite(lat) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
   return { latitude: lat, longitude: lng };
 }
 

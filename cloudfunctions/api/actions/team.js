@@ -4,6 +4,7 @@ const { assert, require_fields, CODES } = require('../lib/errors');
 const { requireCrewMember, requireCrewOwner, requireCrew } = require('../lib/authz');
 const C = require('../lib/repo/collections');
 const tripActions = require('./trip');
+const { mutateCrew, requireMember } = require('../lib/crew-mutation');
 
 async function current(ctx) {
   const { repo, openid, payload: p } = ctx;
@@ -57,9 +58,11 @@ async function progress(ctx) {
 }
 async function close(ctx) {
   require_fields(ctx.payload, ['crewId']);
-  await requireCrewOwner(ctx.repo, ctx.payload.crewId, ctx.openid);
-  await ctx.repo.update(C.CREWS, ctx.payload.crewId, { status: 'closed', closedAt: new Date(ctx.now || Date.now()) });
-  return resp.ok({ closed: true });
+  const result = await mutateCrew(ctx, ctx.payload.crewId, [ctx.openid], async ({ members }) => {
+    requireMember(members, ctx.openid, true);
+    return { crewPatch: { status: 'closed', closedAt: new Date(ctx.now || Date.now()) }, result: { closed: true } };
+  });
+  return resp.ok(result);
 }
 async function cancelMeeting(ctx) {
   require_fields(ctx.payload, ['meetTaskId']);

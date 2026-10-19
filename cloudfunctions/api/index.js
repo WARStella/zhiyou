@@ -3,7 +3,7 @@
 /**
  * 云函数入口 —— 智游·灵动 统一 api。
  *
- * 这是唯一的业务入口云函数（理由见 docs/02_接口清单_v0.md §0）。
+ * 这是唯一的业务入口云函数（理由见 docs/项目计划书.md#api-contract §0）。
  * 它只做三件事：取微信身份、选仓储实现、交给 lib/invoke.js。
  * **业务逻辑一律不写在这里**，否则本地测试就跑不到线上真正执行的代码。
  */
@@ -47,5 +47,11 @@ exports.main = async (event, context) => {
     createMapProvider: null,
     createPhotoService: null,
     createTransitProvider: null,
+    createSpeechProvider: null,
+    createOcrProvider: null,
+    createGuideProvider: null,
+    createInviteProvider: null,
+    /** 订阅消息：线上走 cloud.openapi 云调用，`null` = 用真实实现 */
+    createSubscribeProvider: null,
   });
 };

@@ -12,7 +12,7 @@
  *    `wx.getLocation` / `wx.chooseLocation` 权限尚未获批，调用会直接失败。
  *    因此"标记我的位置"用 `map` 组件的 `bindtap`（点击地图取坐标）——
  *    这不属于受限接口，今天就能用。
- *    位置来源因此是 `manual`，与 docs/01 §0 决定 3 的设计一致：
+ *    位置来源因此是 `manual`，与 docs/项目计划书.md#data-model §0 决定 3 的设计一致：
  *    **集合推荐算法不感知来源**，所以拿到 GPS 后只需换一个入口，算法与数据结构都不用改。
  *
  * 2. **卡片放在地图下方，不叠在地图上。**
@@ -22,6 +22,15 @@
 
 const api = require('../../utils/api')
 const { isValidPoint } = require('../../utils/coordinates')
+const { layoutMarkerLabels } = require('../../utils/map-marker-labels')
+const { createMemberLabels } = require('../../utils/member-labels')
+const { POLICY_VERSION } = require('../../utils/location-consent')
+const { createMapChatPreview } = require('../../utils/map-chat-preview')
+const { createMapChatCallouts } = require('../../utils/map-chat-callouts')
+const currentClock = () => {
+  const now = new Date()
+  return String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0')
+}
 
 /** 与后端 lib/geo.js 保持一致，避免同一段路算出两个时间 */
 const DETOUR_FACTOR = 1.3
@@ -72,6 +81,7 @@ Page({
     center: { latitude: 45.7756, longitude: 126.6175 },
     scale: 15,
     markers: [],
+    memberChatCallouts: [],
     polyline: [],
     places: [],
     myPoint: null,
@@ -124,6 +134,29 @@ Page({
      * 的事 —— 放在没有地图的页面上本来就别扭。
      */
     crewId: '',
+    chatPreview: [],
+    chatPreviewReady: false,
+    chatPreviewAvailable: true,
+    chatPreviewNote: '',
+    /**
+     * 订阅提醒（2026-10-17）：
+     *   · `notifyRows` 三类提醒的当前状态，`templateId` 来自服务端（不在这里写死）；
+     *   · `notifyNote` 只用来说明"点了之后发生了什么"，不当作发送成功的证据；
+     *   · `notifyBusy` 防止用户连点导致重复上报。
+     */
+    notifyPanelOpen: false,
+    notifyRows: [],
+    /** 刚才那次点击的结果（点击后才有值） */
+    notifyNote: '',
+    noticeLandingNote: '',
+    notifyLoading: false,
+    notifyLoadError: '',
+    notifySettingsNeeded: false,
+    /** 服务端关于"已同意 ≠ 一定送达"的说明（面板常显） */
+    notifyPolicyNote: '',
+    /** 从通知落地但目标队伍已不可访问 —— 界面据此给一个明确的返回入口 */
+    notifyLandingFailed: false,
+    notifyBusy: false,
     crew: null,
     /** 是不是发起人 —— 决定能不能发起/取消集合 */
     isOwner: false,
@@ -134,7 +167,7 @@ Page({
     sharing: false,
     isInitiator: false,
     /** 集合时间输入（HH:MM） */
-    meetTime: '17:00',
+    meetTime: currentClock(),
     /** 集合点名称 */
     pointName: '',
     /** 出发检查结果（`meet.prepareDepart`） */
@@ -144,6 +177,7 @@ Page({
     teamError: '',
     locationError: '',
     coordinateError: '',
+    autoLocationError: '',
     teamTripId: null,
     teamBusy: false,
     /**
@@ -186,7 +220,10 @@ Page({
     note: '',
   },
 
-  onLoad() {
+  onLoad(query) {
+    this.noticeLoadQuery = query && query.crewId ? query : null
+    // 用于确认开发者工具确实运行了本次修复；定位图钉统一由 refreshMarkers 绘制。
+    console.info('[team-map:coordinate-guard-v2] 已关闭组件内置定位图钉')
     this.loadPlaces()
   },
 
@@ -204,7 +241,19 @@ Page({
    * 行程页每次生成/更新路线都会写 `zhiyou-active-trip`（同
    * `team-panel` 的 `zhiyou-active-crew` 那套约定），这里读回来即可。
    */
-  onShow() {
+  onShow(options) {
+    this.chatPreviewVisible = true
+    /**
+     * 从订阅通知点进来时，`options.query` 里带着落地参数（`crewId`、`meetId`）。
+     * 页面 `onShow` 拿不到时（冷启动路径不同），读 `app` 写入的 storage 兜底；
+     * 两者都只用定位线索，正文由落地后鉴权通过的接口重新取。
+     */
+    const landing = this.readNoticeLanding() || (options && options.query) || this.noticeLoadQuery
+    this.noticeLoadQuery = null
+    const landed = this.applyNoticeLanding(landing)
+    this.startChatPreview(this.readCrewId())
+    if (!this.meetTimeEdited) this.setData({ meetTime: currentClock() })
+    const sharingService = this.sharingService()
     /**
      * 默认不选中任何集合点 —— **选中必须是用户动作的结果**。
      *
@@ -246,7 +295,8 @@ Page({
      *    原来队员位置与集合点是面板抛上来的，于是"面板必须在场"成了一条
      *    隐式依赖：谁把面板从本页挪走，地图上的队员就消失了（还真发生过）。
      */
-    this.loadCrew()
+    const guideCrewRequest = landed ? this.noticeLandingLoad : this.loadCrew()
+    if (guideCrewRequest) guideCrewRequest.then(() => { if (this.chatPreviewVisible && !this.data.teamError) this.applyGuideMeeting() })
     /**
      * 队员位置也要自己拉一次 —— 它原来来自面板的 `teamstate` 事件，
      * 而面板已从本页删掉（2026-10-14）。
@@ -262,7 +312,9 @@ Page({
       this.refreshTeamLocations()
     }, 15000)
     if (this.teamRefreshTimer.unref) this.teamRefreshTimer.unref()
-    if (!focused) {
+    // 队伍页显示"提醒是否已开启"，只在面板打开时拉（默认不打扰）。
+    if (this.data.notifyPanelOpen) this.loadNotifyStatus()
+    if (!focused && !sharingService) {
       /**
        * ⚠️ 这里原来还会调 `loadActiveTrip()` 读回路线并画在地图上，
        * 以及 `refreshTeamLocations()` 之外的路线相关逻辑 —— 都已删除
@@ -273,6 +325,7 @@ Page({
        */
       this.autoLocate()
     }
+    if (sharingService) return this.watchAutomaticLocation(sharingService, !focused)
   },
 
   /**
@@ -317,10 +370,16 @@ Page({
    * 这也是它比 `includePoints` 更适合"回到我"的原因。
    */
   recenterOnMe() {
+    const point = this.data.myPoint
+    if (!isValidPoint(point)) return false
     const that = this
-    const ctx = wx.createMapContext('tripmap')
+    // 不让组件自行重新定位：镜头与“我的位置”图钉必须使用同一份已校验坐标。
+    this.setData({ center: { latitude: point.latitude, longitude: point.longitude } })
+    const ctx = wx.createMapContext('tripmap', this)
     if (!ctx || typeof ctx.moveToLocation !== 'function') return false
     ctx.moveToLocation({
+      latitude: point.latitude,
+      longitude: point.longitude,
       fail(err) {
         that.setData({ note: '镜头回到我的位置失败：' + ((err && err.errMsg) || '未知原因') })
       },
@@ -472,21 +531,449 @@ Page({
     this.teamRefreshTimer = null
   },
 
-  onHide() { this.stopTeamRefresh() },
-  onUnload() { this.stopTeamRefresh() },
+  holdChatTap() {}, // 气泡只展示消息，不跳页，也不触发地图选点。
+
+  startChatPreview(crewId) {
+    if (!this.chatPreviewVisible) return
+    if (this.chatCalloutCrewId !== crewId) {
+      if (this.chatCallouts) this.chatCallouts.clear()
+      this.chatCalloutCrewId = crewId
+    }
+    if (!this.chatCallouts) this.chatCallouts = createMapChatCallouts({ onChange: () => this.refreshMarkers() })
+    if (!this.mapChat) this.mapChat = createMapChatPreview({ wx,
+      callApi: api.callApi, getCrewId: () => this.readCrewId(),
+      onMessages: (messages, serverTime) => this.showMemberChatMessages(messages, serverTime),
+      onState: patch => {
+        this.setData(patch)
+        if (patch.chatPreviewAvailable === false && this.chatCallouts) this.chatCallouts.clear()
+        /**
+         * 消息**真的显示出来之后**才推进本人已读游标。
+         *
+         * `chatPreviewLatestSeq` 由 preview 在"已渲染这一批"时给出；
+         * 页面前台可见才算看到（隐藏时 `chatPreviewVisible` 为 false，
+         * preview 也已停止，不会走到这里）。
+         */
+        if (this.chatPreviewVisible && patch.chatPreviewLatestSeq) {
+          this.markChatRead(patch.chatPreviewLatestSeq)
+        }
+      } })
+    return this.mapChat.start(crewId)
+  },
+  showMemberChatMessages(messages, serverTime) {
+    if (this.chatPreviewVisible && this.chatCallouts && this.data.crewId === this.readCrewId()) {
+      this.chatCallouts.receive(messages, serverTime)
+    }
+  },
+  stopChatPreview() {
+    this.chatPreviewVisible = false
+    this.markerAvatarGeneration = (this.markerAvatarGeneration || 0) + 1
+    if (this.mapChat) this.mapChat.stop()
+    if (this.chatCallouts) this.chatCallouts.clear()
+    this.chatCalloutCrewId = ''
+  },
+  chatAvatarError(e) {
+    if (this.mapChat) this.mapChat.imageError(e.currentTarget.dataset.messageId)
+  },
+  onMapChatSent(e) {
+    if (e && e.detail && e.detail.message) this.showMemberChatMessages([e.detail.message], e.detail.serverTime)
+    if (this.chatPreviewVisible && this.mapChat) return this.mapChat.refresh()
+  },
+  onMapChatDenied() {
+    if (this.mapChat) this.mapChat.stop()
+    if (this.chatCallouts) this.chatCallouts.clear()
+    this.setData({ chatPreviewAvailable: false })
+  },
+
+  onHide() { this.stopTeamRefresh(); this.stopWatchingAutomaticLocation(); this.stopChatPreview() },
+  onUnload() { this.stopTeamRefresh(); this.stopWatchingAutomaticLocation(); this.stopChatPreview() },
+
+  sharingService() {
+    const app = getApp()
+    return app && typeof app.getLocationSharing === 'function' ? app.getLocationSharing() : null
+  },
+
+  watchAutomaticLocation(service, recenter) {
+    this.stopWatchingAutomaticLocation()
+    this.lastSharedSampleAt = null
+    this.unsubscribeSharing = service.subscribe(state => {
+      if (state.crewId !== this.readCrewId()) return
+      this.setData({ sharing: state.sharing, autoLocationError: state.error })
+      if (!state.active || !isValidPoint(state.point) || state.sampledAt === this.lastSharedSampleAt) return
+      this.lastSharedSampleAt = state.sampledAt
+      this.setData({ myPoint: state.point, mySource: 'gps', myAccuracyM: state.accuracyM })
+      if (recenter) { this.setData({ center: state.point }); recenter = false }
+      this.refreshMarkers()
+    })
+    // 每次进入队伍立即定位/上传；共享关闭时 refresh 不会开启或上报。
+    return service.refresh().then(() => {
+      if (this.unsubscribeSharing) return this.refreshTeamLocations()
+    })
+  },
+
+  stopWatchingAutomaticLocation() {
+    if (this.unsubscribeSharing) this.unsubscribeSharing()
+    this.unsubscribeSharing = null
+  },
+
+  async refreshSharedLocation() {
+    const service = this.sharingService()
+    if (!service) return
+    const state = await service.refresh()
+    // 手动更新时同时重读已公布的集合，集合点不依赖本机共享位置是否开启。
+    await this.loadCrew()
+    if (!state.sharing) {
+      this.setData({ autoLocationError: '请先在「我的 → 设置」开启自动共享位置' })
+      return
+    }
+    await this.refreshTeamLocations()
+  },
+
+  openSharingSettings() { wx.switchTab({ url: '/pages/profile/index' }) },
+
+  /** 去「我的」页处理队伍（订阅提醒落地失败时给用户的返回入口）。 */
+  openTeamSettings() { wx.switchTab({ url: '/pages/profile/index' }) },
+
+  /**
+   * ══════════ 订阅提醒（2026-10-17）══════════════════════
+   *
+   * 为什么入口放在这里而不是「我的」：
+   * 提醒的对象是**这支队伍**的集合与消息，用户在「队伍」页看到界面上下文
+   * 才明白"订阅的是谁的提醒"。入队时不弹窗、不静默替用户勾选 ——
+   * 微信的一次性订阅必须由用户主动点，否则属于违规获取授权。
+   *
+   * 模板 ID **不在这里写死**：从 `subscribe.status` 拿，避免前后端各存一份
+   * 常量后漂移（漂移的表现是订阅"点了没反应"）。
+   */
+  loadNotifyStatus() {
+    const crewId = this.data.crewId
+    if (!crewId) return Promise.resolve(null)
+    const request = this.notifyStatusRequest = (this.notifyStatusRequest || 0) + 1
+    this.setData({ notifyLoading: true, notifyLoadError: '' })
+    const current = () => this.data.crewId === crewId && this.notifyStatusRequest === request
+    return api.callApi('subscribe.status', { crewId }).then(res => {
+      if (!current()) return null
+      if (!res || res.ok !== true) throw new Error((res && res.error && res.error.message) || '提醒设置读取失败')
+      const intents = (res.data && res.data.intents) || []
+      this.setData({
+        notifyLoading: false,
+        notifyRows: intents.map(row => ({
+          kind: row.kind,
+          label: row.label,
+          templateId: row.templateId,
+          subscribed: row.subscribed === true,
+          acceptedCount: row.acceptedCount || 0,
+          /** 次数用完/被撤销时也能再点一次（一次订阅就是一次额度） */
+          canRequest: Boolean(row.templateId),
+        })),
+        /**
+         * 服务端的"已同意 ≠ 一定送达"说明放**单独字段**，不要塞进 `notifyNote`：
+         * `notifyNote` 是"刚才那次点击的结果"，会被下一次状态刷新覆盖 ——
+         * 用户点了开启，提示一闪就变成政策说明，看起来像没成功。
+         */
+        notifyPolicyNote: (res.data && res.data.note) || '',
+      })
+      return res.data
+    }).catch(err => {
+      if (current()) this.setData({ notifyLoading: false, notifyLoadError: err.message || '提醒设置读取失败，请重试' })
+      return null
+    })
+  },
+
+  toggleNotifyPanel() {
+    const next = !this.data.notifyPanelOpen
+    this.setData({ notifyPanelOpen: next })
+    if (next) this.loadNotifyStatus()
+  },
+
+  /**
+   * 点某类提醒：走 `wx.requestSubscribeMessage`，把**逐模板**结果回报服务端。
+   *
+   * ⚠️ 三个边界：
+   *   · 只有 `'accept'` 才算同意，`reject/ban/filter` 一律按未同意上报；
+   *   · 用户点拒绝**不是错误**，不弹报错，只更新状态；
+   *   · 客户端的结果只是"用户表达过同意"，**不能**当成微信可无限发送的凭证。
+   */
+  requestNotify(e) {
+    const kind = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.kind
+    const row = (this.data.notifyRows || []).find(r => r.kind === kind)
+    if (this.data.notifyBusy) return
+    if (!row || !row.templateId) {
+      this.setData({ notifyNote: '这类提醒的模板尚未就绪，请刷新提醒设置后再点开启。' })
+      return
+    }
+    const crewId = this.data.crewId
+    if (!crewId) return
+    if (typeof wx.requestSubscribeMessage !== 'function') {
+      this.setData({ notifyNote: '当前微信版本不支持订阅提醒，请更新微信后重试。' })
+      return
+    }
+    this.setData({ notifyBusy: true, notifySettingsNeeded: false, notifyNote: '正在请求微信授权，请留意授权提示…' })
+    const finish = (status, message) => {
+      if (this.data.crewId !== crewId) return
+      this.setData({ notifyNote: status === 'accept' ? '已获微信授权，正在保存提醒设置…' : message })
+      /**
+       * 无论 accept 还是 reject 都要上报：拒绝也要记下来，
+       * 否则下次还会再问同一个用户（微信允许，但体验上很烦）。
+       */
+      api.callApi('subscribe.report', {
+        crewId, source: 'team-page',
+        results: [{ kind, status }],
+      }).then(res => {
+        if (this.data.crewId !== crewId) return
+        if (!res || !res.ok) throw new Error((res && res.error && res.error.message) || '保存失败')
+        this.setData({ notifyNote: message })
+        return this.loadNotifyStatus()
+      }).catch(() => {
+        if (this.data.crewId === crewId) this.setData({ notifyNote: status === 'accept'
+          ? '微信已授权，但提醒设置未保存成功，请检查网络后重新开启。' : message })
+      }).finally(() => {
+        if (this.data.crewId === crewId) this.setData({ notifyBusy: false })
+      })
+    }
+    try { wx.requestSubscribeMessage({
+      tmplIds: [row.templateId],
+      success: (res) => {
+        const status = res && res[row.templateId]
+        const accepted = status === 'accept'
+        finish(accepted ? 'accept' : (status || 'reject'),
+          accepted ? '已开启「' + row.label + '」提醒（每次同意大约可用一次）'
+            : '没有开启「' + row.label + '」提醒')
+      },
+      fail: (err) => {
+        if (this.data.crewId !== crewId) return
+        /**
+         * 常见失败：用户以前永久拒绝过模板（errCode 20004）、
+         * 或还没在小程序后台启用模板。如实说，不假装成功。
+         */
+        const code = Number(err && err.errCode)
+        this.setData({ notifySettingsNeeded: code === 20004 })
+        const hint = code === 20004 ? '你之前关闭过订阅提醒，需要到小程序设置里重新允许'
+          : code === 20001 ? '订阅模板不可用，请检查小程序后台是否已启用该模板'
+            : '订阅没有成功，请稍后再试' + (Number.isFinite(code) ? '（' + code + '）' : '')
+        finish('reject', hint)
+      },
+    }) } catch (_) {
+      this.setData({ notifyBusy: false, notifyNote: '无法打开微信订阅授权，请更新微信或稍后重试。' })
+    }
+  },
+
+  openNotifySettings() {
+    if (typeof wx.openSetting === 'function') wx.openSetting({ withSubscriptions: true })
+  },
+
+  showNoticeLanding(message, failed) {
+    this.setData({ noticeLandingNote: message, notifyNote: message, notifyLandingFailed: Boolean(failed) })
+    if (typeof wx.showToast === 'function') wx.showToast({ title: message, icon: 'none', duration: 2500 })
+  },
+
+  dismissNoticeLanding() { this.setData({ noticeLandingNote: '', notifyLandingFailed: false }) },
+
+  /** 关掉某类提醒（本次不再发送，不删除历史记录）。 */
+  revokeNotify(e) {
+    const kind = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.kind
+    const crewId = this.data.crewId
+    if (!kind || !crewId || this.data.notifyBusy) return
+    this.setData({ notifyBusy: true })
+    api.callApi('subscribe.revoke', { crewId, kind })
+      .then(() => this.loadNotifyStatus())
+      .then(() => this.setData({ notifyBusy: false, notifyNote: '已关闭这类提醒' }))
+      .catch(() => this.setData({ notifyBusy: false, notifyNote: '关闭失败，请稍后再试' }))
+  },
+
+  /**
+   * 通知点击落地：**恢复目标队伍上下文，再做重新鉴权**。
+   *
+   * 交接文档第 3 节第 7 条要求两件事，缺一件都会出错：
+   *
+   *   ① 恢复上下文 —— 用户点提醒就是要去那个队伍看，落在别的队伍等于没恢复；
+   *   ② **不能直接相信通知携带的队伍 ID** 去取内容。
+   *
+   * 所以顺序是**先 `crew.get` 鉴权、通过后才切换活动队伍**：
+   *   · 鉴权通过 → 把 `zhiyou-active-crew` 写为目标队伍（tab 页不能带 URL 参数，
+   *     按项目既有约定走 storage），再按新队伍重新拉成员、集合与消息；
+   *   · 已被移出/队伍解散 → **不切换**，如实说"这条提醒所属的队伍已不可访问"，
+   *     并明确告诉用户回哪里去 —— 失效的推送不该把一个空页面甩给用户。
+   *
+   * 落地页只带 `crewId`/`meetId` 这类定位线索，不带消息正文；正文永远由
+   * 鉴权通过的接口重新取。
+   */
+  applyNoticeLanding(query) {
+    if (!query) return false
+    const options = typeof query === 'string' ? this.parseLandingQuery(query) : query
+    const targetCrewId = options.crewId
+    if (!targetCrewId) return false
+    /**
+     * 同一次落地只处理一次：`onShow` 可能被重复触发（切 tab 回来），
+     * 反复切换会打断用户刚做的操作。
+     */
+    const signature = targetCrewId + '|' + (options.meetId || '') + '|' + (options.at || '')
+    if (this._noticeLandingSignature === signature) return true
+    this._noticeLandingSignature = signature
+
+    const mine = this.readCrewId()
+    if (targetCrewId === mine) {
+      // 已经在这支队伍里：只要刷新一次（loadCrew 内部会重新鉴权）
+      this.showNoticeLanding('已从提醒回到队伍')
+      this.noticeLandingLoad = this.loadCrew().then(() => {
+        if (this.crewAccessError) this.showNoticeLanding('这条提醒所属的队伍暂时不可访问，请切换队伍重试', true)
+        else this.confirmNoticeMeetLanding(options.meetId)
+      })
+      return true
+    }
+    this.noticeLandingLoad = this.resumeCrewFromNotice(targetCrewId, options.meetId)
+    return true
+  },
+
+  parseLandingQuery(query) {
+    const options = {}
+    String(query).split('&').forEach(pair => {
+      const idx = pair.indexOf('=')
+      if (idx > 0) options[pair.slice(0, idx)] = decodeURIComponent(pair.slice(idx + 1))
+    })
+    return options
+  },
+
+  /**
+   * 切到提醒对应的队伍。
+   *
+   * 先鉴权（`crew.get`）再改活动队伍 —— 顺序不能反：
+   * 先写 storage 再鉴权，就会出现"页面已经按新队伍取数、随后鉴权失败"的空窗，
+   * 那一瞬间的请求会带着一个用户已无权访问的 crewId 发出去。
+   */
+  resumeCrewFromNotice(targetCrewId, meetId) {
+    const mine = this.readCrewId()
+    return api.callApi('crew.get', { crewId: targetCrewId }).then(res => {
+      if (!res || res.ok !== true) {
+        const code = res && res.error && res.error.code
+        const message = code === 'FORBIDDEN_NOT_MEMBER' || code === 'NOT_FOUND'
+          ? '这条提醒所属的队伍已不可访问（你可能已退出或被移除），已留在当前队伍'
+          : '这条提醒所属的队伍暂时读不到，已留在当前队伍'
+        /**
+         * 失效时**不改写**活动队伍：用户仍留在原来的队伍里，
+         * 并告诉他入口在哪，而不是把他甩到一个打不开的页面。
+         */
+        this.showNoticeLanding(message, true)
+        return false
+      }
+      /**
+       * 鉴权通过：按项目既有约定用 storage 交接活动队伍，
+       * 并清掉只属于旧队伍的内存态（位置、标注、已读游标、消息计时器）。
+       */
+      try { wx.setStorageSync('zhiyou-active-crew', targetCrewId) } catch (e) { /* storage 失败则放弃切换 */ }
+      this.teamLocations = []
+      this.locationMembers = null
+      this.invalidTeamLocations = 0
+      this._lastMarkedReadSeq = 0
+      this.notifyLandingMeetId = meetId || ''
+      this.setData({
+        crewId: '',
+        members: [],
+        meetTask: null,
+        teamTripId: null,
+        departureCheck: null,
+        meetId: null,
+        meetingPoint: null,
+        photoNote: '',
+        currentPhotos: [],
+        notifyNote: mine
+          ? '已切换到提醒对应的队伍'
+          : '已从提醒进入队伍',
+        notifyLandingFailed: false,
+      })
+      this.showNoticeLanding(mine ? '已切换到提醒对应的队伍' : '已从提醒进入队伍')
+      this.refreshMarkers()
+      this.stopChatPreview()
+      this.chatPreviewVisible = true
+      this.startChatPreview(targetCrewId)
+      const reload = this.loadCrew()
+      this.refreshTeamLocations()
+      // 集合通知还要说清"这次集合还在不在"——不然用户只看到队伍切换了。
+      if (reload && typeof reload.then === 'function') {
+        reload.then(() => this.confirmNoticeMeetLanding(meetId)).catch(() => {})
+      } else {
+        this.confirmNoticeMeetLanding(meetId)
+      }
+      return true
+    }).catch(() => {
+      this.showNoticeLanding('这条提醒暂时打不开，已留在当前队伍', true)
+      return false
+    })
+  },
+
+  /**
+   * 集合通知落地后的交代。
+   *
+   * 推送的集合可能已经结束（取消/出发）—— 那就不再画到地图上，
+   * 但也不能假装"什么都没发生"：如实说这次集合已结束，用户才知道
+   * 为什么点进来没看到约好的地点。
+   */
+  confirmNoticeMeetLanding(meetId) {
+    if (!meetId) return
+    const current = this.data.meetTask
+    if (current && current.meetTaskId === meetId) {
+      this.showNoticeLanding('已从提醒回到队伍，已定位到这次集合')
+      return
+    }
+    this.showNoticeLanding('这条提醒对应的集合已结束或已取消')
+  },
+
+  /**
+   * 推进本人已读游标。
+   *
+   * 只在这个页面**真的把消息显示出来之后**调用（`chatPreview` 更新时），
+   * 拉取接口与地图预取都不算 —— 那正是交接文档点名的缺口。
+   * 用 `_lastMarkedReadSeq` 去重，避免每 3 秒轮询都写一次库。
+   */
+  markChatRead(seq) {
+    const crewId = this.data.crewId
+    if (!crewId || !Number.isSafeInteger(seq) || seq <= 0) return
+    if (seq <= (this._lastMarkedReadSeq || 0)) return
+    this._lastMarkedReadSeq = seq
+    api.callApi('chat.markRead', { crewId, seq }).catch(() => {
+      // 失败就允许下次重试（不推进本地去重值）
+      if (this._lastMarkedReadSeq === seq) this._lastMarkedReadSeq = 0
+    })
+  },
+
+  applyGuideMeeting() {
+    const pending = wx.getStorageSync('zhiyou-guide-meeting')
+    if (!pending) return false
+    wx.removeStorageSync('zhiyou-guide-meeting')
+    const age = Date.now() - pending.at
+    if (!isValidPoint(pending) || !Number.isFinite(age) || age < 0 || age > 120000 ||
+      pending.crewId !== this.data.crewId || pending.crewId !== this.readCrewId()) return false
+    if (this.data.meetTask) {
+      this.setData({ teamNote: '已有进行中的集合，本次助手选点没有覆盖原集合。' }); return false
+    }
+    this.setAutoMeetingPoint({ placeId: 'map_guide_' + Date.now(), name: pending.name,
+      latitude: pending.latitude, longitude: pending.longitude, address: pending.address, fromGuide: true })
+    this.setData({ pointName: String(pending.name || '').slice(0, 20), center: {
+      latitude: pending.latitude, longitude: pending.longitude }, scale: 17, pickMode: false,
+      teamNote: '已选定助手确认的地点，请设置集合时间，再手动发起集合。' })
+    return true
+  },
 
   /** 读取成员、个人共享开关及当前集合。 */
   loadCrew() {
     const crewId = this.readCrewId()
+    const generation = this.crewLoadGeneration = (this.crewLoadGeneration || 0) + 1
+    // 轮询、发起集合后的刷新可能并发；迟到的旧响应不能清除或覆盖新集合。
+    const current = () => this.crewLoadGeneration === generation && this.readCrewId() === crewId && this.data.crewId === crewId
+    this.startChatPreview(crewId)
     if (!crewId) {
+      this.locationMembers = null
+      this.invalidTeamLocations = 0
       this.setData({ crewId: '', crew: null, members: [], meetTask: null, sharing: false, teamTripId: null, me: '', isOwner: false, isInitiator: false })
       this.teamLocations = []
       this.refreshMarkers()
       return
     }
     if (this.data.crewId !== crewId) {
+      this.locationMembers = null
+      this.invalidTeamLocations = 0
       this.teamLocations = []
-      this.setData({ meetTask: null, teamTripId: null, departureCheck: null, me: '' })
+      this.setData({ members: [], meetTask: null, teamTripId: null, departureCheck: null, me: '',
+        notifyRows: [], notifyBusy: false, notifyLoading: false, notifyLoadError: '', notifySettingsNeeded: false })
       this.refreshMarkers()
     }
     this.setData({ crewId: crewId })
@@ -494,7 +981,9 @@ Page({
     const infoRequest = api
       .callApi('crew.get', { crewId: crewId })
       .then(function (res) {
+        if (!current()) return
         if (!res || res.ok !== true) {
+          that.crewAccessError = (res && res.error && res.error.message) || '队伍信息读取失败'
           /**
            * ⚠️ 读不到就说读不到，**不编空队伍** ——
            * 空队伍会让用户以为自己被踢出去了。
@@ -503,26 +992,29 @@ Page({
           return
         }
         const d = res.data || {}
-        if (that.data.crewId !== crewId) return
+        that.crewAccessError = ''
         const me = (d.members || []).find(m => m.userId === d.me)
+        const memberLabels = createMemberLabels(d.members, d.me)
         that.setData({
           crew: d.crew || null,
           me: d.me || '',
           isOwner: d.myRole === 'owner',
-          members: d.members || [],
+          members: (d.members || []).map(m => Object.assign({}, m, { label: memberLabels.get(m.userId) })),
           sharing: Boolean(me && me.locationSharing !== false),
           teamError: '',
         })
         that.refreshMarkers()
       })
       .catch(function (err) {
+        if (!current()) return
+        that.crewAccessError = (err && err.errMsg) || '队伍信息读取失败'
         that.setData({ teamError: (err && err.errMsg) || '队伍信息读取失败' })
       })
     /** 集合任务单独取 —— 它可能不存在，不该让整块队伍信息跟着失败 */
     const meetingRequest = api
       .callApi('team.current', { crewId: crewId })
       .then(function (res) {
-        if (that.data.crewId !== crewId) return null
+        if (!current()) return null
         if (!res || !res.ok) throw new Error((res && res.error && res.error.message) || '集合读取失败')
         that.setData({ teamTripId: res.data.tripId || null })
         return res.data.meetTaskId
@@ -531,10 +1023,10 @@ Page({
       })
       .then(async function (res) {
         await infoRequest
-        if (that.data.crewId !== crewId) return
+        if (!current()) return
         if (res && res.ok === true) {
           let t = res.data && res.data.meetTask
-          if (t && ['cancelled', 'departed'].includes(t.status)) t = null
+          if (t && ['cancelled', 'departed', 'completed'].includes(t.status)) t = null
           if (t) {
             const localClock = value => {
               if (!value) return '--:--'
@@ -544,12 +1036,15 @@ Page({
             t.timeLabel = localClock(t.plannedMeetAt)
             t.arrivedLabel = localClock(t.allArrivedAt)
             t.departedLabel = localClock(t.departedAt)
-            const labels = { proposed: '等待确认', confirmed: '已确认', arrived_all: '全员到齐', invited: '待确认', arrived: '已到达', declined: '暂不参加' }
+            const labels = { proposed: '等待确认', confirmed: '已确认', active: '集合中', arrived_all: '全员到齐', invited: '待确认', arrived: '已到达', declined: '暂不参加' }
             t.statusLabel = labels[t.status] || t.status
-            t.participants = (t.participants || []).map((m, i) => Object.assign({}, m, {
-              label: m.userId === that.data.me ? '我' : '队员 ' + (i + 1),
+            const memberLabels = createMemberLabels(that.data.members, that.data.me)
+            t.participants = (t.participants || []).map(m => Object.assign({}, m, {
+              label: memberLabels.get(m.userId) || '已退出队员',
               statusLabel: labels[m.status] || m.status,
             }))
+            t.arrivedCount = t.participants.filter(m => m.status === 'arrived').length
+            t.expectedCount = t.participants.filter(m => m.status !== 'declined').length
           }
           that.setData({ meetTask: t || null })
           that.setData({ isInitiator: Boolean(t && t.initiatorUserId === that.data.me) })
@@ -558,20 +1053,13 @@ Page({
             that.refreshMarkers()
           }
           /** 已有集合点时把它画到地图上，用户才知道"我们约在哪儿" */
-          if (t && t.point) {
-            that.setAutoMeetingPoint({
-              placeId: t.placeId || 'meet_' + t.meetTaskId,
-              name: t.placeName || '集合点',
-              latitude: t.point.latitude,
-              longitude: t.point.longitude,
-              fromTeamTask: true,
-            })
-          }
+          if (t) that.syncMeetingSelection()
         } else if (res) {
           throw new Error((res.error && res.error.message) || '集合读取失败')
         }
       })
       .catch(function (err) {
+        if (!current()) return
         that.setData({ teamError: err.message || '集合读取失败，请刷新重试' })
       })
     return Promise.all([infoRequest, meetingRequest])
@@ -586,27 +1074,44 @@ Page({
     }
   },
 
+  /**
+   * 读订阅通知的落地参数（`app` 写入的兜底），**读完立刻清掉**。
+   *
+   * 不清的话：用户过一会儿自己切到队伍页，又被带到那条旧提醒的队伍里去 ——
+   * 与 `applyPendingFocus` 那次踩的坑同一种。超过 2 分钟的也丢掉。
+   */
+  readNoticeLanding() {
+    try {
+      const saved = wx.getStorageSync('zhiyou-notice-landing')
+      if (!saved) return null
+      wx.removeStorageSync('zhiyou-notice-landing')
+      const age = Date.now() - saved.at
+      if (!Number.isFinite(age) || age < 0 || age > 120000) return null
+      return { crewId: saved.crewId, meetId: saved.meetId, at: saved.at }
+    } catch (e) {
+      return null
+    }
+  },
+
   /** 开关位置共享 */
   toggleSharing() {
-    const next = !this.data.sharing
-    this.doTeam('loc.stopSharing', { sharing: next }, next ? '已开启位置共享，请共享一次当前位置' : '已关闭位置共享')
+    this.openSharingSettings()
   },
 
   /**
    * 共享一次当前位置。
    *
-   * ⚠️ **"共享一次"而不是持续定位**：持续定位耗电、且要长期授权。
-   *    项目一直的约定是"主动上报一次位置"（见 team-panel 的同一句提示）。
-   *    没有位置时如实提示先取位置 —— 不拿一个编出来的坐标上报。
+   * 新版统一走自动共享服务；保留旧调用入口兼容联调工具。
    */
   reportMyLocation() {
+    if (this.sharingService()) return this.refreshSharedLocation()
     if (!isValidPoint(this.data.myPoint)) {
       this.setData({ teamError: '还没有你的位置：先点 ◎ 获取当前位置' })
       return
     }
     const that = this
     if (!this.data.sharing) {
-      return this.doTeam('loc.stopSharing', { sharing: true }, '', function () {
+      return this.doTeam('loc.stopSharing', { sharing: true, policyVersion: POLICY_VERSION }, '', function () {
         that.setData({ sharing: true })
         return that.reportMyLocation()
       })
@@ -638,6 +1143,9 @@ Page({
           return
         }
         const list = (res.data && res.data.members) || []
+        // 保留完整名册的昵称，关闭共享、尚无坐标的成员仍有显示名称。
+        that.locationMembers = list
+        that.logInvalidCoordinates('loc.list', list.filter(m => m.hasLocation && !m.sharingOff).map(m => m.point))
         that.invalidTeamLocations = list.filter(m => m.invalidLocation ||
           (m.hasLocation && !m.sharingOff && !isValidPoint(m.point))).length
         /**
@@ -649,6 +1157,7 @@ Page({
         })
         that.setData({ locationError: '' })
         that.refreshMarkers()
+        that.resolveMemberAvatars(list)
       })
       .catch(function () {
         that.setData({ locationError: '队员位置读取失败，请刷新重试' })
@@ -660,13 +1169,14 @@ Page({
     if (isValidPoint(this.data.myPoint)) points.push(this.data.myPoint)
     if (isValidPoint(this.data.meetingPoint)) points.push(this.data.meetingPoint)
     if (!points.length) {
-      this.setData({ locationError: '还没有可显示的位置，请先共享一次当前位置' })
+      this.setData({ locationError: '还没有可显示的位置，请先在「我的 → 设置」开启自动共享，再更新位置' })
       return
     }
     wx.createMapContext('tripmap', this).includePoints({ points, padding: [60, 40, 60, 40] })
   },
 
   onMeetTimeChange(e) {
+    this.meetTimeEdited = true
     this.setData({ meetTime: e.detail.value })
   },
 
@@ -677,7 +1187,7 @@ Page({
   /**
    * ── ① 推荐一个集合点（2026-10-14 用户要求搬到这里）──────────
    *
-   * 流程：本按钮 → `meet.recommend`（minimax：先让最远的成员步行最短）
+   * 流程：本按钮 → `meet.recommend`（平均中心周围 1 公里搜索，选最近地点）
    *       → 取第一名落成集合点 → 用户「✛」拖动微调
    *
    * ⚠️ 原来这个按钮在小队面板里，而面板在「我的」页面 ——
@@ -691,7 +1201,7 @@ Page({
       return
     }
     this.setData({ teamBusy: true, teamError: '', teamNote: '正在按各成员位置推荐…' })
-    api
+    return api
       .callApi('meet.recommend', { crewId: this.data.crewId })
       .then(function (res) {
         if (!res || res.ok !== true) {
@@ -716,18 +1226,24 @@ Page({
            * 第二类是地图服务本身不可用（Key 没配／配额用尽），
            * 那要去控制台处理，与"换个地方碰头"是两回事，必须分开说。
            */
+          const excluded = (d.excluded || []).find(e => e.message) || {}
+          const reason = d.reason || excluded.reason || ''
           const why =
-            d.reason === 'LOCATION_SHARING_OFF'
-              ? '队员都还没共享位置。让大家先各点一次「共享一次当前位置」'
-              : d.reason === 'NO_LOCATION_AVAILABLE'
+            reason === 'LOCATION_SHARING_OFF'
+              ? '有成员关闭了位置共享，请该成员到「我的 → 设置」开启自动共享位置'
+              : reason === 'LOCATION_STALE'
+                ? '有成员的位置已过期，请该成员保持小程序在前台，并点「立即更新位置」重试'
+                : reason === 'MEMBER_NO_LOCATION'
+                  ? '有成员没有可用位置，请该成员到「我的 → 设置」开启自动共享位置，或点「立即更新位置」重试'
+              : reason === 'NO_LOCATION_AVAILABLE'
                 ? '还拿不到任何成员的位置'
-                : d.reason === 'MAP_KEY_NOT_CONFIGURED'
+                : reason === 'MAP_KEY_NOT_CONFIGURED'
                   ? '地图服务没配好（云函数缺 MAP_KEY），这个要去云开发控制台加'
-                  : d.reason === 'UPSTREAM_FAILED' || (d.reason || '').indexOf('UPSTREAM_STATUS') === 0
+                  : reason === 'UPSTREAM_FAILED' || reason.indexOf('UPSTREAM_STATUS') === 0
                     ? '地图服务暂时不可用' + (d.message ? '（' + d.message + '）' : '')
-                    : d.reason === 'NO_VERIFIED_PLACE' || d.reason === 'NO_POI_FOUND'
+                    : reason === 'NO_VERIFIED_PLACE' || reason === 'NO_POI_FOUND'
                       ? '这附近没检索到能当集合点的地方'
-                      : '暂时没有满足条件的候选点'
+                      : d.message || excluded.message || '暂时没有满足条件的候选点'
           that.setData({
             teamBusy: false,
             teamNote: '',
@@ -741,6 +1257,7 @@ Page({
           latitude: top.point.latitude,
           longitude: top.point.longitude,
           fromSuggestion: true,
+          fromGeometricCenter: d.candidateSource === 'geometric-center',
         })
         /** 镜头挪过去 —— 用户接着就在这儿拖动微调 */
         that.setData({
@@ -754,16 +1271,11 @@ Page({
             '已推荐「' +
             (top.placeName || '集合点') +
             '」' +
-            (typeof top.maxWalkMin === 'number' ? '：走得最远的成员约 ' + top.maxWalkMin + ' 分钟' : '') +
+            (typeof top.maxWalkMin === 'number' ? '：最远成员步行估算约 ' + top.maxWalkMin + ' 分钟' : '') +
             '。' +
-            /**
-             * ⚠️ 候选来源要如实说。检索出来的点是**真实地点**（所以不会
-             *    落在马路上），但**没人实地核验过** —— 用户得知道
-             *    "它可能是个商场，但南门还是北门得自己确认"。
-             */
-            (d.candidateSource === 'poi-search'
-              ? '这个位置来自地图检索。'
-              : '') +
+            (d.candidateNote || (d.candidateSource === 'geometric-center'
+              ? '此点按成员平均位置生成。'
+              : '已选择中心周围 1 公里内搜索到的最近地点。')) +
             '拖动 ✛ 可以微调，确认后点「② 发起集合」。',
         })
       })
@@ -819,7 +1331,7 @@ Page({
           ? this.data.meetingPoint.placeId
           : undefined,
         placeName: name,
-        method: this.data.meetingPoint.fromMapPick ? 'manual' : 'recommended',
+        method: this.data.meetingPoint.fromMapPick || this.data.meetingPoint.fromPhoto || this.data.meetingPoint.fromGuide ? 'manual' : 'recommended',
         plannedMeetAt: at.toISOString(),
       },
       '已发起集合，等同伴确认'
@@ -882,7 +1394,7 @@ Page({
     const needsVersion = ['meet.confirm', 'meet.arrive', 'meet.prepareDepart', 'meet.depart', 'team.cancelMeeting'].includes(action)
     return api
       .callApi(action, full, needsVersion && task ? { expectedVersion: task.version } : undefined)
-      .then(function (res) {
+      .then(async function (res) {
         if (!res || res.ok !== true) {
           that.setData({
             teamBusy: false,
@@ -893,8 +1405,7 @@ Page({
         }
         that.setData({ teamBusy: false, teamNote: okMessage || '' })
         /** 动作完成后重读状态 —— 服务端才是权威 */
-        that.loadCrew()
-        that.refreshTeamLocations()
+        await Promise.all([that.loadCrew(), that.refreshTeamLocations()])
         if (typeof onData === 'function') return onData(res.data)
       })
       .catch(function (err) {
@@ -903,14 +1414,22 @@ Page({
   },
 
   /**
-   * 把"进行中的集合"反映到选中状态上 —— 但**不覆盖用户自己的选择**。
-   *
-   * 两条纪律：
-   *   ① 只在"还没有选中"时替用户填上。用户点过的地方优先，
-   *      否则他点开一个地点的照片、一刷新就被会议地点顶掉。
-   *   ② 只在**真的变了**的时候写 —— 否则 `loadCrew → setData → render`
-   *      会绕成一个环。
+   * 集合发起后，两端只使用服务端集合任务中的点；本地选点仅用于发起前的草稿。
    */
+  hasActiveMeeting() {
+    const task = this.data.meetTask
+    return Boolean(task && !['cancelled', 'departed', 'completed'].includes(task.status))
+  },
+
+  sharedMeetingPoint() {
+    const task = this.data.meetTask
+    if (!this.hasActiveMeeting() || !isValidPoint(task.point)) return null
+    const matched = (this.data.places || []).find(p => p.name === (task.placeName || task.name))
+    return { placeId: task.placeId || (matched && matched.placeId) || (task.meetTaskId ? 'meet_' + task.meetTaskId : '__team_meeting__'),
+      name: task.placeName || task.name || '集合点',
+      latitude: task.point.latitude, longitude: task.point.longitude, fromTeamTask: true }
+  },
+
   syncMeetingSelection() {
     /**
      * ⚠️ 数据来源从 `this.teamMeeting`（面板事件）改成 `meetTask`（自己取的）。
@@ -923,36 +1442,14 @@ Page({
      * 面板事件给的是 `{ name, point }`，而 `meet.get` 给的是
      * `{ placeName, point }` —— 这里统一读 `placeName`。
      */
-    const meeting = this.data.meetTask
-    const meetingName = meeting && (meeting.placeName || meeting.name)
-    if (!meetingName || this.data.meetingPoint) return
-    if (this.__autoPickedMeetingName === meetingName) return
-    this.__autoPickedMeetingName = meetingName
-
-    const that = this
-    const matched = this.data.places.find(function (p) {
-      return p.name === meetingName
-    })
-    if (matched) {
-      this.selectPlace(matched.placeId)
-      return
+    if (!this.hasActiveMeeting()) return false
+    const point = this.sharedMeetingPoint()
+    if (!point) {
+      this.refreshMarkers()
+      this.setData({ coordinateError: '集合点坐标异常，请刷新队伍信息；暂不显示其他选点代替。' })
+      return false
     }
-    /**
-     * 集合点可能**不在 places 库里**（手动选点时坐标由用户在地图上点出来，
-     * 并不对应任何一条地点记录）。这种情况也要能在地图上标出来，
-     * 否则"我们约在哪儿"这件事就看不见了。
-     */
-    this.setData({
-      meetingPoint: {
-        placeId: '__team_meeting__',
-        name: meetingName,
-        latitude: meeting.point.latitude,
-        longitude: meeting.point.longitude,
-        verified: true,
-        fromTeamTask: true,
-      },
-    })
-    that.refreshMarkers()
+    return this.setAutoMeetingPoint(point)
   },
 
   loadPlaces() {
@@ -1008,7 +1505,22 @@ Page({
    * 地图在它下面滚。退出模式后覆盖层不再渲染，位置改由 `meetingPoint`
    * 对应的 marker 表示 —— 那是地图坐标，会随地图一起动。
    */
+  onPhotoMeetingSelected(e) {
+    const point = e && e.detail
+    if (!this.data.crewId || this.data.meetTask || !isValidPoint(point)) return
+    this.setAutoMeetingPoint({ placeId: 'map_photo_' + Date.now(), name: point.name,
+      latitude: point.latitude, longitude: point.longitude, address: point.address, fromPhoto: true })
+    this.setData({ pointName: String(point.name || '').slice(0, 20), center: {
+      latitude: point.latitude, longitude: point.longitude }, scale: 17, pickMode: false,
+      teamNote: '已选定照片辅助找到的地点。请核对集合时间，再点击“发起集合”。' })
+  },
+
   startPick() {
+    if (this.hasActiveMeeting()) {
+      this.syncMeetingSelection()
+      this.setData({ note: '已有进行中的集合，地图显示队伍公布的集合点；如需更换，请取消本次集合后重新发起。' })
+      return false
+    }
     this.setData({
       pickMode: true,
       note: '拖动地图，把中间的图钉对准集合点',
@@ -1041,6 +1553,7 @@ Page({
   confirmPick() {
     const that = this
     this.readCenter(function (loc) {
+      if (that.hasActiveMeeting()) { that.syncMeetingSelection(); return }
       if (!loc) {
         that.setData({ pickMode: false, note: '没能读到地图中心，请重试或点「◎」用定位' })
         return
@@ -1078,6 +1591,8 @@ Page({
    *    一条 `myPoint`），于是"集合点"这个概念在页面里有了两个来源。
    */
   setAutoMeetingPoint(point) {
+    const shared = this.hasActiveMeeting()
+    if (shared) point = this.sharedMeetingPoint()
     if (!isValidPoint(point)) {
       this.setData({ coordinateError: '集合点坐标异常，请重新选择集合点' })
       return false
@@ -1086,6 +1601,7 @@ Page({
       meetingPoint: point,
       photoNote: '',
       currentPhotos: [],
+      ...(shared ? { pickMode: false } : {}),
     })
     this.refreshMarkers()
     this.computeNearby()
@@ -1094,7 +1610,7 @@ Page({
   /**
    * ── 读回"推荐的集合点"（2026-10-14 用户要求）────────────────
    *
-   * 流程：小队面板点「推荐一个集合点」→ 后端 minimax 算出最优候选 →
+   * 流程：小队面板点「推荐一个集合点」→ 后端搜索成员平均中心周围的地点 →
    * 写进 storage → 切到本页 → 这里读出来落成集合点，**用户可以接着拖动微调**。
    *
    * ⚠️ 与 `applyPendingFocus` 同一套约定：**读完立刻清掉**（一次性），
@@ -1113,12 +1629,13 @@ Page({
     if (s.at && Date.now() - s.at > 2 * 60 * 1000) return false
 
     this.setAutoMeetingPoint({
-      placeId: s.placeId || 'suggest_' + Date.now(),
+      placeId: s.placeId || null,
       name: s.name || '推荐集合点',
       latitude: s.latitude,
       longitude: s.longitude,
       /** 标记来源：算法推荐的，**未实地核验** —— 界面要能区分 */
       fromSuggestion: true,
+      fromGeometricCenter: s.candidateSource === 'geometric-center',
     })
     /**
      * 镜头挪到推荐的集合点 —— 用户接着就要在这儿拖动微调，
@@ -1177,11 +1694,16 @@ Page({
   /**
    * 地图视野变了（拖动 / 缩放）。
    *
-   * ⚠️ **每帧都触发**，所以这里**只更新提示、不做重活** ——
-   *    不调 `computeNearby()`（要算到各候选点的距离）、不刷 marker。
-   *    那些留到用户点「好了」时做一次。
+   * 只在视野变化结束且缩放级别改变时重排标签；拖动每帧不刷新。
    */
-  onMapRegionChange() {
+  onMapRegionChange(event) {
+    const detail = (event && event.detail) || {}
+    const phase = event && (event.type === 'begin' || event.type === 'end') ? event.type : detail.type
+    const scale = detail.scale
+    if (phase === 'end' && Number.isFinite(scale) && scale >= 3 && scale <= 20 && scale !== this.markerLayoutScale) {
+      this.markerLayoutScale = scale
+      this.refreshMarkers()
+    }
     if (!this.data.pickMode) return
     /**
      * 拖动时**不做任何 setData**：`regionchange` 每秒能触发几十次，
@@ -1193,11 +1715,11 @@ Page({
   /**
    * 使用定位接口获取位置。
    *
-   * `type: 'gcj02'` 与全库坐标系一致（docs/01 §4）——混用会产生 50–500 米偏移，
+   * `type: 'gcj02'` 与全库坐标系一致（docs/项目计划书.md#data-model §4）——混用会产生 50–500 米偏移，
    * 在"景区内集合"这个尺度上足以让人走到马路对面。
    *
    * 失败时不报错了事：明确给出原因并提供手动选点的退路。
-   * 这正是 docs/01 §0 决定 3 的落地 —— 定位来源可替换，算法不感知来源。
+   * 这正是 docs/项目计划书.md#data-model §0 决定 3 的落地 —— 定位来源可替换，算法不感知来源。
    */
   useGps() {
     const that = this
@@ -1305,10 +1827,19 @@ Page({
    * （比如其中一处忘了清 `photoNote`），而那种不一致很难被发现。
    */
   selectPlace(placeId) {
+    if (this.hasActiveMeeting()) {
+      this.syncMeetingSelection()
+      this.setData({ note: '已有进行中的集合，集合点以队伍公布的位置为准。' })
+      return false
+    }
     const place = this.data.places.find(function (p) {
       return p.placeId === placeId
     })
     if (!place) return false
+    if (!isValidPoint(place)) {
+      this.setData({ coordinateError: '集合点坐标异常，请重新选择集合点' })
+      return false
+    }
 
     this.setData({ meetingPoint: place, photoNote: '', currentPhotos: this.photosOf(place) })
     this.refreshMarkers()
@@ -1322,6 +1853,11 @@ Page({
    * 而且会以为"地图上本来就有一个集合点"。
    */
   clearMeeting() {
+    if (this.hasActiveMeeting()) {
+      this.syncMeetingSelection()
+      this.setData({ note: '进行中的集合点会向全队显示，请使用“取消本次集合”结束集合。' })
+      return false
+    }
     this.setData({ meetingPoint: null, photoNote: '', currentPhotos: [] })
     this.refreshMarkers()
   },
@@ -1489,8 +2025,46 @@ Page({
     )
   },
 
+  resolveMemberAvatars(members) {
+    if (!wx.cloud || !wx.cloud.getTempFileURL) return
+    const crewId = this.data.crewId
+    const generation = this.markerAvatarGeneration || 0
+    const cache = this.memberAvatarCache || (this.memberAvatarCache = {})
+    const fileList = [...new Set(members.map(m => m.avatarFileId).filter(id =>
+      typeof id === 'string' && id.startsWith('cloud://') &&
+      (!cache[id] || cache[id].until <= Date.now())))]
+    if (!fileList.length) return
+    // 失败稍后重试，避免位置轮询不断重复请求头像。
+    fileList.forEach(id => { cache[id] = { url: '', until: Date.now() + 60000 } })
+    wx.cloud.getTempFileURL({ fileList,
+      success: res => {
+        if (this.data.crewId !== crewId || (this.markerAvatarGeneration || 0) !== generation) return
+        ;(res.fileList || []).forEach(file => {
+          if (/^https:\/\//.test(file.tempFileURL || '') && (!file.status || file.status === 0)) {
+            cache[file.fileID] = { url: file.tempFileURL, until: Date.now() + 50 * 60 * 1000 }
+          }
+        })
+        this.refreshMarkers()
+      },
+      fail() {},
+    })
+  },
+
+  memberAvatar(member) {    const cached = member && (this.memberAvatarCache || {})[member.avatarFileId]
+    return (cached && cached.url) || '/assets/avatar-default.png'
+  },
+
   refreshMarkers() {
+    const shared = this.hasActiveMeeting()
+    const mp = shared ? this.sharedMeetingPoint() : this.data.meetingPoint
+    this.logInvalidCoordinates('myPoint', this.data.myPoint ? [this.data.myPoint] : [])
+    this.logInvalidCoordinates('meetingPoint', this.data.meetingPoint ? [this.data.meetingPoint] : [])
+    this.logInvalidCoordinates('teamLocations', (this.teamLocations || []).map(m => m.point))
     const markers = []
+    const markerMembers = new Map()
+    const roster = this.locationMembers || (this.data.members.length ? this.data.members :
+      (this.teamLocations || []).concat(this.data.me ? [{ userId: this.data.me }] : []))
+    const memberLabels = new Map(roster.map(m => [m.userId, (m.nickname || '').trim() || '未命名']))
     /**
      * ⚠️ **不再画库里的地点图钉**（2026-10-14 用户要求）。
      *
@@ -1527,10 +2101,10 @@ Page({
      *
      * 现在无论它在不在库里，**都画**。
      */
-    const mp = this.data.meetingPoint
     if (isValidPoint(mp)) {
       const photoUrl = (this.data.photoUrls || {})[mp.placeId] || {}
-      const firstUrl = Object.keys(photoUrl).map(function (k) {
+      // 已公布的集合点两端统一用内置图钉，不受各自照片缓存或临时地址失效影响。
+      const firstUrl = mp.fromTeamTask ? '' : Object.keys(photoUrl).map(function (k) {
         return photoUrl[k]
       })[0]
       markers.push({
@@ -1546,7 +2120,9 @@ Page({
             (mp.name || '集合点') +
             (mp.fromTeamTask ? ' · 队里定的' : '') +
             (mp.fromSuggestion ? ' · 算法推荐' : '') +
-            (mp.fromMapPick ? ' · 我在图上选的' : ''),
+            (mp.fromMapPick ? ' · 我在图上选的' : '') +
+            (mp.fromPhoto ? ' · 照片辅助选点' : '') +
+            (mp.fromGuide ? ' · 助手确认选点' : ''),
           color: '#1F2933',
           fontSize: 12,
           borderRadius: 6,
@@ -1558,15 +2134,19 @@ Page({
     }
 
     if (isValidPoint(this.data.myPoint)) {
+      const own = (this.locationMembers || this.teamLocations || []).find(m => m.userId === this.data.me)
+      if (own && own.memberKey && own.hasLocation && !own.stale && !own.sharingOff && isValidPoint(own.point)) {
+        markerMembers.set(999, own.memberKey)
+      }
       markers.push({
         id: 999,
         latitude: this.data.myPoint.latitude,
         longitude: this.data.myPoint.longitude,
-        iconPath: '/assets/dot-me.png',
-        width: 26,
-        height: 26,
+        iconPath: this.memberAvatar(own || roster.find(m => m.userId === this.data.me)),
+        width: 40,
+        height: 40,
         callout: {
-          content: '我（' + (this.data.mySource === 'gps' ? '定位接口' : '手动选点') + '）',
+          content: memberLabels.get(this.data.me) || '我',
           color: '#0F5132',
           fontSize: 12,
           borderRadius: 6,
@@ -1608,11 +2188,11 @@ Page({
      */
     const polyline = []
 
-    if (isValidPoint(this.data.myPoint) && isValidPoint(this.data.meetingPoint)) {
+    if (isValidPoint(this.data.myPoint) && isValidPoint(mp)) {
       polyline.push({
         points: [
           this.data.myPoint,
-          { latitude: this.data.meetingPoint.latitude, longitude: this.data.meetingPoint.longitude },
+          { latitude: mp.latitude, longitude: mp.longitude },
         ],
         color: '#0FA98A',
         width: 4,
@@ -1621,11 +2201,27 @@ Page({
       })
     }
 
-    ;(this.teamLocations || []).filter(m => m.userId !== this.data.me && isValidPoint(m.point)).forEach((m, i) => markers.push({
-      id: 2000 + i, latitude: m.point.latitude, longitude: m.point.longitude,
-      iconPath: '/assets/dot-me.png', width: 24, height: 24,
-      callout: { content: '队员 ' + (i + 1) + (m.stale ? ' · 上次位置（已过期）' : '') + (m.source === 'gps' ? ' · 定位' : ' · 手动'), display: 'ALWAYS' },
-    }))
+    ;(this.teamLocations || []).filter(m => m.userId !== this.data.me && isValidPoint(m.point))
+      .sort((a, b) => a.userId < b.userId ? -1 : a.userId > b.userId ? 1 : 0).forEach((m, i) => {
+        const markerId = 2000 + i
+        if (m.memberKey && !m.stale && !m.sharingOff) markerMembers.set(markerId, m.memberKey)
+        markers.push({
+          id: markerId, latitude: m.point.latitude, longitude: m.point.longitude,
+          iconPath: this.memberAvatar(m), width: 40, height: 40,
+          alpha: m.stale ? 0.25 : 1,
+          callout: { content: (memberLabels.get(m.userId) || '未命名') + (m.stale ? '\n上次位置（已过期）' : ''),
+            display: 'ALWAYS', color: '#1F2933', fontSize: 12, borderRadius: 6, bgColor: '#FFFFFF', padding: 6 },
+        })
+      })
+    if (this.chatCallouts) for (const marker of markers) {
+      // 本机图钉已由 myPoint 定位；本人消息不再等待云端位置上报/成员列表同步。
+      // 队友仍须用稳定成员键匹配有效共享位置，不能按昵称或相邻坐标推断。
+      const message = (marker.id === 999 && this.chatCallouts.getOwn()) ||
+        this.chatCallouts.get(markerMembers.get(marker.id))
+      // 用户名始终独立保存；消息通过自定义气泡展示，不能把两者拼入同一个 callout。
+      if (message && marker.callout) marker.chatBubble = { content: message.text,
+        fontSize: 12, padding: 8 }
+    }
     /**
      * ⚠️ 这里**不再**单独为 `teamMeeting` 画一个图钉（2026-10-14 去掉）。
      *
@@ -1636,8 +2232,32 @@ Page({
      */
     const invalid = [this.data.myPoint, this.data.meetingPoint].filter(p => p && !isValidPoint(p)).length +
       (this.teamLocations || []).filter(m => !isValidPoint(m.point)).length + (this.invalidTeamLocations || 0)
-    this.setData({ markers, polyline, markerPlaceIndex,
-      coordinateError: invalid ? '部分位置坐标异常，已跳过显示，请重新定位或选择集合点' : '',
+    const laidOutMarkers = layoutMarkerLabels(markers, this.markerLayoutScale || this.data.scale)
+    const memberChatCallouts = laidOutMarkers.filter(marker => marker.chatBubble).map(marker => ({
+      id: marker.id, name: marker.callout.content, nameColor: marker.callout.color,
+      lines: marker.chatBubble.content.split('\n'),
+      width: marker.chatBubble.width,
+      groupWidth: marker.chatBubble.groupWidth,
+    }))
+    this.setData({ markers: laidOutMarkers, memberChatCallouts, polyline, markerPlaceIndex,
+      ...(shared ? { meetingPoint: mp, pickMode: false } : {}),
+      coordinateError: shared && !mp ? '集合点坐标异常，请刷新队伍信息；暂不显示其他选点代替。'
+        : invalid ? '部分位置坐标异常，已跳过显示，请重新定位或选择集合点' : '',
+    })
+  },
+
+  /** 仅在异常变化时记录来源与坏坐标，不输出成员身份或完整位置列表。 */
+  logInvalidCoordinates(source, points) {
+    const invalid = points.filter(p => !isValidPoint(p)).map(p => ({
+      latitude: p && p.latitude,
+      longitude: p && p.longitude,
+    }))
+    const signature = JSON.stringify(invalid)
+    this.coordinateIssueSignatures = this.coordinateIssueSignatures || {}
+    if (this.coordinateIssueSignatures[source] === signature) return
+    this.coordinateIssueSignatures[source] = signature
+    if (invalid.length) console.warn('[team-map:coordinate-guard-v2] 已拦截异常坐标', {
+      source, count: invalid.length, points: invalid.slice(0, 5),
     })
   },
 })

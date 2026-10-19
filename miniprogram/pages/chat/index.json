@@ -1,0 +1,4 @@
+{
+  "navigationBarTitleText": "队伍聊天",
+  "usingComponents": { "voice-input": "/components/voice-input/index" }
+}

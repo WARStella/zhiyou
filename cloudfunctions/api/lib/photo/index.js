@@ -120,7 +120,7 @@ function createPhotoService(opts) {
           url: ph.url,
           title: ph.title || null,
           source: 'upstream',
-          /** ⚠️ 由来源推导：联网抓来的图**永远不是**踏勘实拍（docs/01 §2.2.2） */
+          /** ⚠️ 由来源推导：联网抓来的图**永远不是**踏勘实拍（docs/项目计划书.md#data-model §2.2.2） */
           verified: false,
           provider: ph.provider || provider.name,
           poisId: ph.poisId || null,

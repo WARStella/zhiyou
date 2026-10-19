@@ -4,6 +4,7 @@ const resp = require('../lib/resp');
 const { CODES, fail, assert } = require('../lib/errors');
 const { resolveParams, ALGO_VERSION } = require('../lib/params');
 const C = require('../lib/repo/collections');
+const { dependencyStatus } = require('../lib/config-health');
 const { MANUAL_UNIQUE_INDEXES } = require('../lib/repo/indexes');
 /** `ops.walkStats` 要在报告里对照"现在产品用的那个常数" */
 const geo = require('../lib/geo');
@@ -259,7 +260,7 @@ async function health(ctx) {
 
   // ⚠️ 必须使用**结构化查询**，不能用函数谓词：
   // 云数据库无法表达函数谓词，若用谓词，本地内存仓储能跑通而线上会算错 —— 且不报错。
-  // 「已核验」= verifiedAt 非空 且 confidence 不为 low（见 docs/01 §2.2）。
+  // 「已核验」= verifiedAt 非空 且 confidence 不为 low（见 docs/项目计划书.md#data-model §2.2）。
   // 这里用 neq: null 而不是 exists: true，因为 exists 会把 verifiedAt 为 null 的地点也算进来。
   const [placeCount, verifiedPlaceCount, userCount, crewCount] = await Promise.all([
     repo.count(C.PLACES, {}),
@@ -286,12 +287,7 @@ async function health(ctx) {
         users: userCount,
         crews: crewCount,
       },
-      // 明确列出依赖状态，避免"看起来能跑其实缺数据"
-      deps: {
-        mapService: '未接入（10/14 验证）',
-        llm: '由 C 负责，B 不依赖其可用性',
-        locationApi: '待确认权限（见 10/13 行动清单）',
-      },
+      deps: dependencyStatus(),
     },
     { serverTime: now.toISOString() }
   );
@@ -324,7 +320,7 @@ async function initDb(ctx) {
   assert(env === 'dev', CODES.FORBIDDEN_ENV, `当前环境为 ${env}，禁止执行初始化`);
   assert(p.confirm === true, CODES.INVALID_PARAM, '需要显式传入 confirm: true');
 
-  // 先把 14 个集合全部显式创建出来。
+  // 先把集合登记表中的全部集合显式创建出来。
   // ⚠️ 实测结论（2026-10-13）：向不存在的集合 add() **不会**自动建集合，会抛 -502005。
   // 所以这一步不是"优化"，而是后续一切写入的前提。
   // 同时云开发控制台只能在**已存在的集合**上建索引，因此集合必须先落地。
@@ -373,10 +369,13 @@ async function initDb(ctx) {
       { collection: C.PLACES, fields: 'name', unique: false },
       { collection: C.PLACES, fields: 'category', unique: false },
       { collection: C.CREW_MEMBERS, fields: 'crewId + status', unique: false },
+      { collection: C.CREW_MESSAGES, fields: 'crewId + seq(desc)', unique: false },
+      { collection: C.GUIDE_SESSIONS, fields: 'expiresAt', unique: false },
       { collection: C.LOCATIONS, fields: 'userId + reportedAt(desc)', unique: false },
       { collection: C.LOCATIONS, fields: 'crewId + reportedAt(desc)', unique: false },
       { collection: C.LOCATIONS, fields: 'expiresAt', unique: false },
       { collection: C.EVENTS, fields: 'ts(desc)', unique: false },
+      { collection: C.EVENTS, fields: 'action + userId + type + ts(desc)', unique: false },
       { collection: C.DECISIONS, fields: 'kind + ts(desc)', unique: false },
     ]).map((i) => ({
       collection: i.collection,
@@ -545,7 +544,7 @@ async function selfTest(ctx) {
     knownLimitations: knownLimitations.map((k) => ({
       name: k.name,
       errCode: k.errCode,
-      note: '代码已规避该形态（见 docs/01 §0 决定 4）',
+      note: '代码已规避该形态（见 docs/项目计划书.md#data-model §0 决定 4）',
     })),
     verdict:
       critical.length === 0

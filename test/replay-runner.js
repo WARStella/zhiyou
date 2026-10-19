@@ -55,6 +55,7 @@ const { createHash } = require('node:crypto');
 
 const { makeWorld } = require('./helpers');
 const C = require('../cloudfunctions/api/lib/repo/collections');
+const { POLICY_VERSION: LOCATION_POLICY_VERSION } = require('../cloudfunctions/api/lib/location-consent');
 const { createMapProvider } = require('../cloudfunctions/api/lib/map');
 const { createReplayTransport, kindOfUrl } = require('../cloudfunctions/api/lib/map/replay');
 const { createTencentProvider } = require('../cloudfunctions/api/lib/map/tencent');
@@ -243,6 +244,11 @@ async function injectFixture(w, caseDef) {
   await w.repo.insert(C.CREWS, crewDoc);
 
   for (const m of s.crew.members) {
+    const consentId = m.locationSharing === true ? `fixture-consent-${crewId}-${m.userId}` : null;
+    if (consentId) await w.repo.insert(C.PRIVACY_CONSENTS, {
+      _id: consentId, userId: m.userId, crewId, scope: 'location', purpose: 'crew_location_sharing',
+      policyVersion: LOCATION_POLICY_VERSION, granted: true, source: 'replay_fixture', grantedAt: s.clock || null,
+    });
     await w.repo.insert(
       C.CREW_MEMBERS,
       definedOnly({
@@ -251,6 +257,9 @@ async function injectFixture(w, caseDef) {
         role: m.role,
         status: m.status,
         locationSharing: m.locationSharing,
+        locationConsentId: consentId,
+        locationConsentPolicyVersion: consentId ? LOCATION_POLICY_VERSION : null,
+        locationConsentGrantedAt: consentId ? s.clock : null,
         joinedAt: m.joinedAt || null,
         leftAt: m.leftAt === undefined ? null : m.leftAt,
         lastLocationAt: m.lastLocationAt === undefined ? null : m.lastLocationAt,
@@ -260,6 +269,7 @@ async function injectFixture(w, caseDef) {
   notes.push(
     `crew_members：${s.crew.members.length} 条，按案例给的 role/status/locationSharing 注入（joinedAt 案例未给则写 null）`
   );
+  notes.push('明确共享的历史夹具补本版同意记录，source=replay_fixture，仅为内存测试前置条件，不是线上用户真实同意。重新加入仍须主动开启。');
 
   if (s.trip) {
     await w.repo.insert(C.TRIPS, Object.assign({ _id: s.trip.tripId }, s.trip));
@@ -411,7 +421,9 @@ function resolvePayload(value, state) {
 //    执行器只负责：按裁决改状态、把 finding 原样带进记录与测试。
 
 /** 实现有缺陷 → 该案例记 blocked，测试变红，**不放宽断言**。 */
-const CASE_VERDICTS = {
+// 2026-10-15 修复后，replay-021 的原有机器断言全部通过。
+// 保留旧缺陷证据供追溯；已解决的裁决不再覆盖真实执行结果。
+const RESOLVED_CASE_VERDICTS = {
   'replay-021': {
     status: 'blocked',
     finding: {
@@ -485,14 +497,22 @@ const CASE_VERDICTS = {
   },
 };
 
+const CASE_VERDICTS = {};
+
 /** 案例与文档约定矛盾 → 记 caseDefect，**不改 cases.v1.json**，只报告。 */
 const CASE_DEFECTS = {
+  'replay-017': [{
+    where: '重新加入后恢复队伍默认共享开关',
+    observed: '重新加入后共享关闭，旧同意不恢复',
+    basis: '2026-10-15 用户授权修复隐私同意留痕；建队、入队均不代表本人同意共享位置。',
+    impact: '保留原始 cases.v1.json，执行器明确改用当前隐私规则：重新加入复用身份记录，但必须重新主动开启共享。其余成员、鉴权和集合断言保留。',
+  }],
   'replay-001': [
     {
       where: 'expectedState.response.step1.status = "confirmed"',
       observed: '"active"（第一位成员标记到达后，集合任务由 confirmed 进入 active）',
       basis:
-        'docs/01_数据模型_v1.md §2.10 的状态机是 `proposed → confirmed → active → arrived_all → departed → completed`，' +
+        'docs/项目计划书.md#data-model §2.10 的状态机是 `proposed → confirmed → active → arrived_all → departed → completed`，' +
         '计划书 §7.2 的流程亦为「… 生效 → 前往 → 到达 → 到齐 → 出发 …」。' +
         '既然"已经有人在标记到达"，状态就已经不在 confirmed 了；' +
         '实现（domain/meet.js `applyArrive`：未全员到齐且原状态为 confirmed 时置 active）与文档一致。',
@@ -1737,10 +1757,10 @@ CASE_SPECS['replay-017'] = {
       if (res.data.crew.memberCount !== 3) problems.push(`memberCount=${res.data.crew.memberCount}`);
       if (!c) problems.push('成员名单里没有 member-c');
       else if (c.role !== 'member') problems.push(`member-c.role=${c.role}`);
-      else if (c.locationSharing !== true) problems.push(`member-c.locationSharing=${c.locationSharing}`);
+      else if (c.locationSharing !== false) problems.push(`member-c.locationSharing=${c.locationSharing}`);
       return problems.length
         ? fail(problems.join('；'))
-        : pass(`memberCount=3，member-c 回到名单（role=member, locationSharing=true）`);
+        : pass(`memberCount=3，member-c 回到名单（role=member, locationSharing=false，须重新主动开启）`);
     }),
     9: E.ok({ 'meetTask.status': 'confirmed', 'meetTask.version': 1 }, '重新加入不等于回到该次集合的参与名单'),
   },
@@ -1889,7 +1909,7 @@ CASE_SPECS['replay-017'] = {
       ],
     },
     {
-      text: '重新加入复用原成员记录（不新增重复成员），且位置共享重置为队伍默认值，不继承退出前的设置',
+      text: '重新加入复用原成员记录（不新增重复成员），位置共享关闭且旧同意不恢复（本轮隐私规则替代旧默认值规则）',
       checks: [
         {
           at: 7,
@@ -1907,35 +1927,36 @@ CASE_SPECS['replay-017'] = {
         },
         {
           at: 7,
-          desc: '位置共享按队伍默认值重置（退出前为 false）',
+          desc: '重新加入保持关闭，清除旧同意',
           run: async (ctx) => {
             const m = await ctx.repo.findOne(C.CREW_MEMBERS, { crewId: 'crew-a', userId: 'member-c' });
             const crew = await ctx.repo.get(C.CREWS, 'crew-a');
             const problems = [];
-            if (m.locationSharing !== true) problems.push(`locationSharing=${m.locationSharing}`);
-            if (m.locationSharing !== (crew.shareLocationDefault !== false)) problems.push('未按队伍默认值设置');
+            if (m.locationSharing !== false || m.locationConsentPolicyVersion) problems.push('重新加入未经主动同意就恢复共享');
             if (m.leftAt !== null) problems.push(`leftAt=${iso(m.leftAt)}（重新加入应清空）`);
             if (m.status !== 'active') problems.push(`status=${m.status}`);
             return problems.length
               ? fail(problems.join('；'))
               : pass(
-                  `重新加入后 locationSharing=true（退出时是 false，队伍默认 shareLocationDefault=${crew.shareLocationDefault}）、leftAt=null、status=active`
+                  '重新加入后 locationSharing=false、旧同意已清除、leftAt=null、status=active'
                 );
           },
         },
       ],
     },
     {
-      text: '退出与重新加入都不得改写既有集合任务的 participants（重新加入不等于回到该次集合的参与名单）',
+      text: '退出后移出本轮参与名单并保留退出记录；重新加入不恢复本轮参与资格',
       checks: [
         {
           at: 1,
           desc: '退出之后',
           run: async (ctx) => {
             const doc = await ctx.repo.get(C.MEET_TASKS, 'meet-a');
-            return canon(doc.participants) === canon(ctx.initial.meetTask.participants)
-              ? pass('退出没有改动集合任务的 participants')
-              : fail(`participants 被改写：${trim(canon(doc.participants))}`);
+            const expected = ctx.initial.meetTask.participants.filter(p => p.userId !== 'member-c');
+            return canon(doc.participants) === canon(expected) &&
+              (doc.withdrawnParticipants || []).some(p => p.userId === 'member-c')
+              ? pass('已退出成员不再阻塞集合，退出前的参与记录保留')
+              : fail(`参与或退出记录不正确：${trim(canon(doc.participants))}`);
           },
         },
         {
@@ -1945,18 +1966,19 @@ CASE_SPECS['replay-017'] = {
             const doc = await ctx.repo.get(C.MEET_TASKS, 'meet-a');
             const resp = ctx.data(9).meetTask;
             const problems = [];
-            if (canon(doc.participants) !== canon(ctx.initial.meetTask.participants)) problems.push('存储层的 participants 被改写');
-            if (canon(resp.participants) !== canon(ctx.initial.meetTask.participants)) problems.push('响应里的 participants 被改写');
+            const expected = ctx.initial.meetTask.participants.filter(p => p.userId !== 'member-c');
+            if (canon(doc.participants) !== canon(expected)) problems.push('存储层重新加入恢复了旧参与资格');
+            if (canon(resp.participants) !== canon(expected)) problems.push('响应重新加入恢复了旧参与资格');
             if (doc.version !== 1) problems.push(`version=${doc.version}`);
             return problems.length
               ? fail(problems.join('；'))
-              : pass('退出与重新加入之后，集合任务的 participants 与 version 仍与夹具一致')
+              : pass('重新加入不恢复本轮参与资格，集合版本未变')
           },
         },
       ],
     },
     {
-      text: '退出不得改写集合任务或行程（不得顺手改 meet / trip）',
+      text: '退出仅重算集合参与人数和状态，不改集合地点时间或原行程',
       checks: [
         {
           at: 1,
@@ -1965,9 +1987,11 @@ CASE_SPECS['replay-017'] = {
             const meet = await ctx.repo.get(C.MEET_TASKS, 'meet-a');
             const trip = await ctx.repo.get(C.TRIPS, 'trip-a');
             const problems = [];
-            if (canon(meet) !== canon(ctx.initial.meetTask)) problems.push('集合任务被改写');
+            for (const key of ['version', 'placeId', 'point', 'plannedMeetAt', 'tripId']) {
+              if (canon(meet[key]) !== canon(ctx.initial.meetTask[key])) problems.push(`集合 ${key} 被改写`);
+            }
             if (canon(trip) !== canon(ctx.initial.trip)) problems.push('行程被改写');
-            return problems.length ? fail(problems.join('；')) : pass('exit 只动了 crew 与 crew_members，meet_tasks / trips 逐字段一致');
+            return problems.length ? fail(problems.join('；')) : pass('退出仅重算集合参与状态，不改地点时间和原行程');
           },
         },
         {
@@ -1977,9 +2001,11 @@ CASE_SPECS['replay-017'] = {
             const meet = await ctx.repo.get(C.MEET_TASKS, 'meet-a');
             const trip = await ctx.repo.get(C.TRIPS, 'trip-a');
             const problems = [];
-            if (canon(meet) !== canon(ctx.initial.meetTask)) problems.push('集合任务被改写');
+            for (const key of ['version', 'placeId', 'point', 'plannedMeetAt', 'tripId']) {
+              if (canon(meet[key]) !== canon(ctx.initial.meetTask[key])) problems.push(`集合 ${key} 被改写`);
+            }
             if (canon(trip) !== canon(ctx.initial.trip)) problems.push('行程被改写');
-            return problems.length ? fail(problems.join('；')) : pass('重新加入同样没有碰 meet_tasks / trips');
+            return problems.length ? fail(problems.join('；')) : pass('重新加入不恢复旧参与资格，不改地点时间和原行程');
           },
         },
       ],
@@ -2001,7 +2027,7 @@ CASE_SPECS['replay-017'] = {
     },
     {
       at: 8,
-      text: 'expectedState.crew（重新加入后）：memberCount=3，member-c 回到名单且 active/role=member/locationSharing=true',
+      text: 'expectedState.crew（本轮隐私规则）：memberCount=3，member-c 回到名单且 active/role=member/locationSharing=false',
       run: async (ctx) => {
         const crewResp = ctx.data(8); // 第 8 步的 crew.get 响应
         const c = crewResp.members.find((m) => m.userId === 'member-c');
@@ -2010,21 +2036,22 @@ CASE_SPECS['replay-017'] = {
         if (!c) problems.push('成员名单里没有 member-c');
         else {
           if (c.role !== 'member') problems.push(`role=${c.role}`);
-          if (c.locationSharing !== true) problems.push(`locationSharing=${c.locationSharing}`);
+          if (c.locationSharing !== false) problems.push(`locationSharing=${c.locationSharing}`);
         }
-        return problems.length ? fail(problems.join('；')) : pass('memberCount=3，member-c 在名单里（role=member，locationSharing=true）');
+        return problems.length ? fail(problems.join('；')) : pass('memberCount=3，member-c 在名单里（role=member，locationSharing=false）');
       },
     },
     {
       at: 9,
-      text: 'expectedState.meetTask：status=confirmed、version=1、participants 与初始一致',
+      text: 'expectedState.meetTask：status=confirmed、version=1、participants 排除已退出成员',
       run: async (ctx) => {
         const doc = await ctx.repo.get(C.MEET_TASKS, 'meet-a');
         const problems = [];
         if (doc.status !== 'confirmed') problems.push(`status=${doc.status}`);
         if (doc.version !== 1) problems.push(`version=${doc.version}`);
-        if (canon(doc.participants) !== canon(ctx.initial.meetTask.participants)) problems.push('participants 与初始不一致');
-        return problems.length ? fail(problems.join('；')) : pass('status=confirmed version=1 participants 与初始一致');
+        const expected = ctx.initial.meetTask.participants.filter(p => p.userId !== 'member-c');
+        if (canon(doc.participants) !== canon(expected)) problems.push('participants 未排除已退出成员');
+        return problems.length ? fail(problems.join('；')) : pass('status=confirmed version=1，退出者不再计入本轮集合');
       },
     },
   ],
@@ -2642,26 +2669,25 @@ const MUST_NOT_HAPPEN = {
       ],
     },
     {
-      text: '重新加入时保留退出前关闭共享的设置（应当回到队伍默认值）',
+      text: '重新加入时自动恢复共享或沿用旧同意（本轮隐私规则）',
       checks: [
         {
           at: 7,
-          desc: '退出时被置为 false → 重新加入后是否按队伍默认值重置',
+          desc: '退出时被置为 false → 重新加入后仍须本人重新开启',
           run: async (ctx) => {
             const crew = await ctx.repo.get(C.CREWS, 'crew-a');
             const afterLeave = ctx.captured('member-c.locationSharing.afterLeave');
             const now = await ctx.repo.findOne(C.CREW_MEMBERS, { crewId: 'crew-a', userId: 'member-c' });
-            const want = crew.shareLocationDefault !== false;
+            const want = false;
             const problems = [];
             if (afterLeave !== false) {
               problems.push(`退出时存储层的 locationSharing=${afterLeave}（crew.leave 应当置 false，这条前置条件不成立）`);
             }
-            if (now.locationSharing !== want) problems.push(`重新加入后 locationSharing=${now.locationSharing}，应为队伍默认值 ${want}`);
+            if (now.locationSharing !== want || now.locationConsentPolicyVersion) problems.push('重新加入恢复了共享或旧同意');
             return problems.length
               ? fail(problems.join('；'))
               : pass(
-                  `退出时存储层 false → 重新加入后 ${now.locationSharing} = 队伍默认值（shareLocationDefault=${crew.shareLocationDefault}），` +
-                    '没有继承退出前的设置'
+                  '退出和重新加入后共享均为 false，旧同意不恢复'
                 );
           },
         },
@@ -2864,6 +2890,7 @@ async function runCase(caseId) {
     seedPlaces: [],
     createMapProvider: mapFixture ? mapFixture.factory : makeRecordingFakeMapFactory(mapBucket),
     createTransitProvider: spec.usesFailingReplayMap ? makeFailingReplayTransitProvider() : null,
+    createSpeechProvider: null, createOcrProvider: null, createGuideProvider: null, createInviteProvider: null, createSubscribeProvider: null,
   });
 
   const { notes: fixtureNotes, crewId } = await injectFixture(world, caseDef);
@@ -3424,6 +3451,7 @@ module.exports = {
   REPLAY_CASE_IDS,
   EVIDENCE_LEVEL_NOTE,
   CASE_VERDICTS,
+  RESOLVED_CASE_VERDICTS,
   CASE_DEFECTS,
   CASE_SPECS,
   DATASET_PATH,

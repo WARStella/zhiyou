@@ -15,6 +15,7 @@ test('集合点无实地核验数据也能推荐并发起，路线不显示核�
   const w = await makeWorld({ seedPlaces: [{ _id: 'p_map', name: '地图集合点', location: point,
     category: 'meeting', confidence: 'normal', verifiedAt: null, dataSource: 'tencent-poi' }] });
   const crew = expectOk(await w.A('crew.create', { name: '地图选点队', shareLocationDefault: true }));
+  await require('./helpers').enableLocation(w, 'A', crew.crewId);
   expectOk(await w.A('loc.report', { crewId: crew.crewId, point, source: 'gps' }));
   const recommended = expectOk(await w.A('meet.recommend', { crewId: crew.crewId }));
   assert.equal(recommended.candidates[0].placeId, 'p_map');
@@ -177,7 +178,8 @@ test('过期位置明确标注，不静默消失；退出队伍清空图钉', as
   p.setData({ crewId: 'c1' });
   p.refreshTeamLocations();
   await flush();
-  assert.match(p.data.markers.find(m => m.id === 2000).callout.content, /过期/);
+  assert.equal(p.data.markers.find(m => m.id === 2000).alpha, 0.25, '过期头像明显变淡');
+  assert.match(p.data.markers.find(m => m.id === 2000).callout.content, /上次位置（已过期）/);
   p.loadCrew();
   assert.equal(p.data.markers.some(m => m.id === 2000), false);
 });

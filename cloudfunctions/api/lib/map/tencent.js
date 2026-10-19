@@ -40,11 +40,12 @@
  *
  * 另一条纪律：本模块**绝不**在失败时返回估算值。失败就是 `ok:false`，
  * 由调用方决定是否降级到直线估算（见 lib/geo.js），
- * 否则会出现"地图接口挂了，却给出一个看起来可行的方案"（docs/01 §3）。
+ * 否则会出现"地图接口挂了，却给出一个看起来可行的方案"（docs/项目计划书.md#data-model §3）。
  */
 
 const { HttpError, redact, maskSecret } = require('../http');
 const { decodeRoute } = require('./polyline');
+const { coord } = require('../geo');
 
 const DEFAULT_BASE = 'https://apis.map.qq.com/ws/direction/v1/walking/';
 /** 地点检索端点（WebServiceAPI · 搜索服务） */
@@ -109,7 +110,7 @@ function describeShape(node, prefix, out, depth) {
  * 上游 status 码 → 可执行的下一步。
  *
  * 只收录**已实测确认**的码，不凭记忆补全 —— 猜错的指引比没有指引更糟。
- * 新遇到的码先加到这里，再写进 docs/04_工作日志.md。
+ * 新遇到的码先加到这里，再写进 docs/开发日志.md#development-history。
  */
 const STATUS_HINTS = {
   121:
@@ -298,6 +299,118 @@ function createTencentProvider(opts) {
   const matrixBaseUrl = opts.matrixBaseUrl || MATRIX_ENDPOINT;
   const timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT_MS;
 
+  async function roadRoute(from, to, mode) {
+    const requestUrl =
+      `${mode === 'walking' ? baseUrl : DIRECTION_ENDPOINTS[mode]}?from=${from.latitude},${from.longitude}` +
+      `&to=${to.latitude},${to.longitude}` +
+      (mode === 'driving' ? '&policy=LEAST_TIME' : '') +
+      `&key=${encodeURIComponent(key)}`;
+
+    const base = {
+      provider: 'tencent', mode,
+      // ⚠️ 请求 URL 已脱敏，Key 不会出现在结果里
+      requestCount: 0,
+      requestUrl: redact(requestUrl),
+      from: { latitude: from.latitude, longitude: from.longitude },
+      to: { latitude: to.latitude, longitude: to.longitude },
+    };
+
+    if (!key) {
+      return Object.assign(base, {
+        ok: false,
+        reason: 'MAP_KEY_NOT_CONFIGURED',
+        message: '云函数环境变量 MAP_KEY 未配置，无法调用地图服务',
+        hint: '云开发控制台 → 云函数 → api → 配置 → 环境变量 → 新增 MAP_KEY',
+      });
+    }
+
+    const started = Date.now();
+    let res;
+    try {
+      base.requestCount++;
+      res = await http(requestUrl, { timeoutMs });
+    } catch (e) {
+      return Object.assign(base, {
+        ok: false,
+        reason: e && e.code === 'UPSTREAM_MAP_FAILED' ? 'UPSTREAM_FAILED' : 'UNKNOWN',
+        message: (e && e.message) || String(e),
+        details: (e && e.details) || null,
+        timingMs: Date.now() - started,
+      });
+    }
+
+    const timingMs = Date.now() - started;
+    const body = res.json || {};
+    const status = body.status;
+    const message = body.message;
+    const routes = (body.result && body.result.routes) || [];
+    const route = routes.filter(r => Number.isFinite(r.duration) && r.duration >= 0 && Number.isFinite(r.distance) && r.distance >= 0)
+      .reduce((best, r) => !best || r.duration < best.duration ? r : best, null);
+
+    const distanceMeters = route && typeof route.distance === 'number' ? route.distance : null;
+    const durationRaw = route && typeof route.duration === 'number' ? route.duration : null;
+    const unitCheck = mode === 'walking' ? checkDurationUnit(distanceMeters, durationRaw)
+      : { unit: 'minute', note: '腾讯路线规划 duration 单位为分钟' };
+    const durationMinutes =
+      unitCheck.unit === 'second' && durationRaw !== null
+        ? Math.round((durationRaw / 60) * 10) / 10
+        : durationRaw;
+
+    const polyline = (route && Array.isArray(route.polyline) && route.polyline) || [];
+    const steps = (route && Array.isArray(route.steps) && route.steps) || [];
+
+    const ok = status === 0 && Boolean(route) && Number.isFinite(distanceMeters) && distanceMeters >= 0 && Number.isFinite(durationMinutes) && durationMinutes >= 0;
+
+    return Object.assign(base, {
+      ok,
+      reason: ok ? null : 'UPSTREAM_STATUS_' + String(status),
+      // ── 原始字段，逐项核对用 ──
+      status,
+      message,
+      /** 把 status 码翻译成可执行的下一步（只收录实测确认过的码） */
+      hint: ok ? null : statusHint(status),
+      httpStatus: res.httpStatus,
+      timingMs,
+      routeCount: routes.length,
+      // ── 解析结果，字段路径写在这里，便于核对是否解析错位 ──
+      parsedVia: {
+        distance: 'result.routes[0].distance',
+        duration: 'result.routes[0].duration',
+        polyline: 'result.routes[0].polyline',
+        steps: 'result.routes[0].steps',
+      },
+      distanceMeters,
+      /** 上游原样返回的 duration（单位由 unitCheck 判定） */
+      durationRaw,
+      /** 单位自检结果，见 checkDurationUnit 的注释 */
+      durationUnit: unitCheck.unit,
+      unitCheck,
+      /** 归一化后的分钟数 —— 规划器只用这个字段 */
+      durationMinutes,
+      /** 折线点数：腾讯返回**扁平数组**，每 2 个数一个点，但其中含 0,0 占位，实际有效点见 polylinePointCount */
+      polylineNumbers: polyline.length,
+      polylinePointCount: polyline.length ? Math.floor(polyline.length / 2) : 0,
+      polylineHead: polyline.slice(0, 8),
+      stepCount: steps.length,
+      firstStep: steps[0] || null,
+
+      /**
+       * ── 解码后的路线（导航用）──────────────────────────────
+       *
+       * `route.points` 是**可直接画在地图上的真实路径**，
+       * `route.steps` 带**上游原话的转向指引**。
+       * 解码格式与验证方式见 `lib/map/polyline.js` 的文件头
+       * （用真实录音确认过：末点落在目的地、折线长度与 distance 吻合）。
+       *
+       * ⚠️ 解析失败时这里是 `decoded: false`，**不是 null** ——
+       * 调用方要能分清"上游没给路径"与"我解不开"。
+       */
+      route: decodeRoute({ distance: distanceMeters, duration: durationMinutes, polyline, steps, direction: route && route.direction }),
+      // 原始返回头部，供人工核对结构与坐标系。
+      rawHead: String(res.rawBody || '').slice(0, RAW_HEAD_LIMIT),
+    });
+  }
+
   return {
     name: 'tencent',
     /** 是否配置了 Key —— 用于自检显示，不泄露值 */
@@ -365,6 +478,7 @@ function createTencentProvider(opts) {
       const base = {
         provider: 'tencent',
         operation: 'distance/matrix',
+        requestCount: 0,
         mode: m,
         from: { latitude: from.latitude, longitude: from.longitude },
       };
@@ -420,6 +534,7 @@ function createTencentProvider(opts) {
       const started = Date.now();
       let res;
       try {
+        base.requestCount++;
         res = await http(requestUrl, { timeoutMs });
       } catch (e) {
         return Object.assign(base, {
@@ -527,112 +642,9 @@ function createTencentProvider(opts) {
      * 查询步行路线。
      * @returns {Promise<object>} **调用方必须检查 `ok`**
      */
-    async walkingRoute(from, to) {
-      const requestUrl =
-        `${baseUrl}?from=${from.latitude},${from.longitude}` +
-        `&to=${to.latitude},${to.longitude}` +
-        `&key=${encodeURIComponent(key)}`;
-
-      const base = {
-        provider: 'tencent',
-        // ⚠️ 请求 URL 已脱敏，Key 不会出现在结果里
-        requestUrl: redact(requestUrl),
-        from: { latitude: from.latitude, longitude: from.longitude },
-        to: { latitude: to.latitude, longitude: to.longitude },
-      };
-
-      if (!key) {
-        return Object.assign(base, {
-          ok: false,
-          reason: 'MAP_KEY_NOT_CONFIGURED',
-          message: '云函数环境变量 MAP_KEY 未配置，无法调用地图服务',
-          hint: '云开发控制台 → 云函数 → api → 配置 → 环境变量 → 新增 MAP_KEY',
-        });
-      }
-
-      const started = Date.now();
-      let res;
-      try {
-        res = await http(requestUrl, { timeoutMs });
-      } catch (e) {
-        return Object.assign(base, {
-          ok: false,
-          reason: e && e.code === 'UPSTREAM_MAP_FAILED' ? 'UPSTREAM_FAILED' : 'UNKNOWN',
-          message: (e && e.message) || String(e),
-          details: (e && e.details) || null,
-          timingMs: Date.now() - started,
-        });
-      }
-
-      const timingMs = Date.now() - started;
-      const body = res.json || {};
-      const status = body.status;
-      const message = body.message;
-      const routes = (body.result && body.result.routes) || [];
-      const route = routes[0] || null;
-
-      const distanceMeters = route && typeof route.distance === 'number' ? route.distance : null;
-      const durationRaw = route && typeof route.duration === 'number' ? route.duration : null;
-      const unitCheck = checkDurationUnit(distanceMeters, durationRaw);
-      const durationMinutes =
-        unitCheck.unit === 'second' && durationRaw !== null
-          ? Math.round((durationRaw / 60) * 10) / 10
-          : durationRaw;
-
-      const polyline = (route && Array.isArray(route.polyline) && route.polyline) || [];
-      const steps = (route && Array.isArray(route.steps) && route.steps) || [];
-
-      const ok = status === 0 && Boolean(route) && distanceMeters !== null;
-
-      return Object.assign(base, {
-        ok,
-        reason: ok ? null : 'UPSTREAM_STATUS_' + String(status),
-        // ── 原始字段，逐项核对用 ──
-        status,
-        message,
-        /** 把 status 码翻译成可执行的下一步（只收录实测确认过的码） */
-        hint: ok ? null : statusHint(status),
-        httpStatus: res.httpStatus,
-        timingMs,
-        routeCount: routes.length,
-        // ── 解析结果，字段路径写在这里，便于核对是否解析错位 ──
-        parsedVia: {
-          distance: 'result.routes[0].distance',
-          duration: 'result.routes[0].duration',
-          polyline: 'result.routes[0].polyline',
-          steps: 'result.routes[0].steps',
-        },
-        distanceMeters,
-        /** 上游原样返回的 duration（单位由 unitCheck 判定） */
-        durationRaw,
-        /** 单位自检结果，见 checkDurationUnit 的注释 */
-        durationUnit: unitCheck.unit,
-        unitCheck,
-        /** 归一化后的分钟数 —— 规划器只用这个字段 */
-        durationMinutes,
-        /** 折线点数：腾讯返回**扁平数组**，每 2 个数一个点，但其中含 0,0 占位，实际有效点见 polylinePointCount */
-        polylineNumbers: polyline.length,
-        polylinePointCount: polyline.length ? Math.floor(polyline.length / 2) : 0,
-        polylineHead: polyline.slice(0, 8),
-        stepCount: steps.length,
-        firstStep: steps[0] || null,
-
-        /**
-         * ── 解码后的路线（导航用）──────────────────────────────
-         *
-         * `route.points` 是**可直接画在地图上的真实步行路径**，
-         * `route.steps` 带**上游原话的转向指引**。
-         * 解码格式与验证方式见 `lib/map/polyline.js` 的文件头
-         * （用真实录音确认过：末点落在目的地、折线长度与 distance 吻合）。
-         *
-         * ⚠️ 解析失败时这里是 `decoded: false`，**不是 null** ——
-         * 调用方要能分清"上游没给路径"与"我解不开"。
-         */
-        route: decodeRoute({ distance: distanceMeters, duration: durationRaw, polyline, steps, direction: route && route.direction }),
-    // ── 原始返回头部，供人工核对结构与坐标系 ──
-        rawHead: String(res.rawBody || '').slice(0, RAW_HEAD_LIMIT),
-      });
-    },
+    walkingRoute(from, to) { return roadRoute(from, to, 'walking'); },
+    bicyclingRoute(from, to) { return roadRoute(from, to, 'bicycling'); },
+    drivingRoute(from, to) { return roadRoute(from, to, 'driving'); },
 
 
     /**
@@ -743,7 +755,7 @@ function createTencentProvider(opts) {
       let boundary;
       if (input.center && typeof input.center.latitude === 'number') {
         const radius = Math.min(Math.max(input.radius || 5000, 100), SEARCH_RADIUS_MAX);
-        boundary = `nearby(${input.center.latitude},${input.center.longitude},${radius})`;
+        boundary = `nearby(${input.center.latitude},${input.center.longitude},${radius}${input.autoExtend === false ? ',0' : ''})`;
       } else if (input.region) {
         // region(城市名, 0)：0 表示不限制结果类型
         boundary = `region(${input.region},0)`;
@@ -761,6 +773,7 @@ function createTencentProvider(opts) {
         `${searchBaseUrl}?keyword=${encodeURIComponent(keyword)}` +
         `&boundary=${encodeURIComponent(boundary)}` +
         `&page_size=${pageSize}&page_index=${pageIndex}` +
+        (input.orderBy === 'distance' ? '&orderby=_distance' : '') +
         `&key=${encodeURIComponent(key)}`;
 
       const base = {
@@ -769,6 +782,7 @@ function createTencentProvider(opts) {
         requestUrl: redact(requestUrl),
         keyword,
         boundary,
+        requestCount: 0,
       };
 
       if (!key) {
@@ -783,6 +797,7 @@ function createTencentProvider(opts) {
       const started = Date.now();
       let res;
       try {
+        base.requestCount++;
         res = await http(requestUrl, { timeoutMs });
       } catch (e) {
         return Object.assign(base, {
@@ -814,12 +829,9 @@ function createTencentProvider(opts) {
           title: it.title || it.name || null,
           address: it.address || null,
           category: it.category || null,
-          location:
-            typeof lat === 'number' && typeof lng === 'number'
-              ? { latitude: lat, longitude: lng }
-              : null,
+          location: coord({ latitude: lat, longitude: lng }),
           /** 仅 nearby 检索时上游返回 */
-          distanceMeters: typeof it.distance === 'number' ? it.distance : null,
+          distanceMeters: typeof it._distance === 'number' ? it._distance : typeof it.distance === 'number' ? it.distance : null,
           adInfo: it.ad_info || null,
           tel: it.tel || null,
         };

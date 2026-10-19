@@ -1956,7 +1956,7 @@
           "members": "重新包含 member-c（active、role=member、locationSharing=true —— 按队伍默认值重置）"
         },
         "位置共享（存储层核对）": "member-c 的记录在步骤 1 后为 status='left'、locationSharing=false；步骤 7 后为 status='active'、locationSharing=true、leftAt=null",
-        "meetTask": {"status": "confirmed", "version": 1, "participants": "与初始一致 —— 退出与重新加入都不得改写集合任务的参与名单"},
+        "meetTask": {"status": "confirmed", "version": 1, "participants": "排除已退出的 member-c；退出记录另存，重新加入不恢复本轮参与资格"},
         "response": {
           "step1": {"revoked": true, "memberCount": 2, "leftAt": "非空"},
           "step2": {"ok": false, "error.code": "FORBIDDEN_NOT_MEMBER"},
@@ -1973,8 +1973,8 @@
         "退出即停止位置共享（存储层 locationSharing=false 且 status='left'），不得等用户手动关闭",
         "退出者不得再出现在 loc.list 的返回里",
         "重新加入复用原成员记录（不新增重复成员），且位置共享重置为队伍默认值，不继承退出前的设置",
-        "退出与重新加入都不得改写既有集合任务的 participants（重新加入不等于回到该次集合的参与名单）",
-        "退出不得改写集合任务或行程（不得顺手改 meet / trip）"
+        "退出后移出本轮参与名单并保留退出记录；重新加入不恢复本轮参与资格",
+        "退出仅重算集合参与人数和状态，不改集合地点时间或原行程"
       ],
       "mustNotHappen": [
         "退出后仍能读到队伍或位置",

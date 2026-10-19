@@ -1,5 +1,8 @@
 const api = require('../../utils/api')
+const { scanToken } = require('../../utils/invitation-link')
 const { requestMinutes } = require('../../utils/stay-duration')
+const { createMemberLabels } = require('../../utils/member-labels')
+const { POLICY_VERSION } = require('../../utils/location-consent')
 const KEY = 'zhiyou-active-crew'
 const labels = { cancelled: '已取消', proposed: '等待成员确认', confirmed: '集合已确认', active: '成员前往中', arrived_all: '全员已到齐', departed: '已出发', invited: '待确认', arrived: '已到达', declined: '已拒绝', pending: '待游览', done: '已完成', skipped: '已跳过' }
 const clock = value => value ? new Date(value).toLocaleString() : '尚未发生'
@@ -54,7 +57,7 @@ Component({
        * （有小队时的默认）切回表单态。
        */
       this.setData({ crewId: '', crew: null, trip: null, task: null, members: [], owner: false, sharing: false, proposal: null, refreshed: '', collapsed: false })
-      this.triggerEvent('teamstate', { locations: [], meeting: null })
+      this.triggerEvent('teamstate', { crewId: '', locations: [], meeting: null })
     },
     input(e) {
       const key = e.currentTarget.dataset.field
@@ -82,9 +85,10 @@ Component({
       const user = await this.call('user.login', {})
       const current = await this.call('team.current', { crewId })
       const positions = await this.call('loc.list', { crewId })
-      const members = info.members.map((m, i) => {
+      const memberLabels = createMemberLabels(info.members, user.openid)
+      const members = info.members.map(m => {
         const loc = positions.members.find(x => x.userId === m.userId) || {}
-        return Object.assign({}, m, { label: m.userId === user.openid ? '我' : '队员 ' + (i + 1), locationText: loc.sharingOff ? '未共享位置' : !loc.hasLocation ? '尚未上报位置' : (loc.stale ? '位置已过期' : '位置有效') + ' · ' + (loc.source === 'gps' ? '定位' : '手动') + ' · ' + clock(loc.reportedAt) })
+        return Object.assign({}, m, { label: memberLabels.get(m.userId), locationText: loc.sharingOff ? '未共享位置' : !loc.hasLocation ? '尚未上报位置' : (loc.stale ? '位置已过期' : '位置有效') + ' · ' + (loc.source === 'gps' ? '定位' : '手动') + ' · ' + clock(loc.reportedAt) })
       })
       let trip = current.tripId ? (await this.call('trip.get', { tripId: current.tripId })).trip : null
       if (trip) trip.nodes = trip.nodes.map(n => Object.assign({}, n, { label: labels[n.status] || n.status, timeLabel: clock(n.plannedArriveAt) }))
@@ -99,7 +103,7 @@ Component({
       }
       const me = info.members.find(m => m.userId === user.openid)
       this.setData({ crew: info.crew, me: user.openid, owner: info.myRole === 'owner', members, trip, task, proposal: current.proposal || null, sharing: !!me && me.locationSharing !== false, refreshed: clock(positions.serverTime) })
-      this.triggerEvent('teamstate', { locations: positions.members.filter(m => m.hasLocation && !m.stale && !m.sharingOff), meeting: task && task.point ? { point: task.point, name: task.placeName } : null })
+      this.triggerEvent('teamstate', { crewId, locations: positions.members.filter(m => m.hasLocation && !m.stale && !m.sharingOff), meeting: task && task.point ? { point: task.point, name: task.placeName } : null })
     },
     refresh() { return this.run(() => this.read()) },
     create() { return this.run(async () => {
@@ -112,6 +116,18 @@ Component({
       wx.setStorageSync(KEY, r.crewId); this.setData({ crewId: r.crewId }); await this.read()
     }) },
     copyInvite() { wx.setClipboardData({ data: this.data.crew.inviteCode }) },
+    openInvitation() {
+      if (this.data.crewId) wx.navigateTo({ url: '/pages/invite/index?crewId=' + encodeURIComponent(this.data.crewId),
+        fail: () => this.setData({ error: '邀请页面打开失败，请重试' }) })
+    },
+    scanInvitation() { return this.run(async () => {
+      const result = await new Promise((resolve, reject) => wx.scanCode({ scanType: ['wxCode'], success: resolve,
+        fail: e => /cancel/i.test(e && e.errMsg || '') ? resolve(null) : reject(new Error('扫码失败，请检查相机权限后重试')) }))
+      if (!result) return
+      const token = scanToken(result)
+      if (!token) throw new Error('请扫描智游的队伍邀请小程序码')
+      await new Promise((resolve, reject) => wx.navigateTo({ url: '/pages/invite/index?token=' + token, success: resolve, fail: reject }))
+    }) },
     publish() { return this.run(async () => {
       if (!this.properties.personalTripId) throw new Error('请先在行程页生成个人路线')
       await this.call('team.publishTrip', { crewId: this.data.crewId, tripId: this.properties.personalTripId }); await this.read()
@@ -123,7 +139,7 @@ Component({
       } })
     },
     toggleSharing() { return this.run(async () => {
-      await this.call('loc.stopSharing', { crewId: this.data.crewId, sharing: !this.data.sharing }); await this.read()
+      await this.call('loc.stopSharing', { crewId: this.data.crewId, sharing: !this.data.sharing, policyVersion: POLICY_VERSION }); await this.read()
     }) },
     report() { return this.run(async () => {
       if (!this.properties.point) throw new Error('请在地图页获取位置或手动选点')
@@ -148,7 +164,7 @@ Component({
      *
      * 让人从零开始在地图上找一个"大家都不太远的点"是很难的：
      * 他不知道同伴在哪、谁离得最远。而后端**已经有**推荐能力
-     * （`meet.recommend`，minimax：先让最远的成员步行时间最短），
+     * （`meet.recommend`，搜索平均中心周围 1 公里内的地点，搜不到时取中心），
      * 它只是在界面上**从来没有入口**。
      *
      * 所以这里：调推荐 → 取第一名 → 交给地图页显示 → 用户拖动微调。
@@ -175,6 +191,7 @@ Component({
       try {
         wx.setStorageSync('zhiyou-meet-suggest', {
           placeId: top.placeId || null,
+          candidateSource: r.candidateSource,
           name: top.placeName || '推荐集合点',
           latitude: top.point.latitude,
           longitude: top.point.longitude,

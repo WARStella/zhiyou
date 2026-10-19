@@ -38,7 +38,7 @@ function buildTimeline(p) {
   let prevPlace = null;
 
   /**
-   * 真实出行耗时覆盖 —— `{ [toPlaceId]: { minutes, meters, mode, source, provider, reason } }`。
+   * 真实出行耗时覆盖：优先按 toNodeId 区分到访站次，兼容旧的 toPlaceId 索引。
    *
    * ── 为什么要这个参数（2026-10-14）────────────────────────
    *
@@ -74,7 +74,7 @@ function buildTimeline(p) {
     let travelPreferredMode = null;
 
     /** 有真实覆盖就用它 —— **优先级高于缓存与估算** */
-    const ov = overrides[item.placeId];
+    const ov = overrides[item.nodeId] || overrides[item.placeId];
 
     if (idx === 0) {
       if (ov && typeof ov.minutes === 'number') {
@@ -150,7 +150,7 @@ function buildTimeline(p) {
        * 于是 `adjust` 事后回库按 `placeId` 读是读不到的。
        * 快照让行程**自带它依赖的地点数据**。
        *
-       * 与"行程自带约束快照"是同一个原则（见 docs/01）：
+       * 与"行程自带约束快照"是同一个原则（见 docs/项目计划书.md#data-model）：
        * `adjust` 不依赖原始需求，11/5 的固定测试集要能完整复现。
        * **自洽的记录才可复现。**
        */

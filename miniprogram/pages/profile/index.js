@@ -51,6 +51,7 @@ function labelOfMode(options, value) {
 Page({
   data: {
     loading: true,
+    toolsOpen: false,
     error: '',
 
     /**
@@ -121,6 +122,11 @@ Page({
     /** 小队状态（组件抛回来的）——这一页暂时只用来显示，不画地图 */
     teamLocations: [],
     teamMeeting: null,
+    sharingCrewId: '',
+    locationSharing: false,
+    locationSharingActive: false,
+    locationSharingBusy: false,
+    locationSharingError: '',
   },
 
   onLoad() {
@@ -140,6 +146,49 @@ Page({
   onShow() {
     this.loadProfile()
     this.loadActiveTripId()
+    this.watchLocationSharing()
+  },
+
+  onHide() { this.stopWatchingLocationSharing() },
+  onUnload() { this.stopWatchingLocationSharing() },
+
+  sharingService() {
+    const app = getApp()
+    return app && typeof app.getLocationSharing === 'function' ? app.getLocationSharing() : null
+  },
+
+  watchLocationSharing() {
+    this.stopWatchingLocationSharing()
+    const service = this.sharingService()
+    if (!service) return
+    this.unsubscribeSharing = service.subscribe(state => this.setData({
+      sharingCrewId: state.crewId, locationSharing: state.sharing,
+      locationSharingActive: state.active, locationSharingError: state.error,
+    }))
+    return service.sync()
+  },
+
+  stopWatchingLocationSharing() {
+    if (this.unsubscribeSharing) this.unsubscribeSharing()
+    this.unsubscribeSharing = null
+  },
+
+  async onLocationSharingChange(event) {
+    const service = this.sharingService()
+    if (!service || this.data.locationSharingBusy) return
+    this.setData({ locationSharingBusy: true, locationSharingError: '' })
+    try { await service.setEnabled(Boolean(event.detail.value)) }
+    catch (error) { this.setData({ locationSharingError: service.snapshot().error || error.message || '位置共享设置失败' }) }
+    finally { this.setData({ locationSharingBusy: false, locationSharing: service.snapshot().sharing }) }
+  },
+
+  async retryLocationSharing() {
+    const service = this.sharingService()
+    if (!service || this.data.locationSharingBusy) return
+    if (this.data.locationSharingError.includes('云端关闭失败')) {
+      return this.onLocationSharingChange({ detail: { value: false } })
+    }
+    wx.openSetting({ success: () => this.onLocationSharingChange({ detail: { value: true } }) })
   },
 
   /**
@@ -178,6 +227,8 @@ Page({
       teamLocations: d.locations || [],
       teamMeeting: d.meeting || null,
     })
+    const service = this.sharingService()
+    if (service) service.sync()
   },
 
   loadProfile() {
@@ -397,6 +448,10 @@ Page({
            */
           travelModeLabel: labelOfMode(that.data.travelModeOptions, p.defaultTravelMode),
         })
+        if (patch.nickname !== undefined && typeof that.selectComponent === 'function') {
+          const team = that.selectComponent('#profile-team')
+          if (team) team.refresh()
+        }
       })
       .catch(function (err) {
         that.setData({ saving: false, error: (err && err.errMsg) || '保存失败' })
@@ -418,6 +473,8 @@ Page({
   },
 
   /** 进联调自检页（开发工具，不是产品功能） */
+  toggleTools() { this.setData({ toolsOpen: !this.data.toolsOpen }) },
+
   openSelfCheck() {
     wx.navigateTo({
       url: '/pages/index/index',

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * 定时清理云函数 —— 位置精确数据的保留策略执行者（docs/01 §5）。
+ * 定时清理云函数 —— 位置精确数据的保留策略执行者（docs/项目计划书.md#data-model §5）。
  *
  * 为什么必须有它：云开发控制台的索引选项不支持 TTL 自动过期（以控制台实际选项为准），
  * 所以"精确轨迹短期保留"这条隐私承诺必须靠定时任务兑现，不能只写在文档里。
@@ -56,6 +56,12 @@ exports.main = async () => {
     result.error = (result.error || '') + ` operations 清理失败：${e.errMsg || e.message}`;
   }
 
+  try {
+    result.deleted.guide_sessions = await purge('guide_sessions', 'expiresAt', now);
+  } catch (e) {
+    result.deleted.guide_sessions = -1;
+    result.error = (result.error || '') + ' guide_sessions 清理失败';
+  }
   console.log('[timer-cleanup]', JSON.stringify(result));
   return result;
 };

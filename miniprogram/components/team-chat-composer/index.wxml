@@ -1,0 +1,26 @@
+<view class="composer">
+  <view class="input-row">
+    <view class="input-shell" bindtap="focusText">
+      <input class="chat-input" value="{{text}}" maxlength="1000" placeholder="给队友发消息…" bindinput="onText"
+        placeholder-class="chat-placeholder" cursor-spacing="20"
+        focus="{{inputFocused}}" bindfocus="focusText" bindblur="blurText"
+        confirm-type="send" bindconfirm="sendMessage" disabled="{{blocked || sending || uncertain}}" />
+      <button class="voice {{voiceCanStop ? 'recording' : ''}}" catchtap="tapVoice"
+        disabled="{{blocked || sending || uncertain || (voiceActive && !voiceCanStop)}}"
+        aria-label="{{voiceCanStop ? '结束语音输入' : '开始语音输入'}}">
+        <text wx:if="{{voiceCanStop}}">结束</text>
+        <view wx:else class="mic"><view class="mic-head"></view><view class="mic-base"></view><view class="mic-stem"></view></view>
+      </button>
+    </view>
+    <button class="send" bindtap="sendMessage" disabled="{{blocked || sending || voiceActive || (!text && !uncertain)}}">{{sending ? '发送中' : uncertain ? '重试' : '发送'}}</button>
+  </view>
+  <view class="hint">语音实时发送至腾讯云转成文字，可修改后再发送。</view>
+  <view wx:if="{{voiceActive}}" class="voice-status">
+    <text>{{voiceStatus === 'recording' ? '正在识别，说完点左侧“结束”' : voiceStatus === 'recognizing' ? '正在获取最终文字…' : voiceStatus === 'authorizing' ? '等待录音授权…' : voiceStatus === 'canceling' ? '正在取消…' : '正在连接语音…'}}</text>
+    <button size="mini" class="cancel" bindtap="cancelVoice" disabled="{{voiceStatus === 'canceling'}}">取消</button>
+  </view>
+  <text wx:if="{{preview && voiceActive}}" class="preview">{{preview}}</text>
+  <view wx:if="{{voiceError}}" class="error">{{voiceError}}</view>
+  <button wx:if="{{permissionDenied}}" size="mini" class="cancel" bindtap="openRecordSettings">录音设置</button>
+  <view wx:if="{{error}}" class="error">{{error}}</view>
+</view>

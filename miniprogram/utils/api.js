@@ -9,9 +9,10 @@
  *   expectedVersion  版本号。写操作漏传会被服务端直接拒绝（这是刻意的），
  *                    防止"用旧版本确认让新方案生效"。
  *
- * 接口约定见 docs/02_接口清单_v0.md。
+ * 接口约定见 docs/项目计划书.md#api-contract。
  */
 
+const { IMAGE_REQUEST_BUDGET_BYTES, cloudRequestBytes, isDataSizeError } = require('./cloud-request-size')
 let requestSeq = 0
 
 /** 生成请求ID。同一逻辑操作重试时，把首次生成的这个值传回来复用。 */
@@ -61,7 +62,7 @@ const DIAGNOSES = [
     match: ['-504002', 'timed out', 'timeout', 'TIME_LIMIT_EXCEEDED', '执行超时'],
     text:
       '云函数执行超时。\n' +
-      '调用地图等外部接口时可能出现。检查云函数超时配置（本项目建议 20 秒），' +
+      '调用地图等外部接口时可能出现。检查云函数超时配置（启用游览助手后建议 60 秒），' +
       '以及外部接口是否卡住。',
   },
 ]
@@ -102,6 +103,12 @@ function callApi(action, payload, options) {
     data.expectedVersion = options.expectedVersion
   }
 
+  if (typeof data.payload.imageBase64 === 'string' && cloudRequestBytes(data) > IMAGE_REQUEST_BUDGET_BYTES) {
+    return Promise.resolve({ ok: false, error: { code: 'REQUEST_TOO_LARGE',
+      message: '图片发送数据过大，请裁剪图片后重新选择，或改用文字输入' },
+      meta: { requestId: data.requestId, durationMs: 0 } })
+  }
+
   return wx.cloud
     .callFunction({ name: 'api', data: data })
     .then(function (res) {
@@ -110,6 +117,11 @@ function callApi(action, payload, options) {
     .catch(function (err) {
       // 云函数本身没跑起来（未开通 / 未部署 / 超时），与业务失败要区分开
       const raw = (err && (err.errMsg || err.message)) || '云函数调用失败'
+      if (isDataSizeError(raw)) return { ok: false, error: { code: 'REQUEST_TOO_LARGE',
+        message: typeof data.payload.imageBase64 === 'string'
+          ? '图片发送数据超过平台大小限制，请裁剪到需要识别的区域后重选，重复发送同一张图无法解决'
+          : '请求数据超过平台大小限制，请减少本次提交的内容后重试' },
+        meta: { requestId: data.requestId, durationMs: 0 } }
       return {
         ok: false,
         error: {

@@ -1,3 +1,6 @@
 {
-  "navigationBarTitleText": "队伍"
+  "navigationBarTitleText": "队伍",
+  "usingComponents": { "team-chat-composer": "/components/team-chat-composer/index",
+    "photo-meeting": "/components/photo-meeting/index",
+    "guide-entry": "/components/guide-entry/index" }
 }

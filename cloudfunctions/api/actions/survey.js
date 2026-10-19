@@ -36,7 +36,7 @@ const { WALK_SOURCE } = require('../lib/geo');
 const { logEvent } = require('../lib/trace');
 const C = require('../lib/repo/collections');
 
-/** 与 docs/01 §2.2 的 category 枚举一致 */
+/** 与 docs/项目计划书.md#data-model §2.2 的 category 枚举一致 */
 const CATEGORIES = ['spot', 'entrance', 'exit', 'rest', 'food', 'toilet', 'meeting'];
 const CONFIDENCE = ['high', 'medium', 'low'];
 /** 地点来源 —— 计划书 §2.2 原话是"现场踏勘 / 官网 / 电话" */
@@ -84,7 +84,7 @@ function normalizeVisitDuration(raw) {
 }
 
 /**
- * 步行时间记录。`source` **不得缺省**（docs/01 §2.2 的写入规则）：
+ * 步行时间记录。`source` **不得缺省**（docs/项目计划书.md#data-model §2.2 的写入规则）：
  * 由地图接口取回的一律 `upstream`，踏勘实测才是 `survey` ——
  * 缺省会让人把估算当实测用。
  */

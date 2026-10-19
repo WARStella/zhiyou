@@ -1238,6 +1238,20 @@ function parse(text, opts) {
   }
   /** 上限 5：一条需求里提到的地方不会太多 */
   out.searchKeywords = kws.slice(0, 5);
+  // 检索词可以去重，但明确的再次到访必须保留在游览顺序中。
+  const names = kws.slice().sort((a, b) => b.length - a.length);
+  if (names.length) {
+    const escape = name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const matches = Array.from(raw.matchAll(new RegExp(names.map(escape).join('|'), 'g')));
+    const visits = [];
+    let previousEnd = 0;
+    for (const match of matches) {
+      const gap = raw.slice(previousEnd, match.index);
+      if (!visits.length || /再|然后|接着|最后|之后|回到|返回|去|到|→|第[一二三四五六七八九十\d]+站/.test(gap)) visits.push(match[0]);
+      previousEnd = match.index + match[0].length;
+    }
+    if (visits.length > new Set(visits).size) out.searchKeywords = visits.slice(0, 5);
+  }
 
   return out;
 }

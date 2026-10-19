@@ -115,24 +115,23 @@ test('解析真实返回：取到两个方案，各自的耗时/步行/票价都
   assert.equal(r.ok, true);
   assert.equal(r.routes.length, 2);
 
-  // 方案一：地铁，4170 秒 = 69.5 分
-  assert.equal(r.routes[0].durationMinutes, 69.5);
-  assert.equal(r.routes[0].walkingMeters, 3442);
-  assert.equal(r.routes[0].costYuan, 3);
-  assert.equal(r.routes[0].hasSubway, true);
-
-  // 方案二：普通公交，3773 秒 ≈ 62.9 分，步行更少、更便宜
-  assert.equal(r.routes[1].durationMinutes, 62.9);
-  assert.equal(r.routes[1].walkingMeters, 1538);
-  assert.equal(r.routes[1].costYuan, 2);
-  assert.equal(r.routes[1].hasSubway, false);
+  // 按总耗时排序：普通公交 62.9 分，含地铁方案 69.5 分。
+  assert.equal(r.routes[0].durationMinutes, 62.9);
+  assert.equal(r.routes[0].walkingMeters, 1538);
+  assert.equal(r.routes[0].costYuan, 2);
+  assert.equal(r.routes[0].hasSubway, false);
+  assert.equal(r.routes[1].durationMinutes, 69.5);
+  assert.equal(r.routes[1].walkingMeters, 3442);
+  assert.equal(r.routes[1].costYuan, 3);
+  assert.equal(r.routes[1].hasSubway, true);
 });
 
-test('默认给的是第一个方案，且步骤按"走路→坐车→出入口"排开', async () => {
+test('默认选择总耗时最短的方案，地铁方案保留出入口', async () => {
   const http = fakeHttp(FIXTURE.body);
   const r = await provider(http).route({ from: FROM, to: TO, city: CITY });
 
-  const kinds = r.best.steps.map((s) => s.kind);
+  assert.equal(r.best.durationMinutes, 62.9);
+  const kinds = r.bestSubway.steps.map((s) => s.kind);
   assert.deepEqual(kinds, ['walking', 'transit', 'entrance-exit', 'walking']);
   assert.equal(r.best.transitStepCount, 1);
 });
