@@ -1,0 +1,32 @@
+<template name="leg-mode-options">
+  <view class="lp-opts">
+    <button wx:for="{{row.options}}" wx:for-item="opt" wx:key="mode"
+      class="lp-opt {{opt.isCurrent ? 'lp-opt-on' : ''}}"
+      data-placeid="{{row.toPlaceId}}" data-legkey="{{row.legKey}}"
+      data-inline="{{inline}}" data-mode="{{opt.mode}}"
+      bindtap="onLegModeTap" disabled="{{busy || loading}}">
+      <text class="lp-opt-name">{{opt.icon}} {{opt.name}}</text>
+      <text class="lp-opt-min">{{opt.minutes != null ? opt.minutes + ' 分钟' : '耗时待计算'}}</text>
+      <text wx:if="{{opt.recommended}}" class="lp-badge">推荐</text>
+      <text wx:if="{{opt.transitText}}" class="lp-opt-sub">{{opt.transitText}}</text>
+    </button>
+  </view>
+  <!--
+    「步行：上游未返回该方式的耗时 / 公交未查询：云函数未配置 AMAP_KEY…」
+    这一整段原因清单已删除（2026-10-20 用户要求）：
+    它不是给游客读的 —— 用户只需要知道"现在能选哪几个方式、各要多久"，
+    配置类的原因属于运维信息，摆在选择器里只会把三行选项淹掉。
+  -->
+</template>
+
+<template name="inline-leg-editor">
+  <view class="leg-editor">
+    <view class="leg-editor-title">{{editor.fromName}} → {{editor.toName}}</view>
+    <template is="leg-mode-options" data="{{row: editor, inline: true, busy: busy, loading: loading}}" />
+    <view class="lp-actions">
+      <button class="btn small" bindtap="applyInlineLegMode" disabled="{{busy || loading || !editor.changed}}">{{busy === 'adjust' ? '正在计算…' : '应用本段修改'}}</button>
+      <button class="btn ghost small" bindtap="cancelLegEditor" disabled="{{busy || loading}}">取消</button>
+    </view>
+    <view class="sub">候选耗时供参考。修改后立即重算后续到达时间；如有取舍，会先给出方案。</view>
+  </view>
+</template>

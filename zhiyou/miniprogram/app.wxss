@@ -1,0 +1,248 @@
+/* B｜导航靛蓝。品牌、字号、圆角与阴影只在此定义。 */
+page {
+  /* ── 配色（2026-10-20 定稿）────────────────────────────────
+     这套界面只留三个功能色：
+       ① 主强调 = 深蓝（见下面的 --progress*，进度环 / 进度数字 / 当前节点）
+       ② 待选择 = 低饱和黄（--warn*，「待你选择」「推荐」）
+       ③ 成功   = 浅绿（--success*，已确认 / 已完成）
+     红色只给"取消行程 / 跳过不去"这类风险操作（--danger*）。
+     其余一律深蓝-灰正文 + 浅灰辅助，底色保持干净的浅蓝白。
+
+     ⚠️ `--brand-*` 是全局品牌族：链接、图标块、区块标题、卡片描边
+        全挂在它上面。换主题时**只改这一族**，不必去改上百处引用。 */
+  --brand-900: #12263d;
+  --brand-800: #17324e;
+  --brand-700: #1b3a5c;
+  --brand-600: #2b5c8a;
+  --brand-500: #3e719f;
+  --brand-300: #a8c1d8;
+  --brand-200: #cbdceb;
+  --brand-100: #e3edf6;
+  --brand-50: #f0f5fa;
+  --ink-900: #14202b;
+  --ink-700: #2a3742;
+  --ink-500: #5a6773;
+  /* ink-400 从 #6f7d89 调深到 #667480：白底对比度 4.22 → 4.80，达到 AA。
+     它承载的是「设置项副标题 / 元信息」这类**需要读**的小字，
+     4.22 在户外强光下会糊。调深后仍明显浅于 ink-500，层级没丢。 */
+  --ink-400: #667480;
+  --ink-300: #98a5b0;
+  --surface: #ffffff;
+  --surface-2: #f6f8fb;
+  --line: #e6eaf0;
+  --line-strong: #d9e0e8;
+  /* accent = 暖橙：只给「当前」胶囊与卡片图标块，与深蓝主色分工。
+     蓝色负责"流程与操作"，橙色负责"你现在在这里"。 */
+  --accent: #e8672b;
+  --accent-bg: #fdeee6;
+  --accent-soft: #f58a5a;
+  --accent-shadow: rgba(232, 103, 43, 0.28);
+  --success: #0b7a48;
+  --success-bg: #e9f6ef;
+  /* warn = 低饱和黄：「待你选择」「推荐」「时间偏紧」。
+     它承载的是"这一步还需要你决定"，不是错误，所以刻意压低饱和度。
+     对比度：#8a6a1e on #faf3dc ≈ 4.9:1，达到 AA。 */
+  --warn: #8a6a1e;
+  --warn-bg: #faf3dc;
+  --danger: #c0392b;
+  --danger-bg: #fbedeb;
+  /* ── 暖色点缀（2026-10-20 加）──────────────────────────────
+     橙与红只承担「状态与注意力」：当前节点、进度环、区块图标、即时徽标。
+     品牌蓝仍然负责主操作（主按钮、链接），两者分工必须守住 ——
+     暖色一旦用到主按钮上，整页就从"有重点"变成"处处都在喊"。
+
+     `--ember` 与 `--danger` 刻意分开：红色在界面上有两种含义，
+     "出错了"（danger）和"现在这里"（ember）。同色同源会让用户
+     在看到一个红点时不知道该不该紧张。 */
+  --ember: #d93a2b;
+  --ember-bg: #fdeae7;
+  /* ── 主进度色 = 深蓝（2026-10-20 定稿）──────────────────────
+     进度环、进度数字、当前节点序号 / 圆点**统一**用它。
+     在此之前进度色一会儿橙、一会儿红、一会儿蓝，三种色都在表达"进展"，
+     读者没法把它们归成一类。
+
+     深蓝 #2f4d78 与 --brand-700 同色系但更深，
+     在浅蓝轨道 #e9eff7 上对比度约 7.9:1，户外也读得清。
+     红只留给"取消行程 / 跳过不去"这种风险操作（见 .skip-act / .dialog-danger）。 */
+  --progress: #2f4d78;
+  --progress-ink: #2f4d78;
+  --progress-bg: #e9eff7;
+  --progress-soft: #c6d5e6;
+  --flame-grad: linear-gradient(135deg, #3d6496 0%, #2f4d78 58%, #1d3f6b 100%);
+  --flame-shadow: rgba(47, 77, 120, 0.20);
+  --bg-top: #fafbfd;
+  --bg-mid: #f4f6f9;
+  --bg-bottom: #edf1f6;
+  --glow: rgba(90, 130, 190, 0.14);
+  /* ── 浅蓝按钮（2026-10-20 改）──────────────────────────────
+     主按钮从"深靛蓝渐变 + 白字"改成"浅蓝渐变 + 深蓝字"。
+
+     ⚠️ 背景变浅之后**必须同时改文字色**：原来的 `color: var(--surface)`
+        是白字，压在浅蓝上几乎没有对比度（约 1.4:1），
+        表现是"按钮上有一个看不清的字"。
+        --btn-ink（#1b3a5c）对 --btn-mid（#c6dff4）约 8.3:1，稳过 AA。 */
+  --btn-g1: #dcecfb;
+  --btn-mid: #c6dff4;
+  --btn-g2: #a4c8e7;
+  --btn-ink: #1b3a5c;
+  --btn-shadow: rgba(60, 112, 160, 0.18);
+  --sh-1: 0 2rpx 2rpx rgba(25, 50, 80, 0.03), 0 4rpx 12rpx rgba(25, 50, 80, 0.05);
+  --sh-2: 0 4rpx 8rpx rgba(25, 50, 80, 0.04), 0 20rpx 48rpx rgba(25, 50, 80, 0.07);
+  --sh-brand: 0 12rpx 32rpx rgba(31, 74, 114, 0.24);
+  --r-sm: 18rpx;
+  --r-md: 24rpx;
+  --r-lg: 32rpx;
+  --r-pill: 999rpx;
+  --fs-display: 44rpx;
+  --fs-h1: 36rpx;
+  --fs-h2: 30rpx;
+  --fs-body: 28rpx;
+  --fs-sm: 25rpx;
+  --fs-xs: 23rpx;
+  --warn-line: #ecdcae;
+  --danger-line: #f1d5d0;
+  --code-bg: #0f1620;
+  --code-ink: #b8e0c8;
+  --detection: #17d673;
+  --soft-shadow-color: rgba(25, 50, 80, 0.06);
+  --brand-shadow-color: rgba(31, 74, 114, 0.24);
+  --brand-toast-bg: rgba(27, 58, 92, 0.92);
+  --success-ring: rgba(11, 138, 76, 0.18);
+  --accent-ring: rgba(255, 122, 69, 0.20);
+  --accent-shadow-light: rgba(255, 122, 69, 0.06);
+  --accent-shadow-soft: rgba(255, 122, 69, 0.12);
+  --reached-line: rgba(11, 138, 76, 0.5);
+  --trip-leg-bg: rgba(255, 255, 255, 0.72);
+  min-height: 100vh;
+  background: radial-gradient(120% 100% at 18% 0%, var(--glow) 0%, transparent 62%), linear-gradient(180deg, var(--bg-top) 0%, var(--bg-mid) 44%, var(--bg-bottom) 100%);
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', sans-serif;
+  font-size: var(--fs-body);
+  color: var(--ink-700);
+}
+button { background: var(--brand-100); color: var(--brand-700); font-size: var(--fs-body); }
+.card {
+  box-sizing: border-box;
+  background: var(--surface);
+  border: 2rpx solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 28rpx;
+  margin-bottom: 20rpx;
+  box-shadow: var(--sh-1);
+}
+.card-emphasis { border-color: var(--brand-200); box-shadow: var(--sh-2); }
+
+/* ── 背景板（2026-10-20 加，2026-10-22 换图）────────────────
+   用法：页面根容器的**第一个子元素**依次放这两层。
+
+     <view class="page">
+       <image class="page-bg" src="/assets/travel/clouds-bg.jpg" mode="aspectFill" />
+       <view class="page-bg-scrim"></view>
+       …原有内容…
+     </view>
+
+   照片是「云海 + 远山」（Pixabay #2207081，Pixabay 许可，免费商用）。
+   选它而不是绿色草地实景：冷调云海与蓝色主色同温，压低饱和后只当"空气感"，
+   不会和蓝色按钮、橙色「当前」胶囊抢色。
+
+   ⚠️ **必须用 `<image>` 元素，不能写 WXSS 的 `background-image`**：
+      小程序不支持 WXSS 里的本地图片路径（只能网络地址或 base64），
+      写成 background-image 在真机上是**静默不显示**的。
+
+   ⚠️ 两层都用 `z-index: -1` 而不是固定层叠：这样它们会落在
+      `page` 的背景之上、正文之下，正文不需要额外的 z-index 或包裹层。
+      代价是**页面根容器不能有背景色**，否则会把照片完全盖住。
+
+   白纱（scrim）不是装饰，是**可读性**：照片是亮的，
+   `--ink-900` 的深色文字直接压上去在户外的强光下会糊。
+
+   ⚠️ 渐变用**像素**停靠点而不是百分比（2026-10-20 修）。
+      首版写的是 0%/13%/33%/62%/100%，而 `height: 100vh`
+      在"整页长截图"里等于整张图的高度（几千像素）——
+      百分比被摊薄到整页，顶部那层白纱根本压不住文字，
+      照片也几乎没有露出。像素停靠点让"顶部强纱 → 中段透出照片
+      → 底部回升"这套节奏在任何屏高上都成立。
+
+   2026-10-22：白纱整体调淡（0.70→0.36→0.94），
+   否则换什么图都看不出来；卡片仍是纯白，正文对比度不受影响。 */
+.page-bg {
+  position: fixed; left: 0; top: 0; width: 100vw; height: 100vh;
+  z-index: -1;
+}
+.page-bg-scrim {
+  position: fixed; left: 0; top: 0; width: 100vw; height: 100vh;
+  z-index: -1; pointer-events: none;
+  background: linear-gradient(180deg,
+    rgba(255, 255, 255, 0.70) 0,
+    rgba(255, 255, 255, 0.52) 120px,
+    rgba(255, 255, 255, 0.40) 260px,
+    rgba(255, 255, 255, 0.36) 420px,
+    rgba(255, 255, 255, 0.42) 600px,
+    rgba(255, 255, 255, 0.64) 780px,
+    rgba(250, 252, 250, 0.88) 960px,
+    rgba(248, 250, 249, 0.94) 100%);
+}
+
+/* 卡片标题行：左边「图标块 + 标题」，右边元信息。
+   加它的原因（2026-10-19）：改造前所有卡片都是纯文字标题，
+   一张卡和另一张卡在视觉上没有入口，只能靠读字分辨。 */
+.card-hd {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.card-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  font-size: var(--fs-h2);
+  font-weight: 700;
+  color: var(--ink-900);
+}
+.ico {
+  flex: none;
+  width: 44rpx;
+  height: 44rpx;
+  margin-right: 16rpx;
+  border-radius: var(--r-sm);
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 24rpx;
+  font-weight: 700;
+  line-height: 44rpx;
+  text-align: center;
+}
+.card-meta { flex: none; font-size: var(--fs-xs); color: var(--ink-400); }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; }
+.k { font-size: var(--fs-body); font-weight: 600; color: var(--ink-900); }
+.v { font-size: var(--fs-body); font-weight: 600; font-variant-numeric: tabular-nums; }
+.v.link, .link { color: var(--brand-700); }
+.v.muted { color: var(--ink-500); font-weight: 400; }
+.sub { margin-top: 10rpx; font-size: var(--fs-sm); line-height: 1.65; color: var(--ink-500); }
+.btn {
+  display: flex; align-items: center; justify-content: center;
+  box-sizing: border-box; min-height: 92rpx; margin: 0; padding: 16rpx 28rpx;
+  line-height: 1.4; border: none; border-radius: var(--r-pill);
+  font-size: var(--fs-h2); font-weight: 600; color: var(--btn-ink);
+  background: linear-gradient(135deg, var(--btn-g1) 0%, var(--btn-mid) 62%, var(--btn-g2) 100%);
+  box-shadow: 0 8rpx 20rpx var(--btn-shadow);
+}
+.btn::after { border: none; }
+/* 主按钮变浅之后，ghost 的白底 + 浅蓝描边几乎看不出边界，
+   描边提到 --brand-300 才分得清"填充"与"描边"两种按钮。 */
+.btn.ghost { background: var(--surface); border: 2rpx solid var(--brand-300); color: var(--brand-700); box-shadow: none; }
+.btn.light { background: var(--brand-100); color: var(--brand-700); box-shadow: none; }
+.btn.small { min-height: 68rpx; padding: 12rpx 28rpx; font-size: var(--fs-sm); box-shadow: none; }
+.btn.button-disabled, .btn:disabled { background: var(--line-strong); color: var(--ink-500); box-shadow: none; }
+.btn.ghost.button-disabled, .btn.ghost:disabled { background: var(--surface-2); border-color: var(--line-strong); color: var(--ink-500); }
+.badge { display: inline-flex; align-items: center; flex-shrink: 0; min-height: 40rpx; box-sizing: border-box; padding: 0 16rpx; border-radius: var(--r-pill); font-size: var(--fs-xs); font-weight: 600; color: var(--ink-500); background: var(--surface-2); }
+.badge-done { color: var(--success); background: var(--success-bg); }
+.badge-now { color: var(--surface); background: var(--flame-grad); box-shadow: 0 4rpx 12rpx var(--flame-shadow); }
+.badge-warn { color: var(--warn); background: var(--warn-bg); }
+.badge-muted { color: var(--ink-500); background: var(--surface-2); border: 2rpx solid var(--line-strong); }
+.alert { display: flex; gap: 18rpx; padding: 22rpx 24rpx; border-radius: var(--r-md); font-size: var(--fs-sm); line-height: 1.65; border-left: 6rpx solid; }
+.alert-warn { background: var(--warn-bg); color: var(--warn); border-left-color: var(--warn); }
+.alert-danger { background: var(--danger-bg); color: var(--danger); border-left-color: var(--danger); }
+.alert-info { background: var(--brand-50); color: var(--brand-700); border-left-color: var(--brand-500); }
+.section-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; box-sizing: border-box; margin: 0; padding: 16rpx 0; background: transparent; color: var(--brand-700); font-size: var(--fs-body); line-height: 1.6; text-align: left; }
+.section-toggle::after { border: none; }
+.section-toggle.button-disabled, .section-toggle:disabled { color: var(--ink-500); }

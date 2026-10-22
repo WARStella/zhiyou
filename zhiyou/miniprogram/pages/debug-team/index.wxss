@@ -1,0 +1,14 @@
+page { color: var(--ink-900); }
+.page { padding: 28rpx; padding-bottom: 80rpx; }
+.title { font-size: var(--fs-display); font-weight: 700; margin-bottom: 12rpx; }
+.intro, .hint { font-size: var(--fs-body); line-height: 1.7; color: var(--ink-500); }
+.card { background: var(--surface); border-radius: var(--r-lg); padding: 24rpx; margin-top: 24rpx; font-size: var(--fs-body); line-height: 1.7; overflow: hidden; }
+.heading { font-size: var(--fs-h2); font-weight: 700; margin-bottom: 18rpx; }
+input { background: var(--surface-2); padding: 18rpx; border-radius: var(--r-sm); margin: 16rpx 0; font-size: var(--fs-body); }
+button { margin: 16rpx 0; background: var(--brand-600); color: var(--surface); font-size: var(--fs-body); }
+button.secondary { background: var(--brand-50); color: var(--brand-700); }
+.error { margin-top: 20rpx; padding: 20rpx; border-radius: var(--r-sm); background: var(--danger-bg); color: var(--danger); word-break: break-all; }
+.mono, .json { display: block; font-family: monospace; word-break: break-all; font-size: var(--fs-sm); }
+.json { white-space: pre-wrap; background: var(--surface-2); padding: 14rpx; }
+.member { border-bottom: 1rpx solid var(--line); padding: 14rpx 0; word-break: break-all; }
+.status { font-weight: 700; color: var(--success); margin: 12rpx 0; }

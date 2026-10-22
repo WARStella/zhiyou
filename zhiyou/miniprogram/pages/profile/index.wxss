@@ -1,0 +1,181 @@
+/* 「我的」页（2026-10-14） */
+
+.page {
+  padding: 24rpx;
+  min-height: 100vh;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.link {
+  color: var(--brand-600);
+  font-weight: 600;
+}
+
+
+.err {
+  color: var(--danger);
+  background: var(--danger-bg);
+  padding: 16rpx;
+  border-radius: var(--r-sm);
+  margin-bottom: 20rpx;
+  font-size: var(--fs-sm);
+}
+
+/* ── 个人资料 ──────────────────────────────────────────── */
+
+/* 头像与昵称同排，不展示内部用户 ID。 */
+.prof { display: block; }
+.prof-header {
+  display: flex;
+  align-items: center;
+  gap: 28rpx;
+}
+.prof-avatar { flex: 0 0 152rpx; width: 152rpx; min-width: 0; }
+.avatar-hint { display: block; margin-top: 14rpx; text-align: center; font-size: var(--fs-xs); line-height: 1.5; color: var(--ink-500); white-space: nowrap; }
+
+/*
+ * 头像按钮。
+ *
+ * ⚠️ 两层坑，都是踩过才知道的（2026-10-14）：
+ *
+ * ① `<button open-type="chooseAvatar">` 自带默认样式 —— 灰底、边框、
+ *    内边距、以及一个 `::after` 画的圆角边框。不清掉的话头像外面会套方框。
+ *    必须重置 `padding` / `background` / `border` / `line-height`，
+ *    并把 `::after` 的 border 去掉。
+ *
+ * ② **不要在 button 上做圆形裁剪**。我第一版给 button 设了
+ *    `border-radius: 50%` + `overflow: hidden`，而里面的元素**也是**
+ *    `border-radius: 50%` —— 两个椭圆叠加 + button 默认样式的干扰，
+ *    裁出来是个**歪的半个椭圆**（用户截图看到的就是这个）。
+ *
+ *    现在：button 只负责"可点 + 尺寸"，圆形一律由**里面那个元素**负责。
+ *    一层裁剪，不会有叠加误差。
+ */
+.prof .avatar-btn {
+  width: 152rpx;
+  height: 152rpx;
+  min-width: 0;
+  min-height: 0;
+  max-width: 152rpx;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+  line-height: 1;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  /* 显式声明，避免 button 默认的 inline-block 基线对齐带来几像素偏移 */
+  display: block;
+  vertical-align: top;
+}
+.avatar-btn::after {
+  border: none;
+}
+.avatar-img {
+  width: 152rpx;
+  height: 152rpx;
+  border-radius: 50%;
+  display: block;
+}
+/* 没头像时用昵称首字 + 稳定底色，不塞假图片 */
+.avatar-fallback {
+  width: 152rpx;
+  height: 152rpx;
+  border-radius: 50%;
+  color: var(--surface);
+  font-size: var(--fs-display);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.prof-main {
+  flex: 1;
+  min-width: 0;
+}
+.prof-name-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14rpx;
+}
+.prof-name-row + .prof-name-row { margin-top: 12rpx; }
+.prof-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-h1);
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.prof-edit {
+  flex: none;
+  margin-top: 4rpx;
+  font-size: var(--fs-xs);
+  color: var(--brand-600);
+  border: 1rpx solid var(--brand-200);
+  border-radius: var(--r-pill);
+  background: var(--brand-50);
+  padding: 4rpx 10rpx;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.prof-main .sub { font-size: var(--fs-xs); margin-top: 12rpx; }
+.prof-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--surface-2);
+  padding: 12rpx 16rpx;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-body);
+}
+.prof-save {
+  font-size: var(--fs-sm);
+  color: var(--surface);
+  background: var(--brand-600);
+  border-radius: var(--r-sm);
+  padding: 4rpx 18rpx;
+  margin-right: 0;
+}
+.prof-cancel {
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+}
+
+/* ── 按钮 ──────────────────────────────────────────────── */
+
+/*
+ * 禁用态。属性选择器在 WXSS 里**不生效**（编译器会警告），
+ * 所以按类名 + 伪类写。
+ */
+
+.foot {
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+  margin: 30rpx 0 20rpx;
+}
+.support-toggle { font-size: var(--fs-sm); color: var(--ink-500); margin-bottom: 16rpx; }
+
+/* 设置列表复用既有行结构，图标和箭头只做视觉提示。 */
+.card .btn { margin-top: 16rpx; }
+.prof { box-shadow: var(--sh-2); border-color: var(--brand-200); }
+.avatar-img, .avatar-fallback { box-shadow: 0 0 0 4rpx var(--surface), 0 0 0 7rpx var(--brand-500); }
+.avatar-fallback { font-size: var(--fs-display); font-weight: 700; background-image: linear-gradient(135deg, var(--brand-500), var(--brand-700)) !important; }
+.prof-name { font-size: var(--fs-h1); color: var(--ink-900); }
+.settings-list { overflow: hidden; }
+.settings-head { padding-bottom: 16rpx; }
+.settings-row { min-height: 104rpx; box-sizing: border-box; padding: 26rpx 0; border-top: 2rpx solid var(--line); }
+.settings-row::before { display: flex; align-items: center; justify-content: center; flex: none; width: 44rpx; height: 44rpx; border-radius: 12rpx; background: var(--brand-100); color: var(--brand-600); font-size: var(--fs-xs); font-weight: 600; }
+.setting-sharing::before { content: '位'; }
+.setting-travel::before { content: '行'; }
+.settings-row .k { flex: 1; min-width: 0; }
+.settings-row .v { font-size: var(--fs-sm); }
+.setting-travel .link { display: flex; align-items: center; gap: 16rpx; }
+.setting-travel .link::after { content: ''; flex: none; width: 12rpx; height: 12rpx; border-top: 2rpx solid var(--ink-300); border-right: 2rpx solid var(--ink-300); transform: rotate(45deg); margin-right: 4rpx; }

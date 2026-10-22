@@ -1,0 +1,898 @@
+.page {
+  /* 底部留出 tabBar 的高度，否则页面最后的按钮会被它盖住 */
+  padding: 24rpx 24rpx 224rpx;
+  padding-bottom: calc(224rpx + env(safe-area-inset-bottom));
+}
+
+/* ── 提示条 ───────────────────────────────── */
+.warn {
+  background: var(--warn-bg);
+  border-left: 8rpx solid var(--warn);
+  border-radius: var(--r-sm);
+  padding: 18rpx 20rpx;
+  margin-bottom: 20rpx;
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--warn);
+}
+.err {
+  background: var(--danger-bg);
+  border-left: 8rpx solid var(--danger);
+  border-radius: var(--r-sm);
+  padding: 18rpx 20rpx;
+  margin-bottom: 20rpx;
+  font-size: var(--fs-sm);
+  color: var(--danger);
+}
+.note {
+  font-size: var(--fs-sm);
+  color: var(--brand-600);
+  padding: 4rpx 0 16rpx;
+}/* ── 卡片 ─────────────────────────────────── */
+
+.card.bad {
+  border-left: 8rpx solid var(--danger);
+}
+
+.ok {
+  color: var(--success);
+}
+.bad {
+  color: var(--danger);
+}
+
+.hint {
+  margin-top: 12rpx;
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--ink-500);
+}
+.conflict {
+  margin-top: 10rpx;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--danger);
+}
+
+/* ── 地点选择 ─────────────────────────────── */
+.place {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 0;
+  border-bottom: 1rpx solid var(--line);
+}
+.place:last-child {
+  border-bottom: none;
+}
+.place-left {
+  display: flex;
+  align-items: center;
+}
+.place-text {
+  display: flex;
+  flex-direction: column;
+}
+.place-name {
+  font-size: var(--fs-body);
+  color: var(--ink-900);
+}
+.place-meta {
+  margin-top: 4rpx;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+}
+.check {
+  font-size: var(--fs-h2);
+  color: var(--success);
+}
+.place.on .place-name {
+  font-weight: 600;
+  color: var(--brand-600);
+}
+
+.candidate-toggle {
+  margin: 16rpx 0 0;
+  padding: 8rpx 20rpx;
+  background: var(--brand-100);
+  color: var(--brand-600);
+  font-size: var(--fs-body);
+  line-height: 2;
+  border-radius: var(--r-sm);
+}
+.candidate-toggle::after {
+  border: none;
+}
+.candidate-toggle-hover {
+  background: var(--brand-100);
+}/* ── 按钮 ─────────────────────────────────── */
+/*
+ * 禁用态。⚠️ 原写法 `.btn[disabled]` 是**属性选择器**，WXSS 不支持 ——
+ * 规则从未生效（禁用按钮一直是正常态外观）。编译器的警告说的就是这个。
+ * 微信给禁用的 button 加的是**类名** `button-disabled`，所以按类名写。
+ */
+
+/* B｜导航靛蓝：进度卡是首屏唯一的"大件"。 */
+/* 顶部问候 / 日期 / 副标题整块已删除（2026-10-20）。
+   它占掉首屏约 150rpx，却只说"今天几号、上午下午"这种用户一眼就知道的事。
+   删掉后首屏直接从「行程进度」开始，行程内容才是这一页的主体。 */
+.summary { padding: 22rpx 26rpx; }
+.summary .card-hd { flex-wrap: wrap; gap: 12rpx 20rpx; }
+.summary .card-title { flex: 0 0 auto; white-space: nowrap; font-size: var(--fs-body); }
+.summary .ico { width: 40rpx; height: 40rpx; line-height: 40rpx; margin-right: 12rpx; }
+.overview-main { display: flex; align-items: center; gap: 26rpx; margin-top: 16rpx; }
+/* 进度环 112rpx → 136rpx（用户要求"直径再大两三毫米"，2026-10-20）。
+   环用深蓝填充、轨道浅蓝；数字用同色，保证"进度"在首屏一眼可读。 */
+.progress-ring { position: relative; width: 136rpx; height: 136rpx; flex: none; border-radius: 50%; background: var(--progress-bg); overflow: hidden; }
+.ring-half { position: absolute; top: 0; width: 50%; height: 100%; overflow: hidden; }
+.ring-right { right: 0; }
+.ring-left { left: 0; }
+.ring-piece { position: absolute; top: 0; width: 100%; height: 100%; background: var(--progress); }
+.ring-right .ring-piece { right: 0; border-radius: 0 100% 100% 0 / 0 50% 50% 0; transform-origin: 0 50%; }
+.ring-left .ring-piece { left: 0; border-radius: 100% 0 0 100% / 50% 0 0 50%; transform-origin: 100% 50%; }
+.ring-center { position: absolute; top: 14rpx; right: 14rpx; bottom: 14rpx; left: 14rpx; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--surface); font-size: var(--fs-h2); font-weight: 800; color: var(--progress-ink); font-variant-numeric: tabular-nums; }
+.ring-total { font-size: var(--fs-xs); font-weight: 600; }
+.ring-complete .ring-piece { background: var(--success); }
+.ring-complete .ring-center { color: var(--success); }
+.overview-destination { flex: 1; min-width: 0; }
+.overview-label { font-size: var(--fs-sm); color: var(--ink-500); }
+/* 「中央大街」是首屏的主角：15px → 22px，字重 800，压住整张卡。 */
+.overview-name { margin-top: 4rpx; font-size: var(--fs-display); line-height: 1.3; font-weight: 800; color: var(--ink-900); overflow-wrap: anywhere; }
+.overview-leg { margin-top: 8rpx; font-size: var(--fs-sm); line-height: 1.65; color: var(--brand-700); overflow-wrap: anywhere; }
+.overview-up-next { color: var(--ink-500); }
+.overview-skipped { font-size: var(--fs-xs); color: var(--ink-500); margin-top: 6rpx; }
+/* 线性交通图标：26rpx，跟文字基线对齐。 */
+.mi { display: inline-block; width: 26rpx; height: 26rpx; margin-right: 8rpx; vertical-align: -4rpx; }
+/* 距离后缀「（直线，导航路线会略有差异）」—— 比正文小一号、浅一档，
+   它是要读的补充，不该和"942m"抢注意力。 */
+.dist-note { font-size: 22rpx; font-weight: 400; color: var(--ink-400); }
+/* 总览一行：出发 / 结束 / 步行总时长 + 修改行程。
+   原来它被做成卡挂在时间轴末尾，没有标题也脱离上下文；并回进度卡后
+   只占一行（约 36px），信息不用滑到底才看得到。 */
+.overview-totals { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; margin-top: 18rpx; padding-top: 14rpx; border-top: 1rpx solid var(--line); }
+.overview-totals-text { flex: 1; min-width: 0; font-size: var(--fs-sm); color: var(--ink-500); font-variant-numeric: tabular-nums; line-height: 1.6; }
+.overview-edit-btn { flex: none; width: auto; max-width: none; min-width: 0; min-height: 0; margin: 0; padding: 4rpx 0; color: var(--brand-600); background: transparent; font-size: var(--fs-sm); line-height: 1.6; }
+.overview-edit-btn::after { border: none; }
+.overview-edit-btn.button-disabled, .overview-edit-btn:disabled { opacity: 0.5; }
+/* 进度卡里的"这一段怎么走"摘要：一行，不加备注。 */
+.overview-route { color: var(--brand-700); }
+.overview-actions { display: flex; gap: 16rpx; margin-top: 16rpx; }
+.overview-actions .btn { min-height: 88rpx; font-size: var(--fs-body); padding: 16rpx 12rpx; }
+.overview-primary { flex: 2; min-width: 0; }
+.overview-map { flex: 1; min-width: 0; }
+.overview-error { margin: 8rpx 0 12rpx; padding: 12rpx 16rpx; font-size: var(--fs-sm); color: var(--warn); background: var(--warn-bg); border-radius: var(--r-sm); line-height: 1.6; }
+.trip-alert { margin-top: 4rpx; padding: 18rpx 22rpx; box-shadow: none; }
+.trip-section { display: flex; justify-content: space-between; align-items: center; border-left: 6rpx solid var(--brand-600); margin: 30rpx 8rpx 20rpx; padding-left: 14rpx; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-700); }
+.trip-section-count { font-size: var(--fs-xs); color: var(--ink-500); }
+.trip-tools-label { margin: 28rpx 8rpx 18rpx; font-size: var(--fs-sm); color: var(--ink-500); }
+.map-card, .text-change { padding: 12rpx 24rpx; }
+.map-card .card-title { font-size: var(--fs-body); }
+.map-card .section-toggle { gap: 12rpx; }
+.map-leg-details { padding: 6rpx 0 18rpx; }
+.map-panel-head { padding: 16rpx 0; }
+.map-panel-head .card-title { flex: 1; min-width: 0; text-align: left; }
+.map-title-text { white-space: nowrap; }
+.map-toggle-label, .lp-toggle-label { flex: none; font-size: var(--fs-sm); font-weight: 400; color: var(--brand-600); }
+/* 显式覆盖微信 button 的原生尺寸，标题行按整张卡片排布。 */
+.page .section-toggle { display: flex; width: 100%; max-width: none; margin: 0; text-align: left; }
+/* 「重新选择地点」按钮已随模板删除（2026-10-22）：
+   它与「取消行程」是同一个 resetTrip()，且少了二次确认，
+   留着一个无确认的"丢掉行程"入口风险更大。 */
+
+/* ── 时间轴 ───────────────────────────────── */
+.tl {
+  margin-bottom: 10rpx;
+}
+.node {
+  display: flex;
+  padding-bottom: 8rpx;
+}
+.node-rail {
+  width: 26rpx; margin-right: 16rpx; display: flex; flex-direction: column; align-items: center; padding-top: 30rpx; flex: none;
+}
+.dot {
+  width: 22rpx; height: 22rpx; border-radius: 50%; background: var(--brand-300); flex: none; box-shadow: 0 0 0 6rpx var(--surface), 0 0 0 8rpx var(--line-strong);
+}
+.node.current .dot {
+  width: 26rpx; height: 26rpx; background: var(--progress); box-shadow: 0 0 0 8rpx var(--progress-bg);
+}
+.node.done .dot {
+  background: var(--success);
+}
+.node.skipped .dot {
+  background: var(--ink-300);
+}
+.line {
+  width: 2rpx; flex: 1; background: var(--line-strong); margin-top: 12rpx;
+}
+.node-body {
+  flex: 1; min-width: 0; box-sizing: border-box; background: var(--surface); border: 2rpx solid var(--line); border-radius: var(--r-md); padding: 20rpx 22rpx; margin-bottom: 14rpx; box-shadow: var(--sh-1);
+}
+.node.current .node-body {
+  border-color: var(--brand-200); box-shadow: 0 6rpx 12rpx rgba(25, 50, 80, 0.05), 0 20rpx 44rpx rgba(25, 50, 80, 0.07);
+}
+.node-head {
+  display: flex; align-items: center; gap: 10rpx;
+}
+.node-seq {
+  flex: none; width: 38rpx; height: 38rpx; line-height: 38rpx; text-align: center; border-radius: 12rpx; font-size: var(--fs-sm); font-weight: 700; color: var(--brand-700); background: var(--brand-100);
+}
+.node-name {
+  font-size: var(--fs-h2); font-weight: 700; color: var(--ink-900); flex: 1; min-width: 0; overflow-wrap: break-word;
+}
+
+/* 三态统一：当前 = 浅橙，待游览 = 浅灰，已完成 = 浅绿（见 .badge.done）。 */
+.badge.pending {
+  color: var(--ink-500); background: var(--surface-2); border: 2rpx solid var(--line-strong);
+}
+.badge.done {
+  background: var(--success-bg);
+  color: var(--success);
+}
+.badge.arrived {
+  background: var(--success-bg); color: var(--success);
+}
+.badge.skipped {
+  background: var(--surface-2); color: var(--ink-500); border: 2rpx solid var(--line-strong);
+}
+.node-times {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 10rpx;
+}
+.t {
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+  margin-right: 24rpx;
+}
+/* ── 出行段：两个目的地之间 ─────────────────── */
+.leg {
+  display: flex;
+  align-items: stretch;
+  margin: -8rpx 0 8rpx;
+}
+.leg-rail {
+  width: 26rpx; margin-right: 16rpx; display: flex; justify-content: center; flex: none;
+}
+.leg-bar {
+  width: 2rpx; background: var(--line-strong);
+}
+.leg-body {
+  display: flex; align-items: center; flex-wrap: wrap; min-width: 0; padding: 16rpx 18rpx; margin-left: 0; border: 2rpx dashed var(--brand-200); background: var(--trip-leg-bg); border-radius: var(--r-sm); flex: 1;
+}
+.leg-mode {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--brand-700);
+  margin-right: 8rpx;
+}
+.leg-time {
+  font-size: var(--fs-sm);
+  font-weight: 700;
+  color: var(--brand-700);
+  margin-right: 8rpx;
+}
+/* 「（最快）」—— 原来那句"X 最快：比 Y 省 N 分钟"压缩成一个标记：
+   只保留结论，比较过程不上屏。 */
+.leg-fast {
+  font-size: 22rpx;
+  font-weight: 600;
+  color: var(--warn);
+  margin-right: 8rpx;
+  white-space: nowrap;
+}
+.leg-dist {
+  font-size: var(--fs-sm);
+  color: var(--ink-400);
+}
+.leg-warn {
+  font-size: 22rpx;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 2rpx solid var(--warn-line);
+  border-radius: 8rpx;
+  padding: 0 10rpx;
+  margin-left: 8rpx;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+/* 估算只标"这一段是估算"，不再把整段染黄 ——
+   用户看到浅橙标签就够了，整块底色变黄会把时间轴读成"到处都是警告"。 */
+.leg-estimated .leg-body {
+  border-color: var(--warn-line);
+}
+
+/* 已走过的路段：变绿，与地图上的绿线一致 */
+.leg-visited .leg-bar {
+  background: var(--success);
+}
+.leg-visited .leg-body {
+  background: var(--success-bg);
+}
+.leg-visited .leg-time {
+  color: var(--success);
+}
+.leg-done {
+  font-size: var(--fs-sm);
+  color: var(--success);
+  border: 2rpx solid var(--success);
+  border-radius: var(--r-sm);
+  padding: 1rpx 10rpx;
+  margin-left: 10rpx;
+}
+
+/* ── 已到过的节点 ─────────────────────────── */.node.visited .dot {
+  background: var(--success); width: 22rpx; height: 22rpx; box-shadow: 0 0 0 6rpx var(--surface), 0 0 0 8rpx var(--success-ring);
+}
+.node.visited .node-body {
+  border-left: 2rpx solid var(--line);
+}
+.node.visited .node-name {
+  color: var(--success);
+}
+
+/* ── 跳过的节点 ───────────────────────────── */
+/* ⚠️ 跳过的**不能显示成绿色** —— 绿色代表"去过了"，跳过就是没去。
+   灰色才如实：这一站被跳过了。 */
+.node.skip .dot {
+  background: var(--ink-300); box-shadow: 0 0 0 6rpx var(--surface), 0 0 0 8rpx var(--line-strong);
+}
+.node.skip .node-body {
+  border-color: var(--line-strong); box-shadow: none;
+}
+.node.skip .node-name {
+  color: var(--ink-500);
+  text-decoration: line-through;
+}
+
+/* ── 进度操作 ─────────────────────────────── */
+.progress-act {
+  color: var(--success);
+  font-weight: 600;
+}
+.act {
+  flex: 1; min-width: 0; text-align: center; font-size: var(--fs-sm); color: var(--brand-700); padding: 8rpx 10rpx; border-radius: var(--r-pill); background: var(--brand-100);
+}
+.act.warn-act {
+  color: var(--danger); background: var(--danger-bg);
+}
+
+/* ── 候选卡片 ─────────────────────────────── */
+.cand-head {
+  padding: 20rpx 24rpx;
+}
+.cand-label {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--brand-600);
+}
+.card.cand.infeasible {
+  opacity: 0.72;
+  border-left: 8rpx solid var(--danger);
+}
+.cand-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 16rpx;
+}
+.m {
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  padding: 6rpx 14rpx;
+  margin: 0 12rpx 10rpx 0;
+}
+.changes {
+  margin-top: 14rpx;
+}
+.changes-hd {
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+  margin-bottom: 8rpx;
+}
+.change {
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--ink-900);
+}
+.quality-warn {
+  margin-top: 14rpx;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--warn);
+}
+.conflicts {
+  margin-top: 12rpx;
+}
+
+.foot {
+  text-align: center;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--ink-300);
+  padding: 24rpx 10rpx 40rpx;
+}
+
+/* ── 搜索行 ───────────────────────────────── */
+.search-row {
+  display: flex;
+  align-items: center;
+  margin-top: 20rpx;
+}
+.search-input {
+  flex: 1;
+  width: 100%;
+  height: 96rpx;
+  min-height: 96rpx;
+  box-sizing: border-box;
+  background: var(--surface-2);
+  border: 1rpx solid var(--line-strong);
+  border-radius: var(--r-sm);
+  padding: 10rpx 16rpx;
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  color: var(--ink-900);
+}
+.planning-title { font-size: var(--fs-h1); font-weight: 700; color: var(--brand-600); }
+.planning-sub { margin-top: 6rpx; }
+.planning-examples { display: flex; gap: 12rpx; margin-top: 14rpx; }
+/* button 默认是 width:100%，两个示例会上下堆成两行 —— 这里让它们等分一行 */
+.example-chip { flex: 1 1 0; width: auto; min-width: 0; margin: 0; padding: 10rpx 8rpx; text-align: center; font-size: var(--fs-sm); line-height: 1.5; border-radius: var(--r-sm); background: var(--brand-100); color: var(--brand-600); }
+.example-chip::after { border: none; }
+.planning-voice { margin-top: 6rpx; }
+.search-submit { margin: 18rpx 0 8rpx; }
+/* 「时间与停留」折叠区：一行摘要，点开才显示四个选项 */
+.planning-advanced-head { margin-top: 22rpx; padding-top: 18rpx; border-top: 1rpx solid var(--line); }
+.planning-advanced-summary { font-size: var(--fs-sm); font-weight: 400; }
+.planning-caret { margin-left: 8rpx; color: var(--brand-500); font-size: var(--fs-sm); }
+.planning-advanced { margin-top: 14rpx; }
+.planning-advanced .row { margin-top: 12rpx; }
+.mt {
+  margin-top: 22rpx;
+}
+.row-right {
+  display: flex;
+  align-items: center;
+}
+.clear {
+  margin-left: 18rpx;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+}
+
+/* ── 候选项 ───────────────────────────────── */
+.tick {
+  width: 40rpx;
+  height: 40rpx;
+  line-height: 40rpx;
+  text-align: center;
+  border-radius: var(--r-sm);
+  border: 2rpx solid var(--line-strong);
+  color: var(--surface);
+  font-size: var(--fs-sm);
+  margin-right: 18rpx;
+  flex: none;
+}
+.tick.on {
+  background: var(--success);
+  border-color: var(--success);
+}
+
+/* ── 已选顺序 ─────────────────────────────── */
+.sel {
+  display: flex;
+  align-items: center;
+  padding: 18rpx 0;
+  border-bottom: 1rpx solid var(--line);
+}
+/* 名称 + 预选理由两行 —— 理由用弱化样式，不抢名字的注意力 */
+.sel-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.sel-reason {
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+  margin-top: 4rpx;
+}
+.sel:last-child {
+  border-bottom: none;
+}
+.sel-seq {
+  width: 40rpx;
+  height: 40rpx;
+  line-height: 40rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: var(--brand-600);
+  color: var(--surface);
+  font-size: var(--fs-sm);
+  margin-right: 16rpx;
+  flex: none;
+}
+.sel-name {
+  flex: 1;
+  font-size: var(--fs-body);
+  color: var(--ink-900);
+}
+.sel-del {
+  font-size: var(--fs-sm);
+  color: var(--warn);
+  padding: 6rpx 12rpx;
+}
+.sel-actions { display: flex; flex-direction: column; align-items: flex-end; flex-shrink: 0; margin-left: 12rpx; }
+.visit-again { margin: 0; padding: 8rpx 12rpx; color: var(--brand-600); background: var(--brand-100); border-radius: var(--r-sm); font-size: var(--fs-sm); line-height: 1.6; }
+.visit-again::after { border: none; }
+
+/* ── 提醒卡 ───────────────────────────────── */
+.warncard {
+  background: var(--warn-bg);
+  border-left: 8rpx solid var(--warn);
+}
+.warn-item {
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--warn);
+}
+
+/* ── 意图解析 ─────────────────────────────── */
+.intent {
+  margin-top: 18rpx;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  padding: 18rpx;
+}
+.intent-hd {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--brand-600);
+}
+.degraded {
+  margin-top: 10rpx;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  /* 中性色：没配模型不是故障，别用警告色吓人 */
+  color: var(--ink-500);
+}
+.uncertain {
+  margin-top: 16rpx;
+  border-top: 1rpx solid var(--line);
+  padding-top: 14rpx;
+}
+.uncertain-hd {
+  font-size: var(--fs-sm);
+  color: var(--warn);
+  margin-bottom: 8rpx;
+}
+.uncertain-item {
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--ink-500);
+  margin-bottom: 10rpx;
+}
+.cands {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 8rpx;
+}
+.cand {
+  font-size: var(--fs-sm);
+  color: var(--brand-600);
+  border: 2rpx solid var(--brand-600);
+  border-radius: var(--r-sm);
+  padding: 4rpx 16rpx;
+  margin: 0 12rpx 8rpx 0;
+}
+.from-parse {
+  font-size: var(--fs-sm);
+  color: var(--success);
+  background: var(--success-bg);
+  border-radius: var(--r-sm);
+  padding: 2rpx 10rpx;
+  margin-right: 10rpx;
+}
+
+/* ── 路线地图 ─────────────────────────────── */
+.map-card {
+  padding: 16rpx 16rpx 20rpx;
+}
+.route-map {
+  width: 100%;
+  height: 420rpx;
+  border-radius: var(--r-sm);
+}
+
+/* ── 步行来源样式已随「行程与来源说明」卡删除（2026-10-22）── */
+.badge.unverified {
+  background: var(--surface-2);
+  color: var(--ink-500);
+  margin-right: 8rpx;
+}
+
+/* ── 出发段（时间轴里的第一段）───────────────── */
+/* 与站点之间的出行段同一套样式 —— 它们本来就是同一类东西 */
+.leg-start .leg-body {
+  background: rgba(240, 247, 253, 0.92);
+}
+.leg-from,
+.leg-to {
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+  margin-right: 8rpx;
+  white-space: nowrap;
+}
+.leg-to { margin-left: 4rpx; }
+
+/* ── 当前路线（这一段怎么走）───────────────── */
+/*
+  这块**不是**"站的顺序"，而是"这一段怎么走、多远、多久"。
+  顺序是计划，出行方式与距离才是行走时真正要看的东西。
+  也是将来接导航的落点。
+*/
+.leg-headline {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 10rpx 0 4rpx;
+}
+.leg-from-name {
+  font-size: var(--fs-body);
+  color: var(--ink-500);
+}
+.leg-to-name {
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  color: var(--brand-600);
+}
+.leg-arrow {
+  font-size: var(--fs-body);
+  color: var(--line-strong);
+  margin: 0 14rpx;
+}
+.leg-figures {
+  display: flex;
+  align-items: baseline;
+  gap: 16rpx;
+  padding: 6rpx 0 2rpx;
+}
+.fig-mode {
+  font-size: var(--fs-sm);
+  color: var(--brand-600);
+  background: var(--brand-100);
+  border-radius: var(--r-sm);
+  padding: 2rpx 12rpx;
+}
+.fig-strong {
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  color: var(--brand-600);
+}
+.fig {
+  font-size: var(--fs-body);
+  color: var(--ink-500);
+}
+.leg-actions {
+  display: flex; flex-wrap: wrap; gap: 12rpx; padding: 16rpx 0 0;
+}
+
+
+/* ── 内置导航：转向指引 ───────────────────── */
+/*
+  指令文案**一律用上游原话**（腾讯返回的 instruction），不自己拼 ——
+  编错一个路口，用户就多走一公里。
+*/
+.nav-steps {
+  margin-top: 16rpx;
+  border-top: 1rpx solid var(--line);
+  padding-top: 16rpx;
+}
+.nav-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding-bottom: 10rpx;
+}
+.nav-title {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--brand-600);
+}
+.nav-step {
+  display: flex;
+  align-items: flex-start;
+  padding: 12rpx 0;
+  border-bottom: 1rpx solid var(--surface-2);
+}
+.nav-step:last-child {
+  border-bottom: none;
+}
+.nav-seq {
+  flex: none;
+  width: 36rpx;
+  height: 36rpx;
+  line-height: 36rpx;
+  text-align: center;
+  border-radius: 50%;
+  background: var(--brand-600);
+  color: var(--surface);
+  font-size: var(--fs-sm);
+  margin-right: 14rpx;
+}
+.nav-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.nav-text {
+  font-size: var(--fs-body);
+  color: var(--ink-700);
+  line-height: 1.5;
+}
+.nav-dist {
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+  margin-top: 4rpx;
+}
+
+/* ── 出行方式与来源（2026-10-14）──────────────────────────
+   接入多种出行方式后新增。**"怎么走"与"这个数可不可信"要能分开看** ——
+   后者是"直线估算"时必须显眼，它与真实路线在短距离下能差 7 倍。
+
+   `.leg-src`（"踏勘实测／真实路线／直线估算"这几个来源名）已随模板一起删除
+   （2026-10-20），所以这里不再有对应规则；"可不可信"只由 `.leg-warn` 表达。 */
+.leg-transit {
+  display: block;
+  margin-top: 6rpx;
+  font-size: var(--fs-sm);
+  color: var(--brand-600);
+}
+.leg-reason {
+  display: block;
+  margin-top: 4rpx;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+}
+/* 当前路线卡片上的多行说明（2026-10-14）
+   公交换乘细节与"为什么没有方案"都放在这里，比挤在 figures 那一行更清楚。 */
+.leg-reason-line{font-size: var(--fs-xs);color:var(--ink-300);margin-top:6rpx}
+.leg-transit-line{font-size: var(--fs-sm);color:var(--brand-600);margin-top:6rpx}
+/* 没按用户选的出行方式 —— 必须显眼（2026-10-14）。
+   用户选了步行却被改成驾车，如果和普通说明一个样式，他会以为系统没理他。 */
+.leg-reason-miss {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: var(--r-sm);
+  padding: 6rpx 10rpx;
+}
+/* ── 逐段出行方式选择（2026-10-14 用户要求）────────────────
+   每段一行，行内是各方式的耗时；系统推荐的那个带"推荐"小字样。 */
+.leg-picker { padding: 20rpx 24rpx 16rpx; }
+.lp-head { padding-top: 0; }
+.lp-head .k { font-size: var(--fs-h2); }
+.leg-picker-collapsed { padding: 12rpx 24rpx; }
+.lp-leg { padding: 12rpx 0; border-top: 1rpx solid var(--line); }
+.lp-leg-head { display: flex; align-items: center; flex-wrap: wrap; gap: 8rpx 0; margin-bottom: 8rpx; }
+.lp-seq {
+  width: 36rpx; height: 36rpx; line-height: 36rpx; text-align: center;
+  border-radius: 50%; background: var(--brand-100); color: var(--brand-700);
+  font-size: var(--fs-xs); font-weight: 700; margin-right: 12rpx;
+}
+.lp-path { flex: 1; min-width: 0; overflow-wrap: anywhere; font-size: var(--fs-body); font-weight: 600; color: var(--ink-900); }
+.lp-opts { display: flex; flex-wrap: wrap; }
+/* 初始选择器里的选项：能并排就并排，只有一种方式时占满整行。
+   旧写法固定 3 列 + 竖排，于是"只有步行"的数据会塌成 1/3 宽的三行小字，
+   单段反而更高（2026-10-22 修）。
+   320rpx 一列：一行最多两个（"骑行 3.4 分钟 推荐"放得下），
+   三种方式时排成 2 + 1，不会把"推荐"挤到第二行。 */
+.leg-picker .lp-opts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300rpx, 1fr)); gap: 12rpx; }
+.leg-picker .lp-opt { flex-direction: row; align-items: center; flex-wrap: wrap; margin: 0; min-height: 64rpx; padding: 8rpx 14rpx; }
+.leg-picker .lp-opt-name { margin-right: 6rpx; }
+.leg-picker .lp-badge { margin-left: 6rpx; }
+.lp-opt {
+  display: flex; align-items: center; flex-wrap: wrap;
+  box-sizing: border-box; max-width: 100%; min-height: 72rpx; line-height: 1.5; text-align: left;
+  padding: 10rpx 18rpx; margin: 0 12rpx 12rpx 0;
+  border: 2rpx solid var(--line-strong); border-radius: var(--r-sm);
+  background: var(--surface);
+}
+.lp-opt::after { border: none; }
+.lp-opt.button-disabled, .lp-opt:disabled { opacity: 0.6; }
+/* 选中的那个要一眼看出来 */
+.lp-opt-on { border-color: var(--brand-300); background: var(--brand-50); }
+.lp-opt-name { font-size: var(--fs-sm); color: var(--ink-900); margin-right: 8rpx; }
+.lp-opt-min { font-size: var(--fs-sm); color: var(--ink-500); }
+/* "推荐"小字样 —— 系统的判断（最快），不受用户偏好影响 */
+.lp-badge {
+  margin-left: 8rpx; padding: 0 10rpx;
+  font-size: 22rpx; color: var(--warn); background: var(--warn-bg);
+  border-radius: 8rpx;
+}
+.lp-opt-sub { width: 100%; font-size: var(--fs-xs); color: var(--ink-500); margin-top: 4rpx; }
+/* 「哪种方式为什么不可用」那段逐条说明已移除（2026-10-20）；
+   这里对应删掉样式，避免留下永远匹配不到的死规则。 */
+.lp-actions { display: flex; margin-top: 12rpx; }
+/* 选择器没内容时的说明（2026-10-14）
+   卡片不再静默消失，所以要能说清"为什么这里没东西"。 */
+.lp-empty { font-size: var(--fs-sm); color: var(--ink-500); padding: 10rpx 0; line-height: 1.7; }
+
+/* 点站名看地图 —— 给一点按压反馈，否则点了没动静会以为没生效 */
+.node-head-hover {
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+}
+/* ── 「待你选择」：低饱和黄，提示"这一步要你定" ───────────── */
+.lp-needs {
+  font-size: 24rpx;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border: 2rpx solid var(--warn-line);
+  border-radius: 10rpx;
+  padding: 2rpx 14rpx;
+  margin-left: 12rpx;
+}
+.change-input { width: 100%; min-height: 150rpx; height: 150rpx; box-sizing: border-box; padding: 16rpx; margin-top: 16rpx; background: var(--surface-2); border-radius: var(--r-sm); font-size: var(--fs-body); }
+.change-question { margin-top: 16rpx; padding: 16rpx; background: var(--warn-bg); border-radius: var(--r-sm); font-size: var(--fs-body); }
+.change-choice { margin-top: 10rpx; padding: 12rpx; border: 1rpx solid var(--line-strong); border-radius: var(--r-sm); background: var(--surface); }
+.change-choice-selected { border-color: var(--brand-600); color: var(--brand-600); background: var(--brand-100); }
+.change-answer { margin-top: 12rpx; padding: 12rpx; background: var(--surface); border-radius: var(--r-sm); }
+
+/* 状态叠加：当前已到达仍强调正在游览；完成与跳过不误作当前。 */
+.node.visited .line { background: linear-gradient(180deg, var(--reached-line), var(--brand-200)); }
+.node.visited .node-seq { color: var(--success); background: var(--success-bg); }
+.node.current .node-seq { color: var(--progress-ink); background: var(--progress-bg); }
+.node.current.arrived .dot { width: 26rpx; height: 26rpx; background: var(--progress); box-shadow: 0 0 0 8rpx var(--progress-bg); }
+.node.current.arrived .node-body { border-color: var(--brand-200); }
+.node.current.arrived .badge.arrived { color: var(--surface); background: var(--progress); }
+.node.current .badge.pending { color: var(--accent); background: var(--accent-bg); box-shadow: none; }
+.node.current.done .node-body { border-color: var(--line); box-shadow: var(--sh-1); }
+.node.current.done .node-seq { color: var(--success); background: var(--success-bg); }
+.node.skip .node-seq { color: var(--ink-500); background: var(--surface-2); }
+.node-times, .t, .fig-strong, .leg-time { font-variant-numeric: tabular-nums; }
+.page > .btn { margin-bottom: 20rpx; }
+.tick { border-radius: 12rpx; }
+.lp-actions { gap: 12rpx; flex-wrap: wrap; }
+
+.leg-mode, .leg-time, .leg-dist { flex-shrink: 0; white-space: nowrap; }
+
+.leg-estimated.leg-visited .leg-body { background: var(--success-bg); border-color: var(--success-ring); }
+
+.node-actions { display: flex; gap: 12rpx; margin-top: 18rpx; padding-top: 0; border-top: none; }
+.node-actions .act { display: flex; align-items: center; justify-content: center; box-sizing: border-box; min-height: 84rpx; margin: 0; padding: 10rpx 6rpx; font-size: var(--fs-sm); font-weight: 600; line-height: 1.4; color: var(--brand-700); background: var(--brand-100); }
+.node-actions .act::after { border: none; }
+.node-actions .act.button-disabled, .node-actions .act:disabled { opacity: 0.6; }
+.node-actions .progress-act { color: var(--btn-ink); background: linear-gradient(135deg, var(--btn-g1) 0%, var(--btn-mid) 62%, var(--btn-g2) 100%); box-shadow: 0 4rpx 12rpx var(--btn-shadow); }
+.node-actions .adjust-act { color: var(--brand-700); background: var(--surface); border: 2rpx solid var(--brand-300); }
+/* 「跳过不去」是弱化的风险操作：浅红底 + 砖红字，不用刺眼的大红。 */
+.node-actions .skip-act { color: #b4483c; background: var(--danger-bg); }
+.node.done .node-actions, .node.skip .node-actions { border-top: none; margin-top: 6rpx; padding-top: 0; justify-content: flex-end; }
+.node.done .node-actions .act, .node.skip .node-actions .act { flex: none; min-height: 68rpx; padding: 8rpx 22rpx; color: var(--ink-500); background: var(--surface-2); box-shadow: none; }
+.leg .leg-body { align-items: center; }
+.leg-summary { flex: 1; min-width: 0; line-height: 1.7; }
+.leg .leg-editor { flex-basis: 100%; }
+
+/* 路段的摘要始终显示，方式选项只在修改该段时展开。 */
+.leg-path { width: 100%; margin-top: 4rpx; font-size: 22rpx; color: var(--ink-400); overflow-wrap: anywhere; }
+.leg-edit-btn {
+  display: inline-block; flex: none; width: auto; max-width: none; min-width: 0; min-height: 0; height: auto;
+  margin: 0 0 0 12rpx; padding: 6rpx 16rpx; border: 2rpx solid var(--brand-200); border-radius: var(--r-pill);
+  background: var(--brand-50); color: var(--brand-700); font-size: 22rpx; font-weight: 500; line-height: 1.6;
+  white-space: nowrap; text-align: center;
+}
+.leg-edit-disabled { opacity: 0.6; }
+.leg-editor { width: 100%; min-width: 0; box-sizing: border-box; margin-top: 16rpx; padding-top: 16rpx; border-top: 1rpx solid var(--line-strong); }
+.leg-editor-title { margin-bottom: 14rpx; font-size: var(--fs-sm); font-weight: 600; color: var(--ink-900); overflow-wrap: anywhere; }
+.leg-editor .lp-actions .btn { flex: 1; padding-left: 16rpx; padding-right: 16rpx; }
+
+.overview-meta { display: flex; flex: 0 0 auto; align-items: center; margin-left: auto; }
+/* 卡头只留「取消行程」：它是不可逆操作，不再和「修改行程」并排。
+   修改行程移到了总览行右侧，见 .overview-totals。 */
+.overview-meta .cancel-trip-btn { display: block; flex: 0 0 auto; width: auto; max-width: none; min-width: 0; min-height: 0; margin: 0; padding: 6rpx 0; color: var(--danger); background: transparent; font-size: var(--fs-xs); line-height: 1.6; white-space: nowrap; }
+.cancel-trip-btn::after { border: none; }
+.cancel-trip-btn.button-disabled, .cancel-trip-btn:disabled { opacity: 0.5; }
+.selected-plan .card { margin-bottom: 16rpx; }
+.selected-plan .btn { width: 100%; margin-bottom: 24rpx; }
+
