@@ -1,0 +1,2 @@
+# 发布包作为 GitHub Release 附件保存，不进仓库
+*.zip
