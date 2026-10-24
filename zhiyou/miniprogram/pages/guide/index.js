@@ -19,6 +19,21 @@ Page({
           patch = { ...patch, voiceContext: 'guide-' + this.guideVoiceGeneration, sourcesOpen: false, traceOpen: false }
         }
         this.setData(patch)
+        /**
+         * 「数人数」快捷入口（2026-10-20）。
+         *
+         * 从 `askCrowd()` 进来时先弹选图；选完照片（`imagePath` 落地）就自动开始识别，
+         * 用户不用再找「统计照片人数」那一步。取消选图则清掉标记，
+         * 避免下一次随便拍张照片就被自动识别、白烧一次配额。
+         */
+        if (this.pendingCrowd && !patch.busy) {
+          if (patch.imagePath) {
+            this.pendingCrowd = false
+            this.guide.countPeople()
+          } else if (patch.choosing === false) {
+            this.pendingCrowd = false
+          }
+        }
       } })
   },
   onShow() { this.guideVisible = true; if (this.guide) this.guide.show() },
@@ -55,6 +70,21 @@ Page({
   discardChange() { this.guide.discardChange() },
   navigate(e) { if (!this.data.voiceActive) return this.guide.navigate(e.currentTarget.dataset.target) },
   countPeople() { if (!this.data.voiceActive) return this.guide.countPeople() },
+  /**
+   * YOLO 人数识别的快捷入口（2026-10-20）。
+   *
+   * 为什么要单独一个入口：人数识别的按钮只在**选了照片之后**才出现
+   * （`wx:if="{{imagePath}}"`），所以"能数人数"这件事在空页面上完全看不到。
+   * 这个入口把两步并成一步：没照片就先去拍/选，选完自动开始识别；
+   * 已经有照片就直接识别。
+   */
+  askCrowd() {
+    if (this.data.voiceActive) { this.setData({ error: '请先结束语音识别，再试人数识别' }); return }
+    if (this.data.busy) return
+    if (this.data.imagePath) return this.guide.countPeople()
+    this.pendingCrowd = true
+    return this.guide.choose()
+  },
   clear() { return this.guide.clear() },
   example(e) { if (!this.data.voiceActive) this.guide.setText(e.currentTarget.dataset.text) },
   copySource(e) { wx.setClipboardData({ data: e.currentTarget.dataset.url }) },

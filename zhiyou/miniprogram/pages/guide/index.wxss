@@ -1,4 +1,4 @@
-.page { padding: 28rpx 24rpx 56rpx; background: transparent; min-height: 100vh; box-sizing: border-box; }
+.page { padding: 28rpx 24rpx 56rpx; padding-bottom: calc(56rpx + env(safe-area-inset-bottom)); background: transparent; min-height: 100vh; box-sizing: border-box; }
 .hero { padding: 18rpx 6rpx 28rpx; }
 .eyebrow { color: var(--brand-600); font-size: var(--fs-sm); letter-spacing: 3rpx; }
 .title { color: var(--ink-900); font-weight: 700; font-size: var(--fs-display); margin-top: 12rpx; }
@@ -7,9 +7,13 @@
 .actions { display: flex; gap: 10rpx; flex-wrap: wrap; }
 .actions button { margin: 0; }
 .question { box-sizing: border-box; width: 100%; min-height: 150rpx; height: 170rpx; border: 1rpx solid var(--line-strong); border-radius: var(--r-sm); padding: 18rpx; margin-top: 20rpx; font-size: var(--fs-body); }
-.send { background: var(--brand-600); color: var(--surface); border-radius: var(--r-sm); margin-top: 18rpx; font-size: var(--fs-body); }
+.send { color: var(--btn-ink); background: linear-gradient(135deg, var(--btn-g1) 0%, var(--btn-mid) 62%, var(--btn-g2) 100%); border-radius: var(--r-sm); margin-top: 18rpx; font-size: var(--fs-body); box-shadow: 0 8rpx 20rpx var(--btn-shadow); }
+/* 示例 chip 从 <text> 换成 <view>（2026-10-20）：
+   `hover-class` 只对 view/button 生效，写在 text 上不报错也不生效。
+   换成 view 后顺手把热区做到 72rpx —— 原来 padding 8rpx 只有 26px 高，
+   手指点偏一格就会落到空白处，表现为"点了没反应"。 */
 .examples { display: flex; flex-wrap: wrap; gap: 12rpx; margin-top: 18rpx; }
-.example { color: var(--brand-600); background: var(--brand-100); padding: 8rpx 14rpx; border-radius: var(--r-md); font-size: var(--fs-sm); }
+.example { display: inline-flex; align-items: center; box-sizing: border-box; min-height: 72rpx; padding: 10rpx 20rpx; color: var(--brand-600); background: var(--brand-100); border-radius: var(--r-md); font-size: var(--fs-sm); }
 .photo { width: 100%; height: 280rpx; border-radius: var(--r-sm); background: var(--surface-2); }
 .photo-wrap { margin-top: 18rpx; }
 .answer, .evidence-text { font-size: var(--fs-body); line-height: 1.85; color: var(--ink-900); white-space: pre-wrap; }
@@ -19,7 +23,8 @@
 .evidence { margin-top: 20rpx; border-left: 5rpx solid var(--brand-300); padding: 8rpx 0 8rpx 18rpx; }
 .source-title { font-size: var(--fs-sm); color: var(--ink-900); }
 .source-url { font-size: var(--fs-sm); color: var(--ink-500); word-break: break-all; margin-top: 6rpx; }
-.link { color: var(--brand-600); font-size: var(--fs-sm); padding: 10rpx 0; }
+/* 「移除照片」「复制来源链接」都靠这一行 —— 原 padding 10rpx 只有 28px 高 */
+.link { display: inline-flex; align-items: center; min-height: 72rpx; color: var(--brand-600); font-size: var(--fs-sm); padding: 10rpx 0; }
 .error { color: var(--danger); background: var(--danger-bg); border-radius: var(--r-sm); padding: 16rpx; margin-top: 14rpx; font-size: var(--fs-sm); }
 .history { background: var(--surface-2); padding: 14rpx; border-radius: var(--r-sm); font-size: var(--fs-body); line-height: 1.7; margin-top: 12rpx; }
 .history-text { white-space: pre-wrap; }
@@ -27,7 +32,8 @@
 .footnote { color: var(--ink-500); font-size: var(--fs-sm); line-height: 1.7; }
 .navigation-actions { margin-top: 20rpx; }
 .change-question { margin-top: 22rpx; font-size: var(--fs-body); color: var(--ink-900); }
-.change-choice { display: inline-block; padding: 12rpx 16rpx; margin: 10rpx 10rpx 4rpx 0; border: 1rpx solid var(--line-strong); border-radius: var(--r-sm); font-size: var(--fs-body); }
+/* 修改方案里的"追问选项"是必点项，原来 63rpx（31px）高，偏小 */
+.change-choice { display: inline-flex; align-items: center; box-sizing: border-box; min-height: 80rpx; padding: 16rpx 22rpx; margin: 10rpx 10rpx 4rpx 0; border: 1rpx solid var(--line-strong); border-radius: var(--r-sm); font-size: var(--fs-body); }
 .change-selected { color: var(--surface); background: var(--brand-600); }
 .change-input { padding: 16rpx; border: 1rpx solid var(--line-strong); border-radius: var(--r-sm); margin-top: 12rpx; }
 .crowd-preview { position: relative; margin-top: 18rpx; }
@@ -35,6 +41,168 @@
 .crowd-box { position: absolute; border: 2px solid var(--detection); box-sizing: border-box; pointer-events: none; }
 .more-actions { padding: 16rpx 0; margin-top: 12rpx; border-top: 1rpx solid var(--line); }
 .example-more { display: inline-block; margin: 0; line-height: 1.5; }
+/* 框架按钮默认 184px（button.wx-button-size-normal）；双类才能收成内容宽度 */
+.example-more.example-more { width: auto; }
 .example-more::after { border: none; }
-.primary-action { background: var(--brand-600); color: var(--surface); }
+.primary-action { color: var(--btn-ink); background: linear-gradient(135deg, var(--btn-g1) 0%, var(--btn-mid) 62%, var(--btn-g2) 100%); box-shadow: 0 4rpx 12rpx var(--btn-shadow); }
 .send.button-disabled, .send:disabled, .primary-action.button-disabled, .primary-action:disabled { background: var(--line-strong); color: var(--ink-500); box-shadow: none; }
+
+/* ══════════════════════════════════════════════════════════
+   2026-10-20 美化：紧凑头部 + 输入卡工具行 + 圆形发送 + 处理中占位条
+   ══════════════════════════════════════════════════════════ */
+
+/* 头部压成两行小字（导航栏已经写着「游览助手」，不再重复大标题） */
+.hero { padding: 10rpx 6rpx 22rpx; }
+.hero-line { font-size: var(--fs-h2); font-weight: 600; color: var(--ink-700); line-height: 1.5; }
+.hero-scope { margin-top: 8rpx; font-size: var(--fs-xs); color: var(--ink-400); }
+
+/* 输入卡：文本框 → 语音 → 工具行，主操作就在输入框旁边 */
+.compose .question { margin-top: 0; min-height: 140rpx; height: 140rpx; }
+/* 工具行 + 发送键（2026-10-24 第二次修）：
+   真机上「拍照 / 更多」两个原生按钮仍会按整行宽参与 flex 计算，把发送键顶出卡片。
+   这一版不再依赖按钮宽度：发送键改成**绝对定位**钉在行尾，工具行只占它左边的空间。
+   就算按钮宽度再异常，发送键也不会被挤走。 */
+.compose-bar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding-right: 112rpx; /* 给绝对定位的发送键留位 */
+  margin-top: 14rpx;
+}
+.compose-tools { display: flex; gap: 12rpx; flex: 1 1 0%; min-width: 0; overflow: hidden; }
+.tool-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 48%;
+  white-space: nowrap;
+  min-height: 76rpx;
+  padding: 0 18rpx;
+  margin: 0;
+  box-sizing: border-box;
+  border: 2rpx solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--brand-700);
+  font-size: var(--fs-body);
+  line-height: 1;
+}
+.tool-btn::after { border: none; }
+/* 微信框架的 button.wx-button-size-normal 是 (0,1,1)：width:184px + margin auto。
+   普通类 (0,1,0) 压不过它 —— 真机上按钮一直是 184px 就是这么来的。
+   双类选择器 (0,2,0) 才能把宽度和 margin 拿回来。 */
+.tool-btn.tool-btn { width: auto; margin: 0; }
+.tool-btn.button-disabled, .tool-btn:disabled {
+  color: var(--ink-300);
+  background: var(--surface-2);
+  border-color: var(--line);
+}
+
+/* 圆形发送：原来是一条全宽按钮，和输入框隔着一整个语音组件 */
+.send-circle {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 92rpx;
+  flex: none;
+  height: 92rpx;
+  min-height: 92rpx;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 50%;
+  color: var(--btn-ink);
+  font-size: 34rpx;
+  font-weight: 700;
+  line-height: 1;
+  background: linear-gradient(135deg, var(--btn-g1) 0%, var(--btn-mid) 62%, var(--btn-g2) 100%);
+  box-shadow: 0 8rpx 20rpx var(--btn-shadow);
+}
+.send-circle::after { border: none; }
+/* 同上：不加双类就会被框架改成 184px 的椭圆 */
+.send-circle.send-circle { width: 92rpx; }
+.send-circle.button-disabled, .send-circle:disabled {
+  background: var(--line-strong);
+  color: var(--ink-500);
+  box-shadow: none;
+}
+
+/* 处理中：在输入卡下方给一条占位提示，而不是把按钮文字换掉 */
+.busy-strip {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin-top: 14rpx;
+  padding: 12rpx 16rpx;
+  border-radius: var(--r-sm);
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-size: var(--fs-sm);
+}
+.busy-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: var(--brand-500);
+  animation: busy-pulse 1s ease-in-out infinite;
+}
+@keyframes busy-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 1; }
+}
+
+/* 照片动作行（2026-10-20 修）：人数识别是主按钮，和「移除照片」并排。
+   原来它是微信默认样式的裸按钮，夹在两段说明之间，很难认出来。 */
+.photo-acts {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  margin-top: 12rpx;
+}
+.photo-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 76rpx;
+  padding: 0 28rpx;
+  margin: 0;
+  box-sizing: border-box;
+  border: 2rpx solid var(--brand-200);
+  border-radius: var(--r-pill);
+  background: var(--brand-100);
+  color: var(--brand-700);
+  font-size: var(--fs-body);
+  font-weight: 600;
+  line-height: 1;
+}
+.photo-btn::after { border: none; }
+/* 同上：不加双类，统计按钮会被撑到 184px，把「移除照片」挤掉 */
+.photo-btn.photo-btn { width: auto; }
+.photo-btn.button-disabled, .photo-btn:disabled {
+  color: var(--ink-500);
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+}
+.photo-acts .link { min-height: 76rpx; padding: 0; }
+
+/* 「照片里有多少人」的快捷入口（2026-10-20）：
+   人数识别按钮只在选了照片后才出现，空页面上看不到这个能力，所以给它一个
+   常驻入口，并用实心底色把它和其它"示例问题"区分开 —— 它不是示例，是动作。
+   2026-10-23 改用行程页的浅蓝主按钮后，光靠底色已经和示例 chip 分不开了，
+   所以再加一圈品牌色描边 + 700 字重，保住"这是动作"的区分。 */
+.example-crowd {
+  color: var(--btn-ink);
+  background: linear-gradient(135deg, var(--btn-g1) 0%, var(--btn-mid) 62%, var(--btn-g2) 100%);
+  border: 2rpx solid var(--brand-300);
+  font-weight: 700;
+  box-shadow: 0 4rpx 12rpx var(--btn-shadow);
+}

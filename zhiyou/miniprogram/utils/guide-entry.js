@@ -1,5 +1,7 @@
 const POSITION_KEY = 'zhiyou-guide-entry-position'
-const SIZE = 64
+/* 悬浮球直径（px）：与 components/guide-entry/index.wxss 的 .guide-fab 保持一致。
+   2026-10-23 从 64 收到 56，让位给卡片主操作。 */
+const SIZE = 56
 const GAP = 12
 const DRAG_THRESHOLD = 8
 const MAX_TAP_DURATION = 600

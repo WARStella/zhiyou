@@ -1,4 +1,8 @@
 <view class="page">
+  <!-- 背景板与行程页同一张图、同一层白纱（2026-10-23 统一）：
+       必须是 <image> 元素，WXSS 的 background-image 用本地图片在真机上不显示。 -->
+  <image class="page-bg" src="/assets/travel/clouds-bg.jpg" mode="aspectFill" />
+  <view class="page-bg-scrim"></view>
 
   <view class="mapwrap">
     <map
@@ -51,6 +55,20 @@
     </map>
 
     <!--
+      ══════════ 队伍状态胶囊（2026-10-20 美化）══════════════
+      队伍名与"到齐几个人"原来只写在下面的卡片首行，而地图上明明有一大片空白。
+      搬到这里之后，卡片里就不必再重复一遍队伍名与人数。
+
+      只做信息展示、不绑点击：可点的胶囊会让人以为点了能进队伍详情。
+    -->
+    <view wx:if="{{crewId}}" class="team-pill">
+      <text class="team-pill-dot"></text>
+      <text class="team-pill-name">{{crew ? crew.name : '队伍'}}</text>
+      <text class="team-pill-sep"></text>
+      <text class="team-pill-count">{{meetTask ? meetTask.arrivedCount : 0}}/{{meetTask ? meetTask.expectedCount : members.length}} 已到</text>
+    </view>
+
+    <!--
       ══════════ 中间图钉（手动选点模式）══════════════════════
 
       用户要求："手动选点同样改为小控件，但是点击后只需拖动地图即可
@@ -88,7 +106,7 @@
     <!-- 选点模式下的一条提示：告诉用户"拖地图"而不是"点地图" -->
     <view wx:if="{{pickMode}}" class="pick-hint">
       <text>拖动地图，把中间图钉对准集合点</text>
-      <text class="pick-hint-ok" bindtap="confirmPick">定这里</text>
+      <text class="pick-hint-ok" bindtap="confirmPick" aria-role="button">定这里</text>
     </view>
   </view>
 
@@ -109,7 +127,7 @@
     -->
     <view wx:if="{{focusPlace}}" class="focus-bar">
       <text class="focus-name">📍 {{focusPlace.placeName}}</text>
-      <text class="focus-close" bindtap="clearFocusPlace">知道了</text>
+      <text class="focus-close" bindtap="clearFocusPlace" aria-role="button">知道了</text>
     </view>
 
     <!--
@@ -149,59 +167,112 @@
       <button class="btn small" bindtap="openTeamSettings">去创建或加入小队</button>
     </view>
 
+    <!--
+      ══════════ 主操作条（2026-10-20 美化）══════════════════
+
+      原来「确认集合 / 暂不参加 / 我已到达 / 取消本次集合」四颗同重按钮都塞在
+      下面的集合卡片里，要滚过成员列表才看得到。现在把"我现在该做什么"提到
+      地图正下方第一屏：时间 + 倒计时 + 主按钮；其余降为次按钮与工具行，
+      「取消本次集合」收进「其他操作」——点开仍是完整的危险说明 + 二次确认。
+    -->
+    <view wx:if="{{crewId && meetTask}}" class="action-bar">
+      <view class="ab-top">
+        <text class="ab-time">{{meetTask.timeLabel}}</text>
+        <text wx:if="{{meetTask.countdownLabel}}" class="ab-count">{{meetTask.countdownLabel}}</text>
+        <text class="ab-status">{{meetTask.statusLabel || meetTask.status}}</text>
+      </view>
+      <view class="ab-place">{{meetTask.placeName || '集合点'}}</view>
+      <view class="ab-acts">
+        <!--
+          同一时刻只允许一个主按钮：`confirmed` 状态下"确认集合"降为次按钮，
+          否则"我已到达"与"确认集合"并排同色，用户看不出哪个是现在该点的。
+        -->
+        <view wx:if="{{meetTask.status === 'confirmed' || meetTask.status === 'active'}}" class="ab-btn ab-btn-main" data-kind="arrive" bindtap="meetAction" hover-class="tap-hover" aria-role="button">我已到达</view>
+        <view wx:if="{{meetTask.status === 'proposed'}}" class="ab-btn ab-btn-main" data-kind="confirm" bindtap="meetAction" hover-class="tap-hover" aria-role="button">确认集合</view>
+        <view wx:if="{{meetTask.status === 'confirmed'}}" class="ab-btn" data-kind="confirm" bindtap="meetAction" hover-class="tap-hover" aria-role="button">确认集合</view>
+        <view wx:if="{{meetTask.status === 'proposed' || meetTask.status === 'confirmed'}}" class="ab-btn" data-kind="decline" bindtap="meetAction" hover-class="tap-hover" aria-role="button">暂不参加</view>
+      </view>
+      <!--
+        工具行（设计稿画的是「全队位置 / 订阅班次」两个入口）。
+        这一版**保留**「更新位置」与「位置共享」两个原有入口 ——
+        需求是"只做视觉还原、不动现有功能"：◎ 仍然只取本机坐标并挪镜头，
+        上传队伍还是走「更新位置」，两个动作不合并，行为与改版前一致。
+      -->
+      <view class="ab-tools">
+        <view class="ab-tool" bindtap="refreshSharedLocation" hover-class="tap-hover" aria-role="button">更新位置</view>
+        <view class="ab-tool" bindtap="showTeamOnMap" hover-class="tap-hover" aria-role="button">全队位置</view>
+        <view class="ab-tool" bindtap="openSharingSettings" hover-class="tap-hover" aria-role="button">位置共享</view>
+        <view class="ab-tool" bindtap="toggleNotifyPanel" hover-class="tap-hover" aria-role="button">{{notifyPanelOpen ? '收起提醒' : '订阅提醒'}}</view>
+      </view>
+      <view wx:if="{{isOwner}}" class="ab-more" bindtap="toggleDanger" hover-class="tap-hover"
+        aria-role="button" aria-expanded="{{dangerOpen}}">
+        <text>其他操作 · 取消本次集合</text>
+        <text class="ab-caret">{{dangerOpen ? '▴' : '▾'}}</text>
+      </view>
+      <view wx:if="{{isOwner && dangerOpen}}" class="danger-zone">
+        <view class="danger-zone-note">结束这次集合，全队都会看到它已取消。要改地点或时间，取消后重新发起。</view>
+        <view class="act warn-act" data-kind="cancel" bindtap="meetAction" hover-class="tap-hover">取消本次集合</view>
+      </view>
+    </view>
+
     <view wx:if="{{crewId}}" class="card">
-      <view class="row">
+      <!-- 名字与人数已经在地图上的胶囊里，这里只在"还没发起集合"时保留一行 -->
+      <view wx:if="{{!meetTask}}" class="row">
         <text class="k">{{crew ? crew.name : '队伍'}}</text>
         <text class="v muted">{{members.length}} 位成员</text>
       </view>
-      <!-- 进行中的集合 -->
-      <view wx:if="{{meetTask}}" class="meet-task">
+      <!--
+        位置共享压成一行状态 chip（2026-10-23）：
+        原来这里是两段说明文字（"已开启自动共享…" + "队员位置每 15 秒刷新…"），
+        占了集合卡最靠上的两行，却和"发起集合"没有关系。
+        现在只留状态，点一下直接去「我的 → 设置」。
+      -->
+      <view class="share-chip {{sharing ? '' : 'off'}}" bindtap="openSharingSettings"
+        hover-class="tap-hover" aria-role="button" aria-label="位置共享设置">
+        <text class="share-dot"></text>
+        <text>{{sharing ? '位置共享已开启 · 15 秒刷新' : '位置共享已关闭 · 点这里开启'}}</text>
+        <text class="share-arrow">›</text>
+      </view>
+      <!--
+        ══════════ 到齐进度（2026-10-20 美化）══════════════════
+        原来这里是「14:30 约定集合 / 1/3 人已到达」加两行「我（小黄）已确认 /
+        李同学 未到达」—— 四个数字与两行文字，看不出"还差几个人、差谁"。
+        改成进度条 + 头像行：已到是实心绿，待确认是空框，退出的人是灰的。
+        时间与状态已经搬到上面的主操作条，这里不再重复。
+      -->
+      <view wx:if="{{meetTask}}" class="arrive-block">
         <view class="row">
-          <text class="k">{{meetTask.placeName || '集合点'}}</text>
-          <text class="v muted">{{meetTask.statusLabel || meetTask.status}}</text>
+          <text class="k">到齐进度</text>
+          <text class="v muted">{{meetTask.arrivedCount}} / {{meetTask.expectedCount}}</text>
         </view>
-        <view class="meeting-summary">
-          <view><text class="meeting-time">{{meetTask.timeLabel}}</text><text class="sub"> 约定集合</text></view>
-          <view><text class="meeting-count">{{meetTask.arrivedCount}} / {{meetTask.expectedCount}}</text><text class="sub"> 人已到达</text></view>
+        <view class="arrive-bar"><view class="arrive-fill" style="width: {{meetTask.arrivePercent}}%"></view></view>
+        <view class="arrive-row">
+          <view wx:for="{{meetTask.participants}}" wx:key="userId"
+            class="arrive-mem {{item.arrived ? 'on' : (item.declined ? 'off' : '')}}">
+            <view class="arrive-ava">{{item.initial}}</view>
+            <text class="arrive-name">{{item.shortLabel || item.label}}</text>
+          </view>
         </view>
         <view wx:if="{{meetTask.allArrivedAt}}" class="sub">实际到齐 {{meetTask.arrivedLabel}}</view>
-        <view wx:for="{{meetTask.participants}}" wx:key="userId" class="row">
-          <text class="k">{{item.label}}</text>
-          <text class="v muted">{{item.statusLabel}}</text>
-        </view>
+      </view>
 
+      <!-- 出发前必须检查后续行程；checkId 是服务端给的凭据 -->
+      <view wx:if="{{meetTask.status === 'arrived_all' && isInitiator}}">
         <view class="acts">
-          <view wx:if="{{meetTask.status === 'proposed' || meetTask.status === 'confirmed'}}" class="act act-primary" data-kind="confirm" bindtap="meetAction">确认集合</view>
-          <view wx:if="{{meetTask.status === 'proposed' || meetTask.status === 'confirmed'}}" class="act" data-kind="decline" bindtap="meetAction">暂不参加</view>
-          <view wx:if="{{meetTask.status === 'confirmed' || meetTask.status === 'active'}}" class="act act-primary" data-kind="arrive" bindtap="meetAction">我已到达</view>
-          <view wx:if="{{isOwner}}" class="act warn-act" data-kind="cancel" bindtap="meetAction">取消本次集合</view>
+          <view class="act act-primary" bindtap="prepareDepart" hover-class="tap-hover">准备出发 · 检查后续行程</view>
         </view>
-
-        <!-- 出发前必须检查后续行程；checkId 是服务端给的凭据 -->
-        <view wx:if="{{meetTask.status === 'arrived_all' && isInitiator}}">
-          <view class="acts">
-            <view class="act act-primary" bindtap="prepareDepart">准备出发 · 检查后续行程</view>
-          </view>
-          <view wx:if="{{departureCheck}}" class="sub">
-            {{departureCheck.message}}
-            <view wx:if="{{departureCheck.tripImpact}}">预计结束：{{departureCheck.tripImpact.remainingEndAt}}</view>
-            <view wx:for="{{departureCheck.tripImpact.conflicts}}" wx:key="code">{{item.message}}</view>
-            <view>{{departureCheck.tripImpact.travelNote}}</view>
-            <view>检查有效期两分钟，刷新或调整路线后请重新检查。</view>
-          </view>
-          <view wx:if="{{departureCheck.canDepart}}" class="acts">
-            <view class="act act-primary" bindtap="confirmDepart">确认现在出发</view>
-          </view>
+        <view wx:if="{{departureCheck}}" class="sub">
+          {{departureCheck.message}}
+          <view wx:if="{{departureCheck.tripImpact}}">预计结束：{{departureCheck.tripImpact.remainingEndAt}}</view>
+          <view wx:for="{{departureCheck.tripImpact.conflicts}}" wx:key="code">{{item.message}}</view>
+          <view>{{departureCheck.tripImpact.travelNote}}</view>
+          <view>检查有效期两分钟，刷新或调整路线后请重新检查。</view>
+        </view>
+        <view wx:if="{{departureCheck.canDepart}}" class="acts">
+          <view class="act act-primary" bindtap="confirmDepart" hover-class="tap-hover">确认现在出发</view>
         </view>
       </view>
 
-      <!-- 自动共享的开关统一位于「我的 → 设置」 -->
-      <view class="acts">
-        <view class="act" bindtap="refreshSharedLocation">立即更新位置</view>
-        <view class="act" bindtap="showTeamOnMap">查看全队位置</view>
-        <view class="act" bindtap="openSharingSettings">位置共享设置</view>
-        <view class="act" bindtap="toggleNotifyPanel">{{notifyPanelOpen ? '收起提醒设置' : '订阅提醒'}}</view>
-      </view>
 
       <!--
         ══════════ 订阅提醒（2026-10-17）══════════════════════
@@ -233,36 +304,35 @@
         <view class="notify-note">{{notifyPolicyNote || '已同意 ≠ 一定送达；每次同意大约可用一次，微信按次数消耗。'}}</view>
         <button wx:if="{{notifySettingsNeeded}}" class="btn ghost small" bindtap="openNotifySettings">前往微信订阅设置</button>
       </view>
-      <view class="sub">
-        {{sharing ? '已开启自动共享，进入队伍立即更新位置。' : '自动共享已关闭，可到「我的 → 设置」开启。'}}{{meetTask ? '集合点与全队一致，更新位置只更新本人位置。' : '拖 ✛ 用于选择集合点。'}}
-      </view>
-      <view class="sub">队员位置每 15 秒刷新；过期位置以半透明头像显示。</view>
       <view wx:if="{{autoLocationError}}" class="err">{{autoLocationError}}</view>
       <view wx:if="{{locationError}}" class="err">{{locationError}}</view>
 
-      <!-- 集合：先推荐，再拖动微调 -->
+      <!-- 集合：先推荐，再拖动微调（2026-10-23 重排：地点 → 名称/时间 → 发起） -->
       <view wx:if="{{!meetTask}}" class="meet-setup">
+        <view class="meet-section">集合地点</view>
         <photo-meeting crew-id="{{crewId}}" my-point="{{myPoint}}" bind:selected="onPhotoMeetingSelected" bind:manual="startPick" />
-        <view class="acts">
-          <view class="act act-primary" bindtap="recommendMeetingPoint">① 推荐一个集合点</view>
+        <!--
+          「推荐一个集合点」从实心按钮降为文字链接（2026-10-23）：
+          它不是必走的一步，和「发起集合」同等重量的两颗按钮会让人分不清主次。
+        -->
+        <view class="meet-link" bindtap="recommendMeetingPoint" hover-class="tap-hover" aria-role="button">
+          <text class="meet-link-star">✦</text>
+          <text>按大家位置推荐一个</text>
         </view>
-        <view class="sub">
-          按大家的平均位置寻找中心周围 1 公里内的地点，找不到就取中心；推荐后可拖 ✛ 微调。
-        </view>
-        <view class="row">
+
+        <view class="meet-divider"></view>
+        <view class="row meet-row">
           <text class="k">集合点名称</text>
           <input class="field" placeholder="如南门指示牌旁" value="{{pointName}}" bindinput="onPointNameInput" maxlength="20"/>
         </view>
-        <view class="row">
+        <view class="row meet-row">
           <text class="k">集合时间</text>
           <picker mode="time" value="{{meetTime}}" bindchange="onMeetTimeChange">
-            <view class="v link">{{meetTime}}</view>
+            <view class="v link">{{meetTime}} ›</view>
           </picker>
         </view>
-        <view class="sub">默认显示当前时间，请手动调整为尚未到达的集合时间。</view>
-        <view class="acts">
-          <view class="act act-primary" bindtap="createMeeting">② 发起集合</view>
-        </view>
+        <!-- 时间提示删掉了：默认就是当前时间，提交时会校验"必须晚于现在"，不用先教一遍 -->
+        <view class="meet-cta" bindtap="createMeeting" hover-class="tap-hover" aria-role="button">发起集合</view>
       </view>
 
       <view wx:if="{{teamNote}}" class="note">{{teamNote}}</view>
@@ -270,39 +340,32 @@
     </view>
 
 
-    <view class="card">
-      <view class="row">
-        <text class="k">我的位置</text>
-        <text class="v {{myPoint ? 'ok' : 'muted'}}">{{myPoint ? '已获取' : '未获取'}}</text>
+    <!--
+      ══════════ 我的位置 → 一行 chip（2026-10-20 美化）══════════
+      原来它占一整张卡片，正文是"来源 / 精度 / 控件说明"，而这一页用户要的
+      只有一件事：我到底定位上没有。所以压成一行：状态 + 精度 + 时间，
+      其余（坐标、来源说明、精度告警、控件提示）点「详情」再展开。
+    -->
+    <view class="loc-chip">
+      <view class="loc-chip-main" bindtap="toggleLocationDetail" hover-class="tap-hover"
+        aria-role="button" aria-expanded="{{locationDetailOpen}}">
+        <view class="loc-chip-left">
+          <text class="loc-dot {{myPoint ? 'on' : ''}}"></text>
+          <text class="loc-chip-text">{{myPoint ? (mySource === 'gps' ? '已定位' : '手动选点') : '未获取位置'}}<block wx:if="{{myAccuracyM}}"> · 精度约 {{myAccuracyM}} 米</block><block wx:if="{{myLocatedAt}}"> · {{myLocatedAt}}</block></text>
+        </view>
+        <text class="loc-chip-go">{{locationDetailOpen ? '收起 ▴' : '详情 ▾'}}</text>
       </view>
-      <!--
-        ⚠️ `wx:if` / `wx:else` 必须**紧挨着**，中间不能插别的 `wx:if`（2026-10-14 踩到）。
-        第一版把精度告警插在这两者之间，`wx:else` 就不再配对 ——
-        **模板编译不过，整页都不渲染**（用户看到的是"我的位置卡片整个没了"）。
-        告警现在放到 if/else 之后，作为独立块，用预计算好的布尔量而不是内联 `>`。
-      -->
-      <view wx:if="{{myPoint}}" class="sub">
-        来源：{{mySource === 'gps' ? '定位接口（GCJ-02）' : '手动选点'}}
-        <block wx:if="{{myAccuracyM}}"> · 精度约 {{myAccuracyM}} 米</block>
-        <block wx:if="{{myLocatedAt}}"> · {{myLocatedAt}} 取得</block>
-        · 经纬度 {{myPoint.latitude}}, {{myPoint.longitude}}
+      <view wx:if="{{locationDetailOpen}}" class="loc-chip-body">
+        <view wx:if="{{myPoint}}" class="loc-detail-line">坐标 {{myPoint.latitude}}, {{myPoint.longitude}}（GCJ-02）</view>
+        <view wx:if="{{myPoint}}" class="loc-detail-line">{{mySource === 'gps' ? '来自手机定位接口，坐标系与微信地图一致。' : '在地图上手动选点，没有使用手机定位。'}}</view>
+        <view wx:if="{{!myPoint}}" class="loc-detail-line">可自动获取当前位置；若定位不可用，也可在地图上手动点选。</view>
+        <view wx:if="{{myAccuracyBad}}" class="note warn">
+          这次定位精度只有约 {{myAccuracyM}} 米 —— 多半是室内、地下或刚开机还没定上卫星。
+          精度差的时候，基于它算的"我要走多久"会明显失真，建议走到室外重新取一次。
+        </view>
+        <view class="loc-detail-line">用地图右下角的控件：◎ 取我的位置；✛ 拖动地图选集合点。</view>
+        <view wx:if="{{note}}" class="note">{{note}}</view>
       </view>
-      <view wx:else class="sub">
-        可自动获取当前位置；若定位不可用，也可在地图上手动点选。
-      </view>
-
-      <view wx:if="{{myAccuracyBad}}" class="note warn">
-        这次定位精度只有约 {{myAccuracyM}} 米 —— 多半是室内、地下或刚开机还没定上卫星。
-        精度差的时候，基于它算的"我要走多久"会明显失真，建议走到室外重新取一次。
-      </view>
-
-      <!--
-        ⚠️ 「获取我的位置」与「手动选点」都挪到**地图右下角的小控件**了
-        （2026-10-14 用户要求）。这里只留一行说明，不再放大按钮 ——
-        两处都能干同一件事会让人不知道该点哪个。
-      -->
-      <view class="sub">用地图右下角的控件：◎ 取我的位置；✛ 拖动地图选集合点。</view>
-      <view wx:if="{{note}}" class="note">{{note}}</view>
     </view>
 
     <view class="card" wx:if="{{nearby.length}}">
@@ -316,6 +379,7 @@
         class="item"
         data-placeid="{{item.placeId}}"
         bindtap="selectMeeting"
+        hover-class="tap-hover-surface"
       >
         <view class="item-main">
           <text class="item-name">{{item.name}}</text>

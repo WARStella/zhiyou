@@ -1,39 +1,73 @@
 :host { position: static; }
+/* AI 入口（2026-10-23 重做）：
+   原来是一个 64px 深蓝圆，里面再套白描边、白框「AI」和 11px 文字 ——
+   三层元素挤在 64px 里，既看不清也抢内容。
+
+   现在只保留一个符号：白色星芒（assets/ai-sparkle.png）。
+   底是品牌渐变，和主按钮同一族色；外圈加一层缓慢的呼吸光环，
+   表达"它是个在线的助手"，而不是另一个功能按钮。
+
+   ⚠️ 尺寸必须和 utils/guide-entry.js 的 SIZE 一致（56），
+   否则拖动边界和吸附位置会算错。 */
 .guide-fab {
   position: fixed;
   z-index: 100;
-  width: 64px;
-  height: 64px;
-  box-sizing: border-box;
-  border: 2px solid var(--surface);
-  border-radius: 32px;
-  background-color: var(--brand-600);
-  color: var(--surface);
-  box-shadow: 0 4px 14px var(--brand-shadow-color);
-}
-.guide-fab-dragging { background-color: var(--brand-800); box-shadow: 0 6px 18px var(--brand-shadow-color); }
-.guide-fab-icon, .guide-fab-label { pointer-events: none; }
-.guide-fab-icon {
-  position: absolute;
-  left: 16px;
-  top: 9px;
-  width: 28px;
-  height: 23px;
-  box-sizing: border-box;
-  border: 2px solid var(--surface);
-  border-radius: 8px 8px 8px 2px;
-  font-size: 11px;
-  font-weight: bold;
-  line-height: 19px;
-  text-align: center;
-}
-.guide-fab-label {
-  position: absolute;
-  left: 2px;
-  top: 35px;
   width: 56px;
-  font-size: 11px;
-  line-height: 17px;
-  text-align: center;
+  height: 56px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #3e719f 0%, #2b5c8a 55%, #1b3a5c 100%);
+  box-shadow: 0 8px 22px rgba(31, 74, 114, 0.34);
+  /* 让光环从按钮中心缩放，而不是从左上角 */
+  transform-origin: center center;
+}
+.guide-fab-icon {
+  width: 26px;
+  height: 26px;
+  pointer-events: none;
+}
+.guide-fab-halo {
+  position: absolute;
+  left: -7px;
+  top: -7px;
+  right: -7px;
+  bottom: -7px;
+  border-radius: 50%;
+  border: 1px solid rgba(62, 113, 159, 0.45);
+  pointer-events: none;
+  animation: guide-breathe 3s ease-in-out infinite;
+}
+@keyframes guide-breathe {
+  0%, 100% { transform: scale(0.96); opacity: 0.25; }
+  50% { transform: scale(1.06); opacity: 0.75; }
+}
+/* 拖动时停掉呼吸、压暗一点：拖动需要更稳的视觉锚点 */
+.guide-fab-dragging {
+  background: linear-gradient(135deg, #2b5c8a 0%, #1b3a5c 60%, #12263d 100%);
+  box-shadow: 0 10px 26px rgba(31, 74, 114, 0.42);
+}
+.guide-fab-dragging .guide-fab-halo {
+  animation: none;
+  opacity: 0.15;
+}
+
+/* 首次进入的 2 秒气泡：去掉「游览助手」四个字之后，
+   第一次见到星芒的人需要一句解释。只出现一次（见 index.js 的 HINT_KEY）。 */
+.guide-fab-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 64px;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border-radius: 10px;
+  background: rgba(27, 58, 92, 0.92);
+  color: #ffffff;
+  font-size: 12px;
+  line-height: 1.4;
   white-space: nowrap;
+  pointer-events: none;
 }

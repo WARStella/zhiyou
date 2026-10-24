@@ -5,12 +5,26 @@
         placeholder-class="chat-placeholder" cursor-spacing="20"
         focus="{{inputFocused}}" bindfocus="focusText" bindblur="blurText"
         confirm-type="send" bindconfirm="sendMessage" disabled="{{blocked || sending || uncertain}}" />
-      <button class="voice {{voiceCanStop ? 'recording' : ''}}" catchtap="tapVoice"
-        disabled="{{blocked || sending || uncertain || (voiceActive && !voiceCanStop)}}"
+      <!--
+        话筒不再用原生 <button>（2026-10-23 修）。
+        button 自带宽度/padding/外边距与居中文本，图标和点击区都受它影响；
+        这一格只需要"一块透明热区"，用 view 最稳：盒模型完全由本组件决定。
+        `tapVoice` 内部已经挡掉 blocked / sending / uncertain / 识别中 的情况。
+      -->
+      <view class="voice {{voiceCanStop ? 'recording' : ''}} {{blocked || sending || uncertain || (voiceActive && !voiceCanStop) ? 'voice-disabled' : ''}}"
+        catchtap="tapVoice" hover-class="voice-hover" aria-role="button"
         aria-label="{{voiceCanStop ? '结束语音输入' : '开始语音输入'}}">
         <text wx:if="{{voiceCanStop}}">结束</text>
-        <view wx:else class="mic"><view class="mic-head"></view><view class="mic-base"></view><view class="mic-stem"></view></view>
-      </button>
+      </view>
+      <!--
+        话筒图标不再是 button 的子节点（2026-10-23 修）。
+        原生 button 自带宽度/内边距/外边距，图标挂在按钮里时它的 `margin: auto`
+        以按钮盒为参照 —— 按钮盒一旦不是预期的 88rpx，图标就会漂到输入框中间、
+        压在占位文字上。现在按钮只负责点击，图标由 .mic-wrap 相对输入框定位。
+      -->
+      <view wx:if="{{!voiceCanStop}}" class="mic-wrap" aria-hidden="true">
+        <view class="mic"><view class="mic-head"></view><view class="mic-base"></view><view class="mic-stem"></view></view>
+      </view>
     </view>
     <button class="send" bindtap="sendMessage" disabled="{{blocked || sending || voiceActive || (!text && !uncertain)}}">{{sending ? '发送中' : uncertain ? '重试' : '发送'}}</button>
   </view>

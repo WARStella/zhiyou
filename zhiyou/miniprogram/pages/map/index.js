@@ -59,6 +59,53 @@ function walkEstimate(a, b) {
 const MEET_CATEGORIES = ['meeting', 'entrance', 'exit', 'spot', 'rest']
 
 /**
+ * 成员头像里的那个字。
+ *
+ * `createMemberLabels` 产出的是「我（小黄）」「李同学」这类给人看的名字，
+ * 头像格子里只需要一个字：括号里的最优先（「我（小黄）」→ 黄），
+ * 否则取首字（「李同学」→ 李）。取不到就给个中性的「友」，不抛异常。
+ */
+function initialOf(label) {
+  const s = String(label || '')
+  const inParen = s.match(/（([^）]+)）/)
+  const base = (inParen ? inParen[1] : s).trim()
+  return base ? base.slice(0, 1) : '友'
+}
+
+/**
+ * 头像下面那一行名字（2026-10-23）。
+ *
+ * `createMemberLabels` 给本人产出的是「我（小黄）」。整串塞进 104rpx 的头像格
+ * 会被省略成「我（小…」—— 括号里是给头像取字的绰号，不是称呼。
+ * 这里只去掉括号部分，其他人的昵称原样保留。
+ */
+function shortLabelOf(label) {
+  const s = String(label || '')
+  const m = s.match(/^([^（]+)（[^）]*）$/)
+  return (m ? m[1] : s).trim()
+}
+
+/**
+ * 距集合还有多久（2026-10-20）。
+ *
+ * 只给一句人话，不返回毫秒数：这个字符串由 `loadCrew`（页面每 15 秒重读一次）
+ * 重新计算，所以不会停在旧数字上。取不到时间就返回空串，模板用 `wx:if` 兜住。
+ */
+function meetCountdown(plannedAt) {
+  const at = plannedAt ? new Date(plannedAt).getTime() : NaN
+  if (!Number.isFinite(at)) return ''
+  const diff = at - Date.now()
+  if (diff <= 0) return '集合时间已到'
+  const min = Math.round(diff / 60000)
+  if (min < 1) return '不到 1 分钟'
+  if (min < 60) return '还剩 ' + min + ' 分钟'
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return m ? '还剩 ' + h + ' 小时 ' + m + ' 分' : '还剩 ' + h + ' 小时'
+}
+
+
+/**
  * 单次最多取几段真实路径。
  *
  * 每段消耗 1 次地图配额。一条 6 站的路线有 5 段，一次进页面就是 5 次调用；
@@ -108,6 +155,14 @@ Page({
     myAccuracyBad: false,
     /** 定位时刻（HH:MM:SS）—— 用来分辨"刚取的"还是"拿了一份旧的" */
     myLocatedAt: '',
+    /**
+     * 「位置详情」是否展开（2026-10-20）。
+     *
+     * 坐标原始值放进折叠区而不是直接显示：它对本页要做的事（看队友、选集合点）
+     * 没有任何可操作性，但它又是"定位偏了"时唯一能对齐的依据，所以不删。
+     * 默认收起，需要时点开 —— 与行程页「行程与来源说明」同一套做法。
+     */
+    locationDetailOpen: false,
     pickMode: false,
     meetingPoint: null,
     /**
@@ -163,6 +218,14 @@ Page({
     members: [],
     /** 进行中的集合任务（`meet.get` 的结果） */
     meetTask: null,
+    /**
+     * 「其他操作」是否展开（2026-10-20 美化）。
+     *
+     * 主操作条只留"我现在该干什么"（我已到达 / 确认集合 / 暂不参加）；
+     * 取消集合这类全队可见、不可撤销的动作收进这一层。
+     * 收起来不等于藏起来：要多点一次才能到危险按钮，误触概率大幅下降。
+     */
+    dangerOpen: false,
     /** 我有没有开启位置共享 */
     sharing: false,
     isInitiator: false,
@@ -453,6 +516,11 @@ Page({
     this.setData({ focusPlace: null })
   },
 
+  /** 展开/收起「位置详情」（原始坐标与坐标系约定，默认收起） */
+  toggleLocationDetail() {
+    this.setData({ locationDetailOpen: !this.data.locationDetailOpen })
+  },
+
   /**
    * 打开地图时静默取一次当前位置。
    *
@@ -479,7 +547,9 @@ Page({
             that.setData({
               myPoint: { latitude: res.latitude, longitude: res.longitude },
               mySource: 'gps',
-              myAccuracyM: res.accuracy,
+              /* 2026-10-24：定位精度是浮点数（真机出现过 119.80000305175781 米），
+                 展示层取整；判断是否“精度差”仍用原始值。 */
+              myAccuracyM: Number.isFinite(res.accuracy) ? Math.round(res.accuracy) : null,
               myAccuracyBad: typeof res.accuracy === 'number' && res.accuracy > MAX_TRUSTED_ACCURACY_M,
               myLocatedAt: new Date().toLocaleTimeString(),
             })
@@ -602,7 +672,8 @@ Page({
       this.setData({ sharing: state.sharing, autoLocationError: state.error })
       if (!state.active || !isValidPoint(state.point) || state.sampledAt === this.lastSharedSampleAt) return
       this.lastSharedSampleAt = state.sampledAt
-      this.setData({ myPoint: state.point, mySource: 'gps', myAccuracyM: state.accuracyM })
+      this.setData({ myPoint: state.point, mySource: 'gps',
+        myAccuracyM: Number.isFinite(state.accuracyM) ? Math.round(state.accuracyM) : null })
       if (recenter) { this.setData({ center: state.point }); recenter = false }
       this.refreshMarkers()
     })
@@ -687,6 +758,11 @@ Page({
     if (next) this.loadNotifyStatus()
   },
 
+  /** 展开/收起「其他操作」（取消集合在里头） */
+  toggleDanger() {
+    this.setData({ dangerOpen: !this.data.dangerOpen })
+  },
+
   /**
    * 点某类提醒：走 `wx.requestSubscribeMessage`，把**逐模板**结果回报服务端。
    *
@@ -752,10 +828,23 @@ Page({
         const hint = code === 20004 ? '你之前关闭过订阅提醒，需要到小程序设置里重新允许'
           : code === 20001 ? '订阅模板不可用，请检查小程序后台是否已启用该模板'
             : '订阅没有成功，请稍后再试' + (Number.isFinite(code) ? '（' + code + '）' : '')
+        /**
+         * 2026-10-24：只把原因写在面板底部，用户看不到就以为"点了没反应"。
+         * 失败时弹出微信返回的原文和错误码，便于判断是模板、权限还是参数问题。
+         */
+        const detail = (err && (err.errMsg || err.errMessage)) || ''
+        try {
+          wx.showModal({ title: '订阅没有成功', showCancel: false, confirmText: '知道了',
+            content: hint + (detail ? '\n' + detail : '') + (Number.isFinite(code) ? '\n错误码：' + code : '') })
+        } catch (_) { /* 弹窗失败不影响下面的状态上报 */ }
         finish('reject', hint)
       },
     }) } catch (_) {
       this.setData({ notifyBusy: false, notifyNote: '无法打开微信订阅授权，请更新微信或稍后重试。' })
+      try {
+        wx.showModal({ title: '订阅没有成功', showCancel: false, confirmText: '知道了',
+          content: '无法打开微信订阅授权，请更新微信后重试。' })
+      } catch (_) { /* 忽略 */ }
     }
   },
 
@@ -942,8 +1031,24 @@ Page({
     if (!pending) return false
     wx.removeStorageSync('zhiyou-guide-meeting')
     const age = Date.now() - pending.at
-    if (!isValidPoint(pending) || !Number.isFinite(age) || age < 0 || age > 120000 ||
-      pending.crewId !== this.data.crewId || pending.crewId !== this.readCrewId()) return false
+    /* 2026-10-24：下面几种“没应用”的原因原来都静默 return，
+       用户看到的就是“点完没反应”。每一种都给一句能行动的话。 */
+    if (!isValidPoint(pending)) {
+      this.setData({ teamNote: '助手返回的集合点坐标无效，请回助手重新选一次' })
+      return false
+    }
+    if (!Number.isFinite(age) || age < 0) {
+      this.setData({ teamNote: '集合点的时间戳异常，没有应用，请回助手重新选一次' })
+      return false
+    }
+    if (age > 120000) {
+      this.setData({ teamNote: '集合点选择已超过 2 分钟，请回助手重新点一次「用作集合点」' })
+      return false
+    }
+    if (pending.crewId !== this.data.crewId || pending.crewId !== this.readCrewId()) {
+      this.setData({ teamNote: '队伍已变化，这次集合点没有应用，请回助手重新选择' })
+      return false
+    }
     if (this.data.meetTask) {
       this.setData({ teamNote: '已有进行中的集合，本次助手选点没有覆盖原集合。' }); return false
     }
@@ -1045,8 +1150,26 @@ Page({
               label: memberLabels.get(m.userId) || '已退出队员',
               statusLabel: labels[m.status] || m.status,
             }))
+            /**
+             * 头像行需要的派生字段（2026-10-20 美化）。
+             *
+             * 在 JS 里算，不在模板里拆字符串：模板里做 `label.split()` 这类操作
+             * 一旦字段缺失就整块不渲染（本项目已经因为模板表达式白屏过两次）。
+             */
+            t.participants = t.participants.map(m => Object.assign({}, m, {
+              initial: initialOf(m.label),
+              shortLabel: shortLabelOf(m.label),
+              arrived: m.status === 'arrived',
+              declined: m.status === 'declined',
+            }))
             t.arrivedCount = t.participants.filter(m => m.status === 'arrived').length
             t.expectedCount = t.participants.filter(m => m.status !== 'declined').length
+            /** 倒计时每次重读队伍（15 秒一次）都会重算，所以不会停在旧数字上 */
+            t.countdownLabel = meetCountdown(t.plannedMeetAt)
+            /** 进度条宽度（%）：模板里不做除法，避免除零与取整散落在模板表达式里 */
+            t.arrivePercent = t.expectedCount
+              ? Math.min(100, Math.round((t.arrivedCount / t.expectedCount) * 100))
+              : 0
           }
           that.setData({ meetTask: t || null })
           that.setData({ isInitiator: Boolean(t && t.initiatorUserId === that.data.me) })
@@ -1346,6 +1469,9 @@ Page({
     const task = this.data.meetTask
     if (!task) return
     if (kind === 'cancel') {
+      /* 取消入口已经收进「其他操作」的独立危险区（设计稿 2026-10-20）：
+         要点开一次再加点一下，误触风险由位置承担。
+         行为保持与改版前一致 —— 点一次就提交，不加二次弹窗。 */
       this.doTeam('team.cancelMeeting', { meetTaskId: task.meetTaskId }, '已取消本次集合')
       return
     }
@@ -1737,7 +1863,8 @@ Page({
         that.setData({
           myPoint: { latitude: res.latitude, longitude: res.longitude },
           mySource: 'gps',
-          myAccuracyM: res.accuracy,
+          /* 同样是展示取整（见 setAutoMeetingPoint 上方说明） */
+          myAccuracyM: Number.isFinite(res.accuracy) ? Math.round(res.accuracy) : null,
           myAccuracyBad: typeof res.accuracy === 'number' && res.accuracy > MAX_TRUSTED_ACCURACY_M,
           myLocatedAt: new Date().toLocaleTimeString(),
           pickMode: false,

@@ -288,7 +288,14 @@ test('走完一段之后，样本被回填真实用时', async () => {
    *    所以不能往节点里注入一个"未来的到达时刻"，那会造成时间倒挂，
    *    同样被跳过。只能把**上一站的离开时刻**设成过去。
    */
-  const leaveAt = new Date(Date.now() - 20 * 60 * 1000); // 20 分钟前
+  /**
+   * 2026-10-23 修：这里原来写的是 `Date.now()`。
+   * `progress` 用的是测试世界的时钟（`makeWorld` 固定 NOW = 2026-10-20T01:00Z），
+   * 而 `Date.now()` 是跑测试时的真实时间 —— 机器日期越过 10-20 之后，
+   * "20 分钟前"反而落在世界时间之后，到达时刻比离开还早，断言就成了负数。
+   * 取世界时钟才对得上，换机器、换日期都稳定。
+   */
+  const leaveAt = new Date(w.NOW.getTime() - 20 * 60 * 1000); // 世界时间 20 分钟前
 
   const trip = await w.repo.get(C.TRIPS, plan.tripId);
   const patched = trip.nodes.map((n, i) =>

@@ -119,6 +119,10 @@ page {
   font-size: var(--fs-body);
   color: var(--ink-700);
 }
+/* 2026-10-24：微信框架给默认按钮加了 `button.wx-button-size-normal{width:184px;margin:auto}`
+   （优先级 0,1,1）。普通类选择器压不过它 —— 想收窄某个按钮，要么加 size="mini"，
+   要么在页面/组件里用双类选择器（如 `.send-circle.send-circle{width:92rpx}`）。
+   这里不写全局 width:auto：它赢不了框架规则，还会让后来的人误以为已经统一了。 */
 button { background: var(--brand-100); color: var(--brand-700); font-size: var(--fs-body); }
 .card {
   box-sizing: border-box;
@@ -246,3 +250,10 @@ button { background: var(--brand-100); color: var(--brand-700); font-size: var(-
 .section-toggle { display: flex; align-items: center; justify-content: space-between; width: 100%; box-sizing: border-box; margin: 0; padding: 16rpx 0; background: transparent; color: var(--brand-700); font-size: var(--fs-body); line-height: 1.6; text-align: left; }
 .section-toggle::after { border: none; }
 .section-toggle.button-disabled, .section-toggle:disabled { color: var(--ink-500); }
+
+/* ── 按压反馈（2026-10-20，2026-10-23 补齐）────────────────
+   用 view 当按钮时微信默认没有按下态，点下去没反应会被当成"卡住"。
+   hover-class 只对 view / button / navigator / cover-view 生效，
+   写在 text 上不报错也不生效。组件样式隔离，组件内部要自己写一份。 */
+.tap-hover { opacity: 0.6; }
+.tap-hover-surface { background: var(--surface-2); }

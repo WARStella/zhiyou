@@ -1,19 +1,26 @@
 <view class="photo-meeting">
-  <view class="heading">拍照找集合点</view>
-  <view class="description">拍站牌、门牌或入口牌，识别名称后查找附近地点。</view>
+  <!--
+    标题与解释由页面提供（2026-10-23）：集合卡里已经有「集合地点」小标题，
+    组件里再写一遍「拍照找集合点 / 拍站牌、门牌或入口牌…」就是两行重复说明。
+  -->
   <view class="actions">
-    <button class="pm-btn" size="mini" bindtap="choose" disabled="{{busy || blocked}}">{{imagePath ? '重新拍照 / 选图' : '拍照 / 从相册选择'}}</button>
-    <button class="pm-btn" size="mini" bindtap="manual">地图手动选点</button>
+    <button class="pm-btn" size="mini" bindtap="choose" disabled="{{busy || blocked}}">📷 {{imagePath ? '重新拍照 / 选图' : '拍照 / 从相册选择'}}</button>
+    <!-- 在途时也要禁用：`manual` 会切到地图选点模式，`clear` 会 photo.reset()
+         （generation++ 丢弃正在进行的识别结果），两个都不该在忙时点 -->
+    <button class="pm-btn" size="mini" bindtap="manual" disabled="{{busy || blocked}}">✛ 地图选点</button>
   </view>
   <image wx:if="{{imagePath}}" class="photo" src="{{imagePath}}" mode="aspectFit" />
-  <view wx:if="{{imagePath}}" class="description">点击识别后，所选图片经云函数发送至腾讯云提取文字。图片不保存到本项目云存储或业务数据库。</view>
+  <!-- 隐私说明改成用户能判断"要不要给"的话（2026-10-20）：
+       原文"经云函数发送至腾讯云…不保存到本项目云存储或业务数据库"是实现说明 -->
+  <view wx:if="{{imagePath}}" class="description">识别时会把照片上传到文字识别服务，识别完不留原图。</view>
   <view wx:if="{{imagePath}}" class="actions">
-    <button class="pm-btn pm-btn-primary" size="mini" type="primary" bindtap="recognize" disabled="{{busy || blocked}}">识别这张照片</button>
-    <button class="pm-btn" size="mini" bindtap="clear">清除照片与结果</button>
+    <button class="pm-btn pm-btn-primary" size="mini" bindtap="recognize" disabled="{{busy || blocked}}">识别这张照片</button>
+    <button class="pm-btn" size="mini" bindtap="clear" disabled="{{busy || blocked}}">清除照片与结果</button>
   </view>
   <view wx:if="{{lines.length}}" class="lines">
     <view wx:for="{{lines}}" wx:key="id" class="line {{item.lowConfidence ? 'uncertain' : ''}}"
-      data-text="{{item.text}}" bindtap="useLine">{{item.text}}{{item.lowConfidence ? '（请核对）' : ''}}</view>
+      data-text="{{item.text}}" bindtap="useLine" hover-class="line-hover"
+      aria-role="button" aria-label="{{item.text}}">{{item.text}}{{item.lowConfidence ? '（请核对）' : ''}}</view>
   </view>
   <view class="search-row">
     <input class="keyword" value="{{keyword}}" bindinput="onKeyword" placeholder="输入或修改地点名称" maxlength="60" disabled="{{busy || blocked}}" />
@@ -24,10 +31,11 @@
   <view wx:if="{{error}}" class="error">{{error}}</view>
   <view wx:for="{{candidates}}" wx:key="id" class="candidate">
     <view class="candidate-name">{{item.name}}</view>
-    <view class="description">{{item.address || '暂无详细地址'}} · 直线 {{item.distanceMeters}} 米</view>
+    <!-- 距离缺失时不再渲染成「直线  米」（原来缺字段时字面就是空的） -->
+    <view class="description">{{item.address || '暂无详细地址'}}<block wx:if="{{item.distanceMeters}}"> · 直线 {{item.distanceMeters}} 米</block></view>
     <view class="actions">
       <button class="pm-btn" size="mini" data-id="{{item.id}}" bindtap="preview" disabled="{{busy || blocked}}">查看位置</button>
-      <button class="pm-btn pm-btn-primary" size="mini" type="primary" data-id="{{item.id}}" bindtap="select" disabled="{{busy || blocked}}">选为集合点</button>
+      <button class="pm-btn pm-btn-primary" size="mini" data-id="{{item.id}}" bindtap="select" disabled="{{busy || blocked}}">选为集合点</button>
     </view>
   </view>
 </view>

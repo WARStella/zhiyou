@@ -10,6 +10,10 @@
 /* 收起时表头就是全部内容，给它一点与下方卡片的间距 */
 .head .title{flex:1}
 .body{margin-top:20rpx}
-.tp-btn { min-height: 68rpx; box-sizing: border-box; padding: 12rpx 24rpx; line-height: 1.5; border-radius: var(--r-pill); background: linear-gradient(135deg, var(--btn-g1), var(--btn-g2)); }
+.tp-btn { min-height: 68rpx; box-sizing: border-box; width: auto; flex: 0 0 auto; padding: 12rpx 24rpx; line-height: 1.5; border-radius: var(--r-pill);
+  color: var(--btn-ink); background: linear-gradient(135deg, var(--btn-g1), var(--btn-mid) 62%, var(--btn-g2));
+  box-shadow: 0 4rpx 12rpx var(--btn-shadow); }
 .tp-btn::after { border: none; }
+/* 框架默认按钮 184px；双类才能让邀请类按钮按内容宽度排 */
+.tp-btn.tp-btn { width: auto; }
 .tp-btn.button-disabled, .tp-btn:disabled { background: var(--line-strong); color: var(--ink-500); box-shadow: none; }

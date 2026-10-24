@@ -2,6 +2,12 @@
   style="left: {{left}}px; top: {{top}}px;" aria-role="button" aria-label="游览助手，轻点打开，可拖动位置"
   catchtouchstart="touchStart" catchtouchmove="touchMove" catchtouchend="touchEnd"
   catchtouchcancel="touchCancel" catchtap="openGuide">
-  <view class="guide-fab-icon">AI</view>
-  <view class="guide-fab-label">游览助手</view>
+  <!--
+    呼吸光圈（2026-10-23）：一个独立子元素而不是伪元素 ——
+    WXSS 里 view 的 ::after 在不同基础库下表现不一致，独立节点更稳。
+    pointer-events: none 保证它不挡点击。
+  -->
+  <view class="guide-fab-halo"></view>
+  <view wx:if="{{hint}}" class="guide-fab-hint">游览助手</view>
+  <image class="guide-fab-icon" src="/assets/ai-sparkle.png" mode="aspectFit" />
 </view>

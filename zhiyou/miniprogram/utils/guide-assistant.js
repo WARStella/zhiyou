@@ -113,7 +113,13 @@ function createGuideAssistant(options) {
     } catch (e) { if (current(token)) publish({ busy: false, error: e.message || '助手暂时不可用，问题与照片已保留' }) }
   }
   async function useMeeting() {
-    if (!ready() || !state.result || !state.result.meetingDraft) return
+    /* 2026-10-24：以前这里直接 return，用户只看到“点了没反应”。
+       把每种不能用的原因说出来，下一次测试就能定位卡在哪一步。 */
+    if (!state.result || !state.result.meetingDraft) {
+      publish({ error: '还没有可用的集合点，请先确认地点再试一次' })
+      return
+    }
+    if (!ready()) return
     const draft = state.result.meetingDraft, token = ++generation
     if (!crewId || draft.crewId !== crewId || !isValidPoint(draft.point)) { publish({ error: '请先加入有效队伍，再准备集合点' }); return }
     publish({ busy: true, error: '' })
@@ -128,7 +134,12 @@ function createGuideAssistant(options) {
         await callWx(wx, 'switchTab', { url: '/pages/map/index' })
       }
       if (current(token)) publish({ busy: false })
-    } catch (_) { if (current(token)) publish({ busy: false, error: failureMessage }) }
+    } catch (_) {
+      if (current(token)) {
+        publish({ busy: false, error: failureMessage })
+        try { wx.showToast({ title: failureMessage, icon: 'none' }) } catch (e) { /* 提示失败不影响状态 */ }
+      }
+    }
   }
   const apiResult = async (action, payload, config) => {
     const response = await options.callApi(action, payload, config)
@@ -219,7 +230,15 @@ function createGuideAssistant(options) {
       if (!data.point || !isValidPoint(data.point)) throw new Error('目的地坐标无效，请重新确认地点')
       await callWx(wx, 'openLocation', { ...data.point, name: data.name, address: data.address || '', scale: 16 })
       if (current(token)) publish({ busy: false })
-    } catch (e) { if (current(token)) publish({ busy: false, error: e.message || '无法打开地图导航，请稍后重试' }) }
+    } catch (e) {
+      if (current(token)) {
+        const message = e.message || '无法打开地图导航，请稍后重试'
+        publish({ busy: false, error: message })
+        /* 2026-10-24：导航失败原来只在卡片里写一行小字，用户以为按钮坏了；
+           补一个 toast，至少能区分“没点到”和“打开了但失败”。 */
+        try { wx.showToast({ title: message.length > 30 ? '无法打开地图导航' : message, icon: 'none' }) } catch (err) { /* 忽略 */ }
+      }
+    }
   }
   async function countPeople() {
     if (!ready()) return

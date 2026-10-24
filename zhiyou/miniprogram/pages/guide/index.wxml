@@ -1,15 +1,40 @@
 <view class="page">
+  <!-- 背景板与行程页同一张图、同一层白纱（2026-10-23 统一） -->
+  <image class="page-bg" src="/assets/travel/clouds-bg.jpg" mode="aspectFill" />
+  <view class="page-bg-scrim"></view>
+  <!--
+    ══════════ 头部（2026-10-20 美化）══════════════════════
+    导航栏已经写着「游览助手」，原来又用 44rpx 大标题写一遍「认地点，听故事，
+    一起出发」，加上副标题与「正在协助」共占近 1/5 屏 —— 而这一页用户进来
+    就是要问问题，输入框却在它下面。现在压成两行小字，把首屏让给输入。
+  -->
   <view class="hero">
-    <view class="eyebrow">随行游览助手</view>
-    <view class="title">认地点，听故事，一起出发</view>
-    <view class="subtitle">问下一站、了解眼前的风景，或调整今天的安排。</view>
-    <view class="hint">正在协助：{{scopeLabel}}</view>
+    <view class="hero-line">问下一站、认照片，或者一句话改行程。</view>
+    <view wx:if="{{scopeLabel}}" class="hero-scope">正在协助：{{scopeLabel}}</view>
   </view>
-  <view class="card">
-    <view class="actions">
-      <button size="mini" bindtap="choosePhoto" disabled="{{busy || voiceActive}}">拍照 / 选图</button>
-      <button size="mini" bindtap="toggleMoreActions" aria-expanded="{{moreActionsOpen}}">{{moreActionsOpen ? '收起操作 ▴' : '更多操作 ▾'}}</button>
+  <view class="card compose">
+    <textarea class="question" value="{{text}}" bindinput="onText" maxlength="1000" disabled="{{busy}}"
+      placeholder="想问点什么？比如「这张照片是哪里」" />
+    <voice-input disabled="{{busy}}" context-key="{{voiceContext}}" bindresult="onVoice" bindstate="onVoiceState"
+      hint="录音转成文字，追加到上面，检查后再发送。" />
+    <!--
+      输入卡的工具行：拍照、更多操作、发送。
+      原来「拍照 / 选图」「更多操作」是卡片顶部两个按钮，「提问 / 识别照片」是
+      底部一条全宽按钮 —— 主操作被推到屏幕下半，和输入框隔着一整个语音组件。
+
+      ⚠️ 拍照按钮**必须带文字**（2026-10-20 修）：第一版只放了一个 📷，
+      于是「拍照找集合点 / 统计照片人数」的入口看起来像没了。图标按钮在
+      "只有一个相机"的语境里成立，但这一页同时有语音、更多、发送三个圆形控件。
+    -->
+    <view class="compose-bar">
+      <view class="compose-tools">
+        <button class="tool-btn" bindtap="choosePhoto" disabled="{{busy || voiceActive}}" aria-label="拍照或选图">📷 拍照</button>
+        <button class="tool-btn" bindtap="toggleMoreActions" disabled="{{busy || voiceActive}}"
+          aria-expanded="{{moreActionsOpen}}" aria-label="更多操作">⋯ 更多</button>
+      </view>
+      <button class="send-circle" bindtap="ask" disabled="{{busy || voiceActive}}" aria-label="发送问题">{{busy ? '⋯' : '↑'}}</button>
     </view>
+    <view wx:if="{{busy}}" class="busy-strip"><view class="busy-dot"></view>正在查找与核对资料…</view>
     <view wx:if="{{moreActionsOpen}}" class="actions more-actions">
       <button size="mini" bindtap="locate" disabled="{{busy || voiceActive}}">{{center ? '更新附近位置' : '使用当前位置'}}</button>
       <button size="mini" bindtap="navigate" data-target="next" disabled="{{busy || voiceActive}}">打开地图去下一站</button>
@@ -18,30 +43,35 @@
     </view>
     <view wx:if="{{moreActionsOpen}}" class="hint">打开地图后请选择出行方式与路线，再开始导航。</view>
     <view wx:if="{{center}}" class="hint">已设置附近搜索位置；该位置不会作为照片拍摄地点。</view>
+    <!--
+      选了照片之后：照片 + 两个动作（统计人数 / 移除）。
+      「统计照片人数」原来是微信默认样式的裸按钮，夹在两段说明文字中间，很难认出来；
+      现在和「移除照片」并排一行，人数识别是主按钮。
+    -->
     <view wx:if="{{imagePath}}" class="photo-wrap">
       <image class="photo" src="{{imagePath}}" mode="aspectFit" />
-      <view class="link" bindtap="removePhoto">移除照片</view>
-      <view class="hint">点击提问后，压缩图片经云端发送至配置的视觉模型或腾讯云 OCR。项目不保存原图。</view>
-      <button bindtap="countPeople" disabled="{{busy || voiceActive}}">统计照片人数</button>
-      <view class="hint">仅在点击计数时，将照片发送至人数检测服务；结果可能存在漏检或重复识别。</view>
+      <view class="photo-acts">
+        <button class="photo-btn" bindtap="countPeople" disabled="{{busy || voiceActive}}" aria-label="统计照片里的人数">统计照片人数</button>
+        <view class="link" bindtap="removePhoto" hover-class="tap-hover" aria-role="button">移除照片</view>
+      </view>
+      <view class="hint">提问时会把照片压缩后上传识别，不保存原图。只有你主动点「照片里有多少人」或「统计照片人数」时才会识别人数；结果可能有漏数或重复。</view>
     </view>
-    <textarea class="question" value="{{text}}" bindinput="onText" maxlength="1000" disabled="{{busy}}"
-      placeholder="例如：这张照片是哪里？有什么历史？可以在这里集合吗？" />
-    <voice-input disabled="{{busy}}" context-key="{{voiceContext}}" bindresult="onVoice" bindstate="onVoiceState"
-      hint="录音发送至腾讯云实时转文字；结束后追加到问题框，检查后手动提问。" />
-    <button class="send" bindtap="ask" disabled="{{busy || voiceActive}}">{{busy ? '正在查找与核对资料…' : '提问 / 识别照片'}}</button>
     <view wx:if="{{error}}" class="error">{{error}}</view>
     <view class="examples">
-      <text class="example" data-text="想去哈尔滨学院" bindtap="example">想去哈尔滨学院</text>
-      <text class="example" data-text="下一站去哪？" bindtap="example">下一站去哪？</text>
-      <text class="example" data-text="距离集合还有多久？" bindtap="example">集合倒计时</text>
+      <!-- YOLO 人数识别入口（2026-10-20）：识别按钮只在选了照片后出现，
+           空页面上看不到"能数人数"，所以这里给一个一步到位的入口 ——
+           没照片先选图，选完自动开始识别；已有照片就直接数。 -->
+      <view class="example example-crowd" bindtap="askCrowd" hover-class="tap-hover" aria-role="button">照片里有多少人</view>
+      <view class="example" data-text="想去哈尔滨学院" bindtap="example" hover-class="tap-hover" aria-role="button">想去哈尔滨学院</view>
+      <view class="example" data-text="下一站去哪？" bindtap="example" hover-class="tap-hover" aria-role="button">下一站去哪？</view>
+      <view class="example" data-text="距离集合还有多久？" bindtap="example" hover-class="tap-hover" aria-role="button">集合倒计时</view>
       <button class="example example-more" bindtap="toggleExamples" aria-expanded="{{examplesOpen}}">{{examplesOpen ? '收起示例 ▴' : '更多示例 ▾'}}</button>
     </view>
     <view wx:if="{{examplesOpen}}" class="examples">
-      <text class="example" data-text="下一站少待十分钟" bindtap="example">修改行程</text>
-      <text class="example" data-text="介绍一下中央大街的历史" bindtap="example">中央大街的历史</text>
-      <text class="example" data-text="这座教堂有什么建筑特点？" bindtap="example">建筑特点</text>
-      <text class="example" data-text="在这里集合吧" bindtap="example">准备集合点</text>
+      <view class="example" data-text="下一站少待十分钟" bindtap="example" hover-class="tap-hover" aria-role="button">修改行程</view>
+      <view class="example" data-text="介绍一下中央大街的历史" bindtap="example" hover-class="tap-hover" aria-role="button">中央大街的历史</view>
+      <view class="example" data-text="这座教堂有什么建筑特点？" bindtap="example" hover-class="tap-hover" aria-role="button">建筑特点</view>
+      <view class="example" data-text="在这里集合吧" bindtap="example" hover-class="tap-hover" aria-role="button">准备集合点</view>
     </view>
   </view>
   <view wx:if="{{crowdResult}}" class="card">
@@ -60,7 +90,7 @@
       <button wx:if="{{result.meetingContext.available && result.meetingContext.status !== 'cancelled' && result.meetingContext.status !== 'departed' && result.meetingContext.status !== 'completed'}}" size="mini" bindtap="navigate" data-target="meeting" disabled="{{busy || voiceActive}}">打开地图去集合点</button>
       <button wx:if="{{result.place}}" size="mini" bindtap="navigate" data-target="place" disabled="{{busy || voiceActive}}">打开地图去该地点</button>
     </view>
-    <view wx:if="{{result.tripContext.available}}" class="hint">{{result.tripContext.title}} · 第{{result.tripContext.version}}版 · 查询于 {{result.tripContext.timeLabel}}</view>
+    <view wx:if="{{result.tripContext.available}}" class="hint">{{result.tripContext.title}} · 查询于 {{result.tripContext.timeLabel}}</view>
     <view wx:if="{{result.meetingContext}}" class="hint">集合状态查询于 {{result.meetingContext.timeLabel}}；可再次提问刷新。</view>
     <view wx:for="{{result.notices}}" wx:key="*this" class="notice">{{item}}</view>
     <view wx:for="{{result.candidates}}" wx:key="id" class="candidate">
@@ -83,7 +113,7 @@
         <view class="source-title">来源 {{item.number}}：{{item.title}}</view>
         <view class="hint">{{item.publisher}} · 资料核对 {{item.reviewedAt}}{{item.publishedAt ? ' · 发布 ' + item.publishedAt : ''}}</view>
         <view class="source-url">{{item.url}}</view>
-        <view class="link" data-url="{{item.url}}" bindtap="copySource">复制来源链接</view>
+        <view class="link" data-url="{{item.url}}" bindtap="copySource" hover-class="tap-hover" aria-role="button" aria-label="复制来源链接">复制来源链接</view>
       </view>
     </block>
     <button wx:if="{{result.meetingDraft}}" class="send" bindtap="useMeeting" disabled="{{busy || voiceActive}}">用作集合点</button>
@@ -110,18 +140,18 @@
     </picker>
     <view class="hint">现在出发。停留时间默认 60 分钟，可自行修改。确认后生成个人行程，队伍路线需另行发布。</view>
     <button class="send" bindtap="confirmPlan" disabled="{{busy || voiceActive}}">{{createdTripId ? '打开已生成行程' : '确认生成行程'}}</button>
-    <view wx:if="{{error}}" class="error">{{error}}</view>
   </view>
   <view wx:if="{{tripChange}}" class="card change-card">
     <view class="place-name">行程修改 · 确认后生效</view>
     <view class="hint">基于第{{tripChange.baseVersion}}版行程；现在还没有修改原行程。</view>
-    <view wx:if="{{tripChange.interpretation}}" class="hint">{{tripChange.interpretation.parser === 'http' ? 'AI 理解修改要求' : '规则理解修改要求'}}{{tripChange.interpretation.degraded ? '（已降级）' : ''}}</view>
+    <view wx:if="{{tripChange.interpretation}}" class="hint">{{tripChange.interpretation.degraded ? 'AI 暂不可用，已按基础规则理解你的要求。' : '已理解你的修改要求。'}}</view>
     <view wx:for="{{changeSummary}}" wx:key="index" class="hint">{{item}}</view>
     <view wx:for="{{changeQuestions}}" wx:key="key" wx:for-item="question" class="change-question">
       <view>{{question.prompt}}</view>
       <block wx:if="{{question.kind === 'node' || question.kind === 'place'}}">
         <view wx:for="{{question.options}}" wx:key="value" wx:for-item="option" class="change-choice {{question.value === option.value ? 'change-selected' : ''}}"
-          data-key="{{question.key}}" data-value="{{option.value}}" bindtap="answerChange">{{option.label}}</view>
+          data-key="{{question.key}}" data-value="{{option.value}}" bindtap="answerChange"
+          hover-class="tap-hover-surface" aria-role="radio" aria-checked="{{question.value === option.value}}">{{option.label}}</view>
         <view wx:if="{{question.answerLabel}}" class="hint">已选：{{question.answerLabel}}</view>
       </block>
       <input wx:elif="{{question.kind === 'minutes'}}" class="change-input" type="number" value="{{question.value || ''}}" placeholder="请输入整数分钟"
@@ -150,5 +180,5 @@
       <view class="history-text">{{item.text}}</view>
     </view>
   </view>
-  <view class="footnote">首版有来源资料：中央大街、索菲亚教堂、太阳岛。票价、开放时间和当日状态请以景区官方渠道为准。</view>
+  <view class="footnote">资料来源：中央大街、索菲亚教堂、太阳岛的公开资料与景区官方渠道。票价、开放时间和当日状态请以官方渠道为准。</view>
 </view>

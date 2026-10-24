@@ -7,10 +7,13 @@
 .mapwrap {
   position: relative;
   width: 100%;
-  height: 46vh;
-  min-height: 400rpx;
-  max-height: 640rpx;
+  /* 2026-10-20 美化：46vh / 400–640rpx 把首屏吃光了，主操作条只能落在第二屏。
+     降到 32vh / 360–440rpx（375pt 屏上约 200px），地图仍然能看清全队位置。 */
+  height: 32vh;
+  min-height: 360rpx;
+  max-height: 440rpx;
 }
+
 .map {
   width: 100%;
   height: 100%;
@@ -18,7 +21,9 @@
 .map-notice { position: absolute; top: 16rpx; left: 20rpx; right: 20rpx; padding: 16rpx; border-radius: var(--r-sm); background-color: var(--brand-100); }
 .map-notice-text { font-size: var(--fs-sm); line-height: 36rpx; color: var(--brand-600); white-space: normal; }
 .map-notice-action { font-size: var(--fs-sm); line-height: 44rpx; color: var(--brand-600); font-weight: 600; margin-top: 6rpx; }
-.notify-btn { display: flex; align-items: center; justify-content: center; min-height: 88rpx; margin: 0; line-height: 1.6; flex-shrink: 0; }
+.notify-btn { display: flex; align-items: center; justify-content: center; width: auto; min-height: 88rpx; margin: 0; line-height: 1.6; flex-shrink: 0; }
+/* 框架给默认按钮写死 184px（button.wx-button-size-normal），双类选择器才能收窄 */
+.notify-btn.notify-btn { width: auto; }
 .notify-btn::after { border: none; }
 .notify-btn.button-disabled, .notify-btn:disabled { color: var(--ink-500); background: var(--line); border-color: var(--line-strong); }
 
@@ -197,9 +202,10 @@
 .focus-name { font-size: var(--fs-body); color: var(--brand-600); font-weight: 600; }
 .focus-close { font-size: var(--fs-sm); color: var(--ink-500); }
 /* ── 地图右下角控件（2026-10-14 用户要求）──────────────────
-   把"获取我的位置"与"手动选点"从卡片里的按钮改成地图上的小控件。 */
-.mapwrap { position: relative; }
-
+   把"获取我的位置"与"手动选点"从卡片里的按钮改成地图上的小控件。
+   ⚠️ `.mapwrap` 的 `position: relative` 在上方定义过，这里不再重复声明：
+   同一选择器写两遍时，后来者会盖掉前面**同名属性**，
+   读代码的人却以为第一处才是生效的那处。 */
 .map-ctl {
   position: absolute;
   right: 24rpx;
@@ -214,7 +220,9 @@
   border-radius: 50%;
   background: var(--surface);
   border: 1rpx solid var(--line-strong);
-  box-shadow: 0 2rpx 8rpx rgba(47, 107, 66, 0.18);
+  /* 原来这里是一个绿色投影 rgba(47,107,66,.18) —— 与本页的靛蓝主题不是一个色相，
+     看起来像从别的项目拷过来的。改用统一的浅色投影 token。 */
+  box-shadow: var(--sh-1);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -314,7 +322,7 @@
   color: var(--ink-900);
   background: var(--surface);
 }
-.act-primary { background: var(--brand-600); color: var(--surface); border-color: var(--brand-600); }
+.act-primary { background: var(--brand-600); color: var(--btn-ink); border-color: var(--brand-600); }
 .act.warn-act { color: var(--danger); background: var(--danger-bg); border-color: var(--danger-line); }
 .meeting-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16rpx; background: var(--brand-100); border-radius: var(--r-sm); padding: 20rpx; margin-top: 16rpx; }
 .meeting-time, .meeting-count { font-size: var(--fs-h1); font-weight: 700; color: var(--brand-600); }
@@ -367,6 +375,390 @@
 .card .btn { margin-top: 22rpx; }
 .card .btn.ghost { margin-top: 14rpx; }
 .meeting-time, .meeting-count { font-size: var(--fs-h1); color: var(--brand-700); font-weight: 700; font-variant-numeric: tabular-nums; }
-.act-primary { background: linear-gradient(135deg, var(--btn-g1), var(--btn-g2)); box-shadow: var(--sh-brand); border-color: transparent; }
+.act-primary { color: var(--btn-ink); background: linear-gradient(135deg, var(--btn-g1) 0%, var(--btn-mid) 62%, var(--btn-g2) 100%); box-shadow: 0 4rpx 12rpx var(--btn-shadow); border-color: transparent; }
 .act { box-sizing: border-box; line-height: 1.5; border-radius: var(--r-pill); }
 .notify-btn.button-disabled, .notify-btn:disabled { background: var(--surface-2); color: var(--ink-500); border-color: var(--line-strong); box-shadow: none; }
+
+/* ── 危险操作区（2026-10-20）──────────────────────────────
+   取消集合与"确认/暂不参加/我已到达"分开放。
+   分隔线用 danger-line 而不是普通 line：它要让人**先读到"这是另一类操作"**，
+   再读到按钮文字 —— 合并成一排时，两种后果完全不同的操作看起来一样重。 */
+.danger-zone {
+  margin-top: 20rpx;
+  padding-top: 18rpx;
+  border-top: 1rpx dashed var(--danger-line);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.danger-zone-note {
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--ink-500);
+  margin-bottom: 12rpx;
+}
+
+/* ── 位置详情折叠（2026-10-20）────────────────────────────
+   原始坐标对该页面没有可操作性，收进折叠区；展开后仍是可复制的文本。 */
+.loc-detail { margin-top: 4rpx; }
+.loc-detail-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* 折叠开关本身也是可点区域，给足 88rpx 热区（原文字行只有 40rpx 高） */
+  min-height: 88rpx;
+  font-size: var(--fs-sm);
+  color: var(--brand-700);
+}
+.loc-detail-arrow { font-size: var(--fs-sm); color: var(--ink-400); }
+.loc-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  padding: 12rpx 16rpx;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+}
+.loc-detail-line {
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--ink-500);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ══════════════════════════════════════════════════════════
+   2026-10-20 美化：状态胶囊 / 主操作条 / 到齐进度 / 位置 chip
+   ══════════════════════════════════════════════════════════ */
+
+/* ── 地图上的队伍状态胶囊 ─────────────────────────────────
+   只展示信息、不绑点击：可点的胶囊会让人以为点了能进队伍详情。 */
+.team-pill {
+  position: absolute;
+  left: 20rpx;
+  top: 20rpx;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  max-width: 470rpx;
+  box-sizing: border-box;
+  padding: 10rpx 20rpx;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 2rpx 12rpx rgba(20, 32, 43, 0.16);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-900);
+}
+.team-pill-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 6rpx var(--success-ring);
+  margin-right: 12rpx;
+  flex: none;
+}
+.team-pill-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 240rpx;
+}
+.team-pill-sep {
+  width: 1rpx;
+  height: 22rpx;
+  background: rgba(20, 32, 43, 0.12);
+  margin: 0 14rpx;
+  flex: none;
+}
+.team-pill-count {
+  flex: none;
+  color: var(--brand-700);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 主操作条 ────────────────────────────────────────────
+   比普通卡片更"靠前"：品牌色描边 + 更强投影，让它是首屏里最重的一块。 */
+.action-bar {
+  /* .body 已经有 24rpx 左右内边距，这里不再加，否则比卡片窄一圈 */
+  margin: 0 0 20rpx;
+  padding: 22rpx 24rpx;
+  box-sizing: border-box;
+  background: var(--surface);
+  border: 2rpx solid var(--brand-200);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-2);
+}
+.ab-top {
+  display: flex;
+  align-items: baseline;
+  gap: 14rpx;
+}
+.ab-time {
+  font-size: 56rpx;
+  line-height: 1.1;
+  font-weight: 700;
+  color: var(--brand-700);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1rpx;
+}
+.ab-count {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--accent);
+  flex: 1;
+  min-width: 0;
+}
+.ab-status {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--ink-500);
+  background: var(--surface-2);
+  border-radius: var(--r-pill);
+  padding: 2rpx 14rpx;
+}
+.ab-place {
+  margin-top: 6rpx;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ab-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14rpx;
+  margin-top: 18rpx;
+}
+.ab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 88rpx;
+  padding: 0 24rpx;
+  box-sizing: border-box;
+  border-radius: var(--r-pill);
+  border: 2rpx solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink-900);
+  font-size: var(--fs-h2);
+  font-weight: 600;
+}
+.ab-btn-main {
+  flex: 1;
+  border-color: transparent;
+  color: var(--btn-ink);
+  background: linear-gradient(135deg, var(--btn-g1) 0%, var(--btn-mid) 62%, var(--btn-g2) 100%);
+  box-shadow: 0 8rpx 20rpx var(--btn-shadow);
+}
+.ab-tools {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 14rpx;
+}
+.ab-tool {
+  min-height: 64rpx;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 20rpx;
+  margin: 0 12rpx 12rpx 0;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  color: var(--brand-700);
+  font-size: var(--fs-sm);
+}
+.ab-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  min-height: 64rpx;
+  margin-top: 2rpx;
+  font-size: var(--fs-sm);
+  color: var(--ink-400);
+}
+.ab-caret { color: var(--ink-300); }
+
+/* ── 到齐进度 ────────────────────────────────────────────
+   两行文字（我 已确认 / 李 未到达）换成进度条 + 头像行：
+   一眼能看出"还差几个人、差谁"。 */
+.arrive-block { padding-bottom: 6rpx; }
+.arrive-bar {
+  height: 12rpx;
+  margin-top: 12rpx;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.arrive-fill {
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--brand-500), var(--brand-600));
+  transition: width 0.2s ease;
+}
+.arrive-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22rpx;
+  margin-top: 18rpx;
+}
+.arrive-mem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+  width: 104rpx;
+}
+.arrive-ava {
+  width: 66rpx;
+  height: 66rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--brand-700);
+  background: var(--brand-100);
+  border: 2rpx dashed var(--brand-200);
+}
+.arrive-mem.on .arrive-ava {
+  color: var(--surface);
+  background: var(--success);
+  border: 2rpx solid var(--success);
+  box-shadow: 0 0 0 6rpx var(--success-ring);
+}
+.arrive-mem.off .arrive-ava {
+  color: var(--ink-300);
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+}
+.arrive-name {
+  font-size: var(--fs-xs);
+  color: var(--ink-500);
+  max-width: 104rpx;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+.arrive-mem.on .arrive-name { color: var(--success); font-weight: 600; }
+
+/* ── 我的位置：一行 chip ─────────────────────────────────
+   整张卡片压成一条，技术细节收进「详情」。 */
+.loc-chip {
+  margin: 0 0 20rpx;
+  background: var(--surface);
+  border: 2rpx solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-1);
+  overflow: hidden;
+}
+.loc-chip-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  min-height: 88rpx;
+  padding: 0 22rpx;
+}
+.loc-chip-left {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.loc-dot {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: var(--ink-300);
+  margin-right: 14rpx;
+  flex: none;
+}
+.loc-dot.on {
+  background: var(--success);
+  box-shadow: 0 0 0 6rpx var(--success-ring);
+}
+.loc-chip-text {
+  font-size: var(--fs-sm);
+  color: var(--ink-700);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.loc-chip-go {
+  flex: none;
+  font-size: var(--fs-sm);
+  color: var(--brand-700);
+}
+.loc-chip-body {
+  padding: 0 22rpx 18rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+/* ══════════════════════════════════════════════════════════
+   集合卡片重排（2026-10-23）
+   目标：一屏内只回答三件事 —— 在哪集合、几点、现在发起。
+   说明性文字要么压缩成一行状态，要么删掉（时间校验放提交时）。
+   ══════════════════════════════════════════════════════════ */
+.share-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10rpx;
+  margin-top: 14rpx;
+  padding: 8rpx 18rpx;
+  border-radius: var(--r-pill);
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.share-dot {
+  flex: none;
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 6rpx var(--success-ring);
+}
+.share-chip.off .share-dot { background: var(--ink-300); box-shadow: none; }
+.share-chip.off { color: var(--ink-500); }
+.share-arrow { color: var(--brand-500); font-weight: 400; margin-left: 2rpx; }
+
+.meet-section {
+  margin: 4rpx 0 12rpx;
+  font-size: var(--fs-h2);
+  font-weight: 700;
+  color: var(--ink-900);
+}
+/* 推荐降级为文字链接：可点区域仍做到 68rpx，避免"点了没反应" */
+.meet-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  min-height: 68rpx;
+  color: var(--brand-600);
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+.meet-link-star { color: var(--brand-500); }
+.meet-divider { height: 1rpx; background: var(--line); margin: 8rpx 0 4rpx; }
+.meet-row { min-height: 88rpx; }
+/* 唯一主按钮：整宽、浅蓝渐变、深蓝字（与行程页一致） */
+.meet-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 92rpx;
+  margin-top: 18rpx;
+  border-radius: var(--r-pill);
+  color: var(--btn-ink);
+  background: linear-gradient(135deg, var(--btn-g1) 0%, var(--btn-mid) 62%, var(--btn-g2) 100%);
+  box-shadow: 0 8rpx 20rpx var(--btn-shadow);
+  font-size: var(--fs-h2);
+  font-weight: 700;
+}

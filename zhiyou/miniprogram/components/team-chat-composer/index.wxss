@@ -4,27 +4,48 @@
 .input-row { display: flex; align-items: center; width: 100%; }
 /* 原生 input 明确占满容器；话筒绝对定位，避免两个 flex 子项挤占文字宽度。 */
 .input-shell { position: relative; flex: 1 1 0%; width: 0; min-width: 0; height: 88rpx;
-  box-sizing: border-box; background: var(--surface-2); border: 1rpx solid var(--line-strong); border-radius: var(--r-lg); }
-.voice { position: absolute; left: 0; top: 0; z-index: 2;
-  width: 68rpx; height: 86rpx; line-height: 86rpx; padding: 0; margin: 0;
+  box-sizing: border-box; overflow: hidden;
+  background: var(--surface-2); border: 1rpx solid var(--line-strong); border-radius: var(--r-lg); }
+/* 话筒热区（2026-10-20 放大，2026-10-23 改成 96rpx 与文字左内边距同宽）：
+   这两个是队伍页唯一的输入入口，原来分别是 34px 与 38px 高 ——
+   都低于 44px 的手指最小命中区，实测最容易"点了没反应"。
+
+   2026-10-23：这里从原生 <button> 换成了 <view>。button 自带宽度/padding/
+   外边距与居中文本，图标和点击区都被它带着走（用户截图里话筒漂到占位文字上）。
+   view 的盒模型只由本文件决定，不再受框架默认样式影响。 */
+.voice { position: absolute; left: 0; top: 0; right: auto; z-index: 3;
+  width: 96rpx; min-width: 0; max-width: 96rpx; height: 86rpx; line-height: 86rpx;
+  padding: 0; margin: 0;
   color: var(--brand-600); background: transparent; border-radius: var(--r-md); font-size: var(--fs-xs); }
-.voice::after, .send::after { border: none; }
+.send::after { border: none; }
+.voice-hover { opacity: 0.6; }
+.voice-disabled { color: var(--ink-500); }
 .voice.recording { color: var(--danger); background: var(--danger-bg); }
-.mic { position: relative; height: 48rpx; width: 40rpx; margin: 19rpx 0 19rpx 4rpx; }
+/* 图标槽与输入框的左内边距同宽（96rpx），图标在槽内居中。
+   `pointer-events: none` 让点击穿透到下层 input；接语音的是上面那块 .voice 热区
+   （z-index 更高），它盖住整个槽位。 */
+.mic-wrap { position: absolute; left: 0; top: 0; z-index: 2;
+  width: 96rpx; height: 86rpx; display: flex; align-items: center; justify-content: center;
+  pointer-events: none; }
+.mic { position: relative; height: 48rpx; width: 40rpx; margin: 0; }
 .mic-head { position: absolute; left: 12rpx; top: 2rpx; width: 12rpx; height: 23rpx; border: 3rpx solid var(--brand-600); border-radius: var(--r-sm); }
 .mic-base { position: absolute; left: 6rpx; top: 15rpx; width: 24rpx; height: 20rpx; border: 3rpx solid var(--brand-600);
   border-top: none; border-radius: 0 0 var(--r-md) var(--r-md); }
 .mic-stem { position: absolute; left: 19rpx; top: 37rpx; height: 8rpx; width: 3rpx; background: var(--brand-600); }
 .chat-input { display: block; width: 100%; height: 86rpx; box-sizing: border-box;
-  padding: 0 16rpx 0 78rpx; background: transparent; font-size: var(--fs-body); color: var(--ink-900); }
+  padding: 0 16rpx 0 96rpx; background: transparent; font-size: var(--fs-body); color: var(--ink-900); }
 .chat-placeholder { color: var(--ink-500); }
-.send { width: 100rpx; height: 76rpx; line-height: 76rpx; padding: 0; margin: 0 0 0 14rpx; flex: 0 0 100rpx;
-  color: var(--surface); background: var(--brand-600); font-size: var(--fs-body); border-radius: var(--r-sm); }
-.send.button-disabled, .send:disabled { color: var(--ink-300); background: var(--line); }
+.send { width: 100rpx; height: 88rpx; line-height: 88rpx; padding: 0; margin: 0 0 0 14rpx; flex: 0 0 100rpx;
+  color: var(--btn-ink); background: linear-gradient(135deg, var(--btn-g1) 0%, var(--btn-mid) 62%, var(--btn-g2) 100%);
+  box-shadow: 0 4rpx 12rpx var(--btn-shadow);
+  font-size: var(--fs-body); border-radius: var(--r-sm); }
+/* 禁用态统一到 --ink-500 on --line-strong（约 4.4:1）。
+   原来用 --ink-300 on --line 只有 2.1:1，白底上几乎看不出按钮上还有字。 */
+.send.button-disabled, .send:disabled { color: var(--ink-500); background: var(--line-strong); }
 .hint { color: var(--ink-500); font-size: var(--fs-xs); margin-top: 12rpx; line-height: 1.5; }
 .voice-status { display: flex; justify-content: space-between; align-items: center; margin-top: 12rpx; font-size: var(--fs-sm); color: var(--brand-600); }
 .cancel { margin: 0; padding: 0 18rpx; font-size: var(--fs-sm); color: var(--brand-600); background: var(--brand-50); }
 .preview { display: block; color: var(--ink-500); background: var(--surface-2); font-size: var(--fs-body); padding: 12rpx; margin-top: 12rpx; line-height: 1.5; }
 .error { margin-top: 12rpx; color: var(--danger); font-size: var(--fs-sm); line-height: 1.5; }
 
-.voice.button-disabled, .voice:disabled { color: var(--ink-500); }
+

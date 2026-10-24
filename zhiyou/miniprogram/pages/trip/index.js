@@ -413,6 +413,58 @@ Page({
       if (pending.version > this.data.trip.version) await this.refreshTextTrip(pending.tripId, '已同步助手确认的新行程')
     }
     if (this.data.trip) this.rebuildFromNodes()
+    /**
+     * 2026-10-24：冷启动 / 页面重建后恢复“当前行程”。
+     *
+     * 之前只在内存里保留 trip：小程序被系统回收、或页面重建后，`data.trip`
+     * 是空的，而这里又从来不读 `zhiyou-active-trip`，于是用户会觉得
+     * “我的行程没了”（退队、切后台、重启都会触发）。
+     * 指针一直在 storage 里，补一次 `trip.get` 就能恢复。
+     */
+    if (!this.data.trip) this.restoreActiveTrip()
+  },
+
+  /**
+   * 从 `zhiyou-active-trip` 恢复当前行程。
+   *
+   * 指针无效（行程被删、退队后无权访问）时清掉指针并回到“今天想去哪”，
+   * 但**不把错误糊在页面上** —— 没有行程是正常状态。
+   */
+  restoreActiveTrip() {
+    let saved = null
+    try { saved = wx.getStorageSync('zhiyou-active-trip') } catch (e) { saved = null }
+    const tripId = saved && (typeof saved === 'object' ? saved.tripId : saved)
+    if (!tripId || this.restoringTrip) return
+    this.restoringTrip = true
+    const token = (this.tripLoadToken || 0) + 1
+    this.tripLoadToken = token
+    this.setData({ loading: true, error: '' })
+    const done = () => { this.restoringTrip = false }
+    api.callApi('trip.get', { tripId }).then(res => {
+      if (token !== this.tripLoadToken || this.navigationVisible === false) { done(); return }
+      if (!res || !res.ok) {
+        const code = res && res.error && res.error.code
+        if (['NOT_FOUND', 'FORBIDDEN', 'FORBIDDEN_NOT_MEMBER', 'AUTH_REQUIRED'].includes(code)) {
+          try { wx.removeStorageSync('zhiyou-active-trip') } catch (e) { /* 忽略 */ }
+          done()
+          this.setData({ loading: false, trip: null })
+          return
+        }
+        throw new Error((res && res.error && res.error.message) || '读取当前行程失败')
+      }
+      if (this.data.trip && this.data.trip.tripId === res.data.trip.tripId) {
+        done()
+        this.setData({ loading: false })
+        return
+      }
+      done()
+      this.applyFetchedTrip(res.data.trip, tripId, '', null)
+    }).catch(e => {
+      done()
+      if (token === this.tripLoadToken && this.navigationVisible !== false) {
+        this.setData({ loading: false, error: (e && e.message) || '读取当前行程失败，请重新进入行程页' })
+      }
+    })
   },
   onHide() {
     this.navigationVisible = false
