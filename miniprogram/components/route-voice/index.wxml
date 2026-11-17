@@ -1,0 +1,13 @@
+<view wx:if="{{canSpeak}}" class="route-audio-card">
+  <view class="route-audio-state"><text class="route-audio-check">✓</text>修改已生效</view>
+  <view class="route-audio-heading"><view class="route-audio-symbol"><image class="route-audio-symbol-art" src="/assets/ui/sound-blue.png" /></view><view><view class="route-audio-title">听听更新后的安排</view><view class="route-audio-meta">第 {{version}} 版 · {{providerLabel}}</view></view></view>
+  <view class="route-audio-wave {{playing ? 'route-audio-active' : ''}}" aria-hidden="true"><view></view><view></view><view></view><view></view><view></view><view></view><view></view><view></view><view></view><view></view><view></view><view></view><view></view><view></view><view></view></view>
+  <view wx:if="{{busy || playing || hasPlayed}}" class="route-audio-playback-state" aria-live="polite">{{statusText}}</view>
+  <button wx:if="{{playing}}" class="route-audio-button" size="mini" bindtap="stop">■ 停止播报</button>
+  <button wx:elif="{{busy}}" class="route-audio-button" size="mini" bindtap="stop">停止等待</button>
+  <button wx:else class="route-audio-button" size="mini" bindtap="play">{{hasPlayed ? '↻ 重播安排' : '▷ 播报新安排'}}</button>
+  <view wx:if="{{summary}}" class="route-audio-disclosure" bindtap="toggleSummary" aria-role="button" aria-expanded="{{summaryOpen}}">{{summaryOpen ? '收起文字摘要 ▴' : '查看文字摘要 ▾'}}</view>
+  <view wx:if="{{summary && summaryOpen}}" class="route-audio-summary">{{summary}}</view>
+  <view wx:if="{{error}}" class="route-audio-error" role="alert">{{error}}</view>
+  <view wx:if="{{error}}" class="route-audio-settings" bindtap="settings" aria-role="button">更换语音服务 ›</view>
+</view>

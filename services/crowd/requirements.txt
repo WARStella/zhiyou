@@ -1,0 +1,12 @@
+# 运行依赖，全部固定版本。
+#
+# torch / torchvision 在 Dockerfile 中先从 PyTorch 官方 CPU 源安装；本地版本号
+# 形如 2.4.1+cpu，仍满足这里的 ==2.4.1 / ==0.19.1，所以不会再次下载 CUDA 包。
+# 这些版本组合未在本机构建验证，首次构建若报依赖冲突，请按构建日志调整。
+flask==3.0.3
+gunicorn==22.0.0
+numpy==1.26.4
+pillow==10.4.0
+torch==2.4.1
+torchvision==0.19.1
+ultralytics==8.3.40

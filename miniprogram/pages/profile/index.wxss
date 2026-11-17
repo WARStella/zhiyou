@@ -1,0 +1,243 @@
+/* 「我的」页（2026-10-14） */
+
+.page {
+  padding: 24rpx;
+  min-height: 100vh;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.link {
+  color: var(--brand-600);
+  font-weight: 600;
+}
+
+
+.err {
+  color: var(--danger);
+  background: var(--danger-bg);
+  padding: 16rpx;
+  border-radius: var(--r-sm);
+  margin-bottom: 20rpx;
+  font-size: var(--fs-sm);
+}
+
+/* ── 个人资料 ──────────────────────────────────────────── */
+
+/* 头像与昵称同排，不展示内部用户 ID。 */
+.prof { display: block; }
+.prof-header {
+  display: flex;
+  align-items: center;
+  gap: 28rpx;
+}
+.prof-avatar { flex: 0 0 152rpx; width: 152rpx; min-width: 0; }
+.avatar-hint { display: block; margin-top: 14rpx; text-align: center; font-size: var(--fs-xs); line-height: 1.5; color: var(--ink-500); white-space: nowrap; }
+
+/*
+ * 头像按钮。
+ *
+ * ⚠️ 两层坑，都是踩过才知道的（2026-10-14）：
+ *
+ * ① `<button open-type="chooseAvatar">` 自带默认样式 —— 灰底、边框、
+ *    内边距、以及一个 `::after` 画的圆角边框。不清掉的话头像外面会套方框。
+ *    必须重置 `padding` / `background` / `border` / `line-height`，
+ *    并把 `::after` 的 border 去掉。
+ *
+ * ② **不要在 button 上做圆形裁剪**。我第一版给 button 设了
+ *    `border-radius: 50%` + `overflow: hidden`，而里面的元素**也是**
+ *    `border-radius: 50%` —— 两个椭圆叠加 + button 默认样式的干扰，
+ *    裁出来是个**歪的半个椭圆**（用户截图看到的就是这个）。
+ *
+ *    现在：button 只负责"可点 + 尺寸"，圆形一律由**里面那个元素**负责。
+ *    一层裁剪，不会有叠加误差。
+ */
+.prof .avatar-btn {
+  width: 152rpx;
+  height: 152rpx;
+  min-width: 0;
+  min-height: 0;
+  max-width: 152rpx;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+  line-height: 1;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  /* 显式声明，避免 button 默认的 inline-block 基线对齐带来几像素偏移 */
+  display: block;
+  vertical-align: top;
+}
+.avatar-btn::after {
+  border: none;
+}
+.avatar-img {
+  width: 152rpx;
+  height: 152rpx;
+  border-radius: 50%;
+  display: block;
+}
+/* 没头像时用昵称首字 + 稳定底色，不塞假图片 */
+.avatar-fallback {
+  width: 152rpx;
+  height: 152rpx;
+  border-radius: 50%;
+  color: var(--surface);
+  font-size: var(--fs-display);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.prof-main {
+  flex: 1;
+  min-width: 0;
+}
+.prof-name-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14rpx;
+}
+.prof-name-row + .prof-name-row { margin-top: 12rpx; }
+.prof-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-h1);
+  font-weight: 700;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.prof-edit {
+  flex: none;
+  margin-top: 4rpx;
+  font-size: var(--fs-xs);
+  color: var(--brand-600);
+  border: 1rpx solid var(--brand-200);
+  border-radius: var(--r-pill);
+  background: var(--brand-50);
+  padding: 4rpx 10rpx;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.prof-main .sub { font-size: var(--fs-xs); margin-top: 12rpx; }
+.prof-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--surface-2);
+  padding: 12rpx 16rpx;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-body);
+}
+.prof-save {
+  font-size: var(--fs-sm);
+  color: var(--surface);
+  background: var(--brand-600);
+  border-radius: var(--r-sm);
+  padding: 4rpx 18rpx;
+  margin-right: 0;
+}
+.prof-cancel {
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+}
+
+/* ── 按钮 ──────────────────────────────────────────────── */
+
+/*
+ * 禁用态。属性选择器在 WXSS 里**不生效**（编译器会警告），
+ * 所以按类名 + 伪类写。
+ */
+
+.foot {
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+  margin: 30rpx 0 20rpx;
+}
+.support-toggle { font-size: var(--fs-sm); color: var(--ink-500); margin-bottom: 16rpx; }
+
+/* 设置列表复用既有行结构，图标和箭头只做视觉提示。 */
+.card .btn { margin-top: 16rpx; }
+.prof { box-shadow: var(--sh-2); border-color: var(--brand-200); }
+.avatar-img, .avatar-fallback { box-shadow: 0 0 0 4rpx var(--surface), 0 0 0 7rpx var(--brand-500); }
+.avatar-fallback { font-size: var(--fs-display); font-weight: 700; background-image: linear-gradient(135deg, var(--brand-500), var(--brand-700)) !important; }
+.prof-name { font-size: var(--fs-h1); color: var(--ink-900); }
+.settings-list { overflow: hidden; }
+.settings-head { padding-bottom: 16rpx; }
+.settings-row { min-height: 104rpx; box-sizing: border-box; padding: 26rpx 0; border-top: 2rpx solid var(--line); }
+.settings-row::before { display: flex; align-items: center; justify-content: center; flex: none; width: 44rpx; height: 44rpx; border-radius: 12rpx; background: var(--brand-100); color: var(--brand-600); font-size: var(--fs-xs); font-weight: 600; }
+.setting-sharing::before { content: '位'; }
+.setting-travel::before { content: '行'; }
+.settings-row .k { flex: 1; min-width: 0; }
+.settings-row .v { font-size: var(--fs-sm); }
+.setting-travel .link { display: flex; align-items: center; gap: 16rpx; }
+.setting-travel .link::after { content: ''; flex: none; width: 12rpx; height: 12rpx; border-top: 2rpx solid var(--ink-300); border-right: 2rpx solid var(--ink-300); transform: rotate(45deg); margin-right: 4rpx; }
+
+/* ── 提醒设置（2026-10-24 从队伍页移入）──────────────────── */
+.notify-card { margin-top: 20rpx; overflow: hidden; }
+.notify-row { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; padding: 14rpx 0; border-top: 2rpx solid var(--line); }
+.notify-row:first-of-type { border-top: none; }
+.notify-info { display: flex; align-items: center; flex: 1; min-width: 0; }
+.notify-label { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font-size: var(--fs-body); color: var(--ink-900); }
+.notify-state { flex: none; font-size: var(--fs-sm); color: var(--ink-500); margin-left: 12rpx; }
+.notify-state.on { color: var(--success); }
+.notify-btn { flex: none; padding: 8rpx 24rpx; font-size: var(--fs-sm); color: var(--brand-600);
+  border: 1rpx solid var(--brand-600); border-radius: var(--r-pill); background: var(--surface); }
+/* 框架给 button 的默认宽度是 184px，双类选择器才收得回来 */
+.notify-btn.notify-btn { width: auto; }
+.notify-btn::after { border: none; }
+.notify-btn.button-disabled, .notify-btn:disabled { color: var(--ink-500); background: var(--surface-2); border-color: var(--line-strong); }
+.notify-off { color: var(--ink-500); border-color: var(--line-strong); }
+.notify-note { margin-top: 10rpx; font-size: var(--fs-sm); color: var(--ink-500); line-height: 1.6; }
+
+
+/* Match the approved pale-blue surfaces and compact settings cards. */
+page { background: #f0f6ff; }
+.page { padding: 20rpx 20rpx 44rpx; padding-bottom: calc(44rpx + env(safe-area-inset-bottom)); background: linear-gradient(160deg, #f4f8ff, #edf5ff); color: #17314f; }
+.card { padding: 24rpx 26rpx; margin-bottom: 20rpx; border: 1rpx solid #d8e5f3; border-radius: 28rpx; background: rgba(255,255,255,.94); box-shadow: 0 4rpx 12rpx rgba(35,70,115,.04); }
+.prof { padding: 26rpx; background: linear-gradient(130deg, #fff, #f4faff); box-shadow: 0 4rpx 14rpx rgba(35,70,115,.045); }
+.prof-header { gap: 26rpx; }
+.prof-avatar { flex: 0 0 132rpx; width: 132rpx; }
+.prof .avatar-btn { width: 132rpx; height: 132rpx; max-width: 132rpx; }
+.avatar-img, .avatar-fallback { width: 132rpx; height: 132rpx; box-shadow: 0 0 0 4rpx #fff, 0 0 0 6rpx #bbdbf7; }
+.avatar-hint { margin-top: 14rpx; font-size: 21rpx; color: #6c7c91; }
+.prof-name-row { align-items: center; }
+.prof-name { font-size: 38rpx; line-height: 1.4; color: #142d4d; }
+.prof-edit { padding: 8rpx 16rpx; margin-top: 0; font-size: 23rpx; border-radius: 999rpx; border-color: #cddff1; background: #f2f8ff; color: #315b84; }
+.prof-main .sub { font-size: 23rpx; line-height: 1.6; color: #697a91; }
+.settings-head { padding-bottom: 18rpx; }
+.settings-head .k { font-size: 31rpx; font-weight: 700; color: #18314f; }
+.settings-row { gap: 14rpx; min-height: 102rpx; padding: 22rpx 0; border-top: 1rpx solid #e3ebf5; }
+.settings-row .k { font-size: 28rpx; font-weight: 600; color: #233c58; }
+.settings-row .v { font-size: 24rpx; font-weight: 500; color: #44658a; }
+.settings-row::before { width: 52rpx; height: 52rpx; border-radius: 16rpx; background-color: #edf6ff; background-position: center; background-repeat: no-repeat; background-size: 32rpx 32rpx; }
+.settings-row switch { transform: scale(.86); transform-origin: right center; }
+.settings-list .sub { font-size: 24rpx; line-height: 1.8; color: #69798f; margin-top: 12rpx; }
+.notify-card { margin-top: 0; }
+.notify-card .sub { font-size: 24rpx; line-height: 1.75; color: #69798f; margin-top: 0; margin-bottom: 14rpx; }
+.notify-row { min-height: 90rpx; box-sizing: border-box; padding: 16rpx 0; border-top: 1rpx solid #e3ebf5; }
+.notify-info { flex-wrap: wrap; gap: 4rpx 10rpx; }
+.notify-label { font-size: 27rpx; line-height: 1.5; color: #263e59; }
+.notify-state { font-size: 23rpx; line-height: 1.5; margin-left: 0; color: #7a899b; }
+.notify-btn.notify-btn { display: flex; align-items: center; justify-content: center; min-height: 62rpx; padding: 8rpx 24rpx; border: 1rpx solid #b6d6f2; border-radius: 999rpx; background: linear-gradient(180deg, #f6fbff, #eaf5ff); color: #245987; font-size: 25rpx; font-weight: 500; line-height: 1.4; }
+.notify-note { font-size: 23rpx; line-height: 1.75; color: #728199; margin-top: 16rpx; }
+.prof-input { min-height: 72rpx; border: 1rpx solid #ccdded; border-radius: 16rpx; background: #f7faff; font-size: 28rpx; }
+.prof-save.prof-save { width: auto; margin: 0; padding: 10rpx 20rpx; border-radius: 16rpx; background: linear-gradient(180deg, #cceaff, #8dcfff); color: #173653; box-shadow: none; font-size: 26rpx; }
+.support-toggle { min-height: 80rpx; display: flex; align-items: center; justify-content: center; color: #657b95; font-size: 24rpx; }
+.foot { color: #8492a5; font-size: 22rpx; }
+@media (max-width: 340px) { .prof-name { font-size: 34rpx; }.prof-header { gap: 20rpx; }.settings-row .k { font-size: 26rpx; }.settings-row .v { font-size: 22rpx; } }
+
+.setting-sharing::before { content: ""; background-image: url("data:image/png;base64,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"); }
+
+.setting-travel::before { content: ""; background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEgAAABICAYAAABV7bNHAAAACXBIWXMAAAsTAAALEwEAmpwYAAADXUlEQVR4nO2au24TQRSGR5CUFLBz5IAQlwdAKHMCBQULPfgcI/kNwDSQNoiChAASRR6AJATapE4iaFBIA+JN0iRQcZdAsxYC4lmP197LzGY+aSRr7V2vf89l5z+/EIFAIJAR7IxHSFcipNuANKebVNzRx/R74qDSuHj9LChaAeSPgPwrpe3pzzTO0xlxYGi3D4Oix4D0rY8w/zWJ/BUUPdLnijoTXWoeAcWbgwrT0xRv6muIejJ7CJDWhxbnb296XcueBMhP+vSMH6B4C5AXk6Zf62PpQs2Luk3IUs8j5h+7DBfaE/vP0cdA8XNjL1L0ZWLyxmlRF6C7WpnEuWM9F+lumrCiFmBnPGUpH/gHSuQXvcOSdkUcjwnfibB5tVcc+m4aVqnXmGyeMM1Jcopj4TtScccwKW9lvQ4gb/fORXxL+A4k24cegZ5lv06ywu0XaFbUUiDkxSGus2QQ6IHwHRmGWH/0rtz0YCixdXzkSXqyeVmUaTVIxU9zb1N0H5A+GZbplUFvUyK/LHWZbwxmNeTWpKLP5n1Va9ouTmu6vAfFdnarIbeWsrfSD4F6CO2/VX3M2HOK2mpEo1oNo7c3/cSTit7BFH3QTSK/B0U/069FcwX0HK5MHKl459i51sl87A56lbvdAQNaDUVM0oA082cIJb0YaWN4gWgjd8OsMYTVUCi6NyPP97kn45wDSA+16eaU1VAkepJN/iBFu+m9O3lv+SheO+Ws1VA4cTwGyKuGe1wt3M6IcrAaygCQFwwCLXizD6qtQJCT1VBjgbiaL85IEMhCEMhCEMhCEMhCEMhCEMhCEMhCEMhCEMjVmhf48yRdTVkZPBCo0poXIK0Z7I41l+K1rta89lyI1zpf85IVxWv9q3kpe7w2mSuQZkascOjVarvcmlcJ8dpI/+OKd0b9Dnuj9dwrF7aal/y3YqlfDxGvBeR7JYjjRs0LhojXFimQszUvyBCvLWSI+VDzkhnitXlM0jpTKJFuJulUH2peUYjX2gnxWgshXmshxGsP6hDzO15bBt1lfs+reG3ZpD0oSufitRWh/Zy0rYZ0JV5bNdrP6R/QpLfdlaoSq8EF8rI7KP94rSs4Ga91jrZj8VpXmXAiXusDcTymbYXEXtA2Q5lWQyAQCAQCAZGN30NABPaW+GX5AAAAAElFTkSuQmCC"); }
+
+.sharing-summary { font-size: 24rpx; line-height: 1.7; color: #506c8b; margin-top: 8rpx; }
+.sharing-disclosure { min-height: 64rpx; display: flex; align-items: center; color: #2477bd; font-size: 24rpx; }

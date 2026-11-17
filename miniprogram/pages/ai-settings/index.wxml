@@ -1,0 +1,35 @@
+<view class="preferences-page">
+  <view class="preferences-intro">
+    <view class="preferences-heading">按你的习惯，陪你出发</view>
+    <view class="save-indicator"><image class="save-check" src="/assets/ui/check-green.png" />自动保存</view>
+  </view>
+  <view wx:if="{{loading}}" class="preferences-loading">
+    <view class="skeleton-row"></view><view class="skeleton-row"></view><view class="skeleton-row"></view>
+    <view class="preferences-caption">正在读取可选服务…</view>
+  </view>
+  <view wx:if="{{error}}" class="preferences-feedback" role="alert">
+    <view>{{error}}</view><button size="mini" class="preferences-reload" bindtap="load">重新加载</button>
+  </view>
+  <view wx:for="{{rows}}" wx:key="kind" class="preference-card">
+    <view class="preference-icon"><image class="preference-icon-image" src="{{'/assets/ui/' + item.icon + '-navy.png'}}" /></view>
+    <view class="preference-content">
+      <view class="preference-category">{{item.label}}</view>
+      <picker range="{{item.options}}" range-key="display" value="{{item.index}}" data-kind="{{item.kind}}" bindchange="change" disabled="{{loading || item.empty}}">
+        <view class="preference-select" aria-label="{{item.label + '，当前选择' + item.name}}">
+          <text class="preference-name">{{item.name}}</text><text class="preference-chevron">›</text>
+        </view>
+      </picker>
+      <view class="preference-meta"><text>{{item.optionNote}}</text><text wx:if="{{!item.configured}}" class="preference-unavailable">待启用</text></view>
+    </view>
+  </view>
+  <view class="autoplay-card">
+    <view class="autoplay-row"><text class="autoplay-title">路线变更后自动播报</text><switch checked="{{autoSpeak}}" bindchange="toggleAuto" color="#2B5C8A" disabled="{{loading}}" /></view>
+    <view class="preferences-caption">确认修改后，才播报新安排。关闭后可手动播放。</view>
+  </view>
+  <view class="preferences-saved" aria-live="polite"><image class="preferences-info" src="/assets/ui/info-gray.png" />{{saveNote}}</view>
+  <view class="preferences-disclosure" bindtap="toggleDetails" aria-role="button" aria-expanded="{{detailsOpen}}">{{detailsOpen ? '收起模型信息 ▴' : '查看模型信息 ▾'}}</view>
+  <view wx:if="{{detailsOpen}}" class="model-details">
+    <view wx:for="{{rows}}" wx:key="kind" class="model-detail"><view class="model-detail-title">{{item.label}} · {{item.model}}</view><view wx:if="{{item.voice}}" class="preferences-caption">音色 {{item.voice}}</view><view class="preferences-caption">{{item.status}}</view></view>
+    <view class="preferences-caption">生成图片、短片和语音可能产生平台费用。服务不可用时会提示，不会自动更换平台。</view>
+  </view>
+</view>

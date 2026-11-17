@@ -1,0 +1,861 @@
+.page {
+  padding-bottom: 224rpx;
+  padding-bottom: calc(224rpx + env(safe-area-inset-bottom));
+}
+
+/* 聊天气泡使用 map 内的原生覆盖视图；卡片仍在地图下方。 */
+.mapwrap {
+  position: relative;
+  width: 100%;
+  /* 2026-10-24 用户要求把地图放大：从 32vh/440rpx 提到 44vh/640rpx，
+     首屏能多看到一段路；主操作卡会自然往下滚。 */
+  height: 44vh;
+  min-height: 460rpx;
+  max-height: 640rpx;
+}
+
+.map {
+  width: 100%;
+  height: 100%;
+}
+.map-notice { position: absolute; top: 16rpx; left: 20rpx; right: 20rpx; padding: 16rpx; border-radius: var(--r-sm); background-color: var(--brand-100); }
+.map-notice-text { font-size: var(--fs-sm); line-height: 36rpx; color: var(--brand-600); white-space: normal; }
+.map-notice-action { font-size: var(--fs-sm); line-height: 44rpx; color: var(--brand-600); font-weight: 600; margin-top: 6rpx; }
+.notify-btn { display: flex; align-items: center; justify-content: center; width: auto; min-height: 88rpx; margin: 0; line-height: 1.6; flex-shrink: 0; }
+/* 框架给默认按钮写死 184px（button.wx-button-size-normal），双类选择器才能收窄 */
+.notify-btn.notify-btn { width: auto; }
+.notify-btn::after { border: none; }
+.notify-btn.button-disabled, .notify-btn:disabled { color: var(--ink-500); background: var(--line); border-color: var(--line-strong); }
+
+.map-chat { position: absolute; left: 20rpx; bottom: 24rpx; width: 510rpx; }
+.map-chat-picking { bottom: 120rpx; }
+.map-chat-heading { display: inline-block; background-color: var(--surface); color: var(--brand-600); font-size: var(--fs-sm);
+  line-height: 38rpx; padding: 0 16rpx; border-radius: var(--r-md); margin-bottom: 10rpx; }
+.map-chat-row { display: flex; align-items: center; margin-top: 8rpx; }
+.map-chat-avatar { width: 64rpx; height: 64rpx; border-radius: var(--r-lg); flex-shrink: 0;
+  background-color: var(--brand-600); color: var(--surface); }
+.map-chat-initial { line-height: 64rpx; text-align: center; font-size: var(--fs-body); }
+.map-chat-bubble { background-color: var(--surface); border-radius: var(--r-md); padding: 10rpx 16rpx;
+  margin-left: 12rpx; width: 390rpx; }
+.map-chat-name { font-size: var(--fs-sm); line-height: 28rpx; color: var(--ink-400); overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis; }
+.map-chat-text { font-size: var(--fs-body); line-height: 36rpx; color: var(--ink-900); overflow: hidden;
+  white-space: nowrap; text-overflow: ellipsis; }
+.map-chat-empty { font-size: var(--fs-body); color: var(--ink-500); line-height: 44rpx; }
+.map-chat-note { margin-top: 8rpx; font-size: var(--fs-sm); color: var(--brand-600); background-color: var(--surface);
+  padding: 6rpx 12rpx; border-radius: var(--r-sm); }
+
+.body {
+  padding: 20rpx 24rpx 0;
+}
+
+.card.sel {
+  border-left: 8rpx solid var(--accent);
+}
+
+.ok {
+  color: var(--success);
+}
+.muted {
+  color: var(--ink-500);
+  font-weight: 400;
+}
+
+.note {
+  margin-top: 12rpx;
+  font-size: var(--fs-sm);
+  color: var(--brand-600);
+}
+.hint {
+  font-size: var(--fs-sm);
+  line-height: 1.7;
+  color: var(--ink-500);
+  padding: 10rpx 0;
+}
+.err {
+  font-size: var(--fs-sm);
+  color: var(--danger);
+  padding: 10rpx 0;
+}
+/* 备用操作：与主操作区分，避免误点 */
+
+
+/* 候选列表 */
+.item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18rpx 0;
+  border-bottom: 1rpx solid var(--line);
+}
+.item:last-of-type {
+  border-bottom: none;
+}
+.item-main {
+  display: flex;
+  flex-direction: column;
+}
+.item-name {
+  font-size: var(--fs-body);
+  color: var(--ink-900);
+}
+.item-cat {
+  margin-top: 4rpx;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+}
+.item-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.mins {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--brand-600);
+}
+.meters {
+  margin-top: 4rpx;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+}
+
+.rule {
+  margin-top: 16rpx;
+  padding-top: 14rpx;
+  border-top: 1rpx solid var(--line);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--ink-500);
+}
+
+.foot {
+  text-align: center;
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--ink-300);
+  padding: 20rpx 10rpx 40rpx;
+}
+
+/* ── 照片（2026-10-14）──────────────────────────────────────
+   缩略图横向排布，超出一屏时横向滚动 —— 避免照片把卡片撑得很长，
+   而集合点卡片下面是地图，用户需要能快速划过这一段。 */
+.photos {
+  display: flex;
+  flex-direction: row;
+  margin-top: 14rpx;
+  white-space: nowrap;
+}
+.shot {
+  display: flex;
+  flex-direction: column;
+  margin-right: 16rpx;
+  width: 200rpx;
+  flex-shrink: 0;
+}
+.shot-img {
+  width: 200rpx;
+  height: 150rpx;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+/* 有 fileID 但取不到临时地址时也会走到这里 —— 明确说"未能保存"而不是留白 */
+.shot-img.missing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+}
+.shot-title {
+  margin-top: 6rpx;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 精度告警（2026-10-14）：精度差时必须显眼 ——
+   基于一个偏了几百米的位置算出来的"我要走多久"是没有意义的，
+   而这种失真在界面上原本完全看不出来。 */
+.note.warn {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: var(--r-sm);
+  padding: 12rpx 16rpx;
+}
+
+/* 聚焦提示条（2026-10-14）
+   从行程页点「到了」跳过来时说明"现在看的是哪一站"，
+   否则用户只看到地图突然放大，不知道在看什么。 */
+.focus-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--brand-100);
+  border: 1rpx solid var(--brand-200);
+  border-radius: var(--r-sm);
+  padding: 14rpx 20rpx;
+  margin-bottom: 16rpx;
+}
+.focus-name { font-size: var(--fs-body); color: var(--brand-600); font-weight: 600; }
+.focus-close { font-size: var(--fs-sm); color: var(--ink-500); }
+/* ── 地图右下角控件（2026-10-14 用户要求）──────────────────
+   把"获取我的位置"与"手动选点"从卡片里的按钮改成地图上的小控件。
+   ⚠️ `.mapwrap` 的 `position: relative` 在上方定义过，这里不再重复声明：
+   同一选择器写两遍时，后来者会盖掉前面**同名属性**，
+   读代码的人却以为第一处才是生效的那处。 */
+.map-ctl {
+  position: absolute;
+  right: 24rpx;
+  bottom: 48rpx;
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+}
+.ctl-btn {
+  width: 80rpx;
+  height: 80rpx;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1rpx solid var(--line-strong);
+  /* 原来这里是一个绿色投影 rgba(47,107,66,.18) —— 与本页的靛蓝主题不是一个色相，
+     看起来像从别的项目拷过来的。改用统一的浅色投影 token。 */
+  box-shadow: var(--sh-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 16rpx;
+}
+.ctl-hover { background: var(--brand-100); }
+.ctl-icon { font-size: var(--fs-h1); color: var(--brand-600); line-height: 1; }
+
+/* ── 中心选点圆点（拖动选点）────────────────────────────────
+   ⚠️ 圆点中心 = 地图中心 = getCenterLocation() 返回的坐标。
+   2026-11-04 修复：原来把「图钉尖端」放在中心，圆点在中心上方 54rpx；
+   scale 15 时用户按圆点对准南门，实际落点向南偏约 80–90 米（操场）。
+   现在不再画针，圆点直接落在正中，避免视觉锚点与取点坐标不一致。
+   ⚠️ `pointer-events: none` 不能少：这一层盖在地图正中，
+   若能接收事件就会把地图的拖动与点击全吃掉，"拖动地图"根本做不到。 */
+.center-pin {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 64rpx;
+  height: 64rpx;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 9;
+}
+.center-pin-ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  border: 2rpx solid rgba(180, 35, 35, 0.45);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.center-pin-dot {
+  width: 24rpx;
+  height: 24rpx;
+  border-radius: 50%;
+  background: var(--danger);
+  border: 4rpx solid var(--surface);
+  box-shadow: 0 2rpx 6rpx rgba(0, 0, 0, 0.3);
+  box-sizing: content-box;
+}
+
+/* 选点模式的提示条：说明"拖地图"而不是"点地图" */
+.pick-hint {
+  position: absolute;
+  left: 24rpx;
+  right: 24rpx;
+  top: 24rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--brand-toast-bg);
+  color: var(--surface);
+  font-size: var(--fs-sm);
+  border-radius: var(--r-sm);
+  padding: 16rpx 22rpx;
+  z-index: 10;
+}
+.pick-hint-ok {
+  border: 1rpx solid rgba(255, 255, 255, 0.7);
+  border-radius: var(--r-sm);
+  padding: 4rpx 20rpx;
+  margin-left: 16rpx;
+  flex-shrink: 0;
+}
+/* ── 队伍卡片（2026-10-14 tab 改名「队伍」）────────────────
+   组队之后的事都在这里：位置共享、集合、出发。 */
+.member-callout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-bottom: 6px;
+  background-color: transparent;
+}
+.member-callout-message {
+  box-sizing: border-box;
+  padding: 8px;
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background-color: var(--brand-100);
+  color: var(--brand-600);
+  font-size: 12px;
+  text-align: center;
+}
+.member-callout-message-line { line-height: 17px; white-space: nowrap; }
+.member-callout-name {
+  padding: 6px;
+  border-radius: 6px;
+  background-color: var(--surface);
+  font-size: 12px;
+  line-height: 17px;
+  white-space: nowrap;
+  text-align: center;
+}
+.acts { display: flex; flex-wrap: wrap; margin-top: 12rpx; }
+.act {
+  padding: 12rpx 22rpx;
+  margin: 0 14rpx 12rpx 0;
+  border: 1rpx solid var(--line-strong);
+  border-radius: var(--r-sm);
+  font-size: var(--fs-body);
+  color: var(--ink-900);
+  background: var(--surface);
+}
+.act-primary { background: var(--brand-600); color: var(--btn-ink); border-color: var(--brand-600); }
+.act.warn-act { color: var(--danger); background: var(--danger-bg); border-color: var(--danger-line); }
+.meeting-summary { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 16rpx; background: var(--brand-100); border-radius: var(--r-sm); padding: 20rpx; margin-top: 16rpx; }
+.meeting-time, .meeting-count { font-size: var(--fs-h1); font-weight: 700; color: var(--brand-600); }
+.meet-setup, .meet-task { margin-top: 16rpx; border-top: 1rpx solid var(--line); padding-top: 16rpx; }
+.field {
+  flex: 1;
+  text-align: right;
+  font-size: var(--fs-body);
+  color: var(--brand-600);
+}
+.note { font-size: var(--fs-sm); color: var(--ink-500); margin-top: 10rpx; line-height: 1.7; }
+.err { font-size: var(--fs-sm); color: var(--danger); background: var(--danger-bg); padding: 14rpx; border-radius: var(--r-sm); margin-top: 10rpx; }
+
+/* ── 订阅提醒面板（2026-10-17）────────────────────────────
+   与 .card 同一套视觉语言，但不额外套卡片：它本身就是队伍卡片的一段，
+   套成卡片会显得像另一个入口。 */
+.notify-panel { margin-top: 14rpx; padding: 16rpx; background: var(--surface-2); border-radius: var(--r-sm); }
+.notify-head { font-size: var(--fs-body); color: var(--ink-700); margin-bottom: 10rpx; }
+.notify-row { display: flex; align-items: center; justify-content: space-between; padding: 8rpx 0; }
+.notify-info { display: flex; align-items: center; flex: 1; min-width: 0; }
+.notify-label { font-size: var(--fs-body); color: var(--ink-900); }
+.notify-state { font-size: var(--fs-sm); color: var(--ink-500); margin-left: 10rpx; }
+.notify-state.on { color: var(--success); }
+.notify-btn {
+  padding: 6rpx 20rpx;
+  font-size: var(--fs-sm);
+  color: var(--brand-600);
+  border: 1rpx solid var(--brand-600);
+  border-radius: var(--r-pill);
+}
+.notify-off { color: var(--ink-500); border-color: var(--line-strong); }
+.notify-note { margin-top: 10rpx; font-size: var(--fs-sm); color: var(--ink-500); line-height: 1.6; }
+
+/* ── 订阅提醒落地提示条（2026-10-17）────────────────────
+   与 .focus-bar 区分：那条是"看某一站"，这条是"你从提醒走到了哪里"。
+   失败时右侧给可点的返回入口，不把用户困在一个打不开的页面里。 */
+.notice-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10rpx;
+  padding: 14rpx 16rpx;
+  background: var(--brand-100);
+  border-radius: var(--r-sm);
+}
+.notice-bar-text { flex: 1; font-size: var(--fs-sm); color: var(--ink-700); line-height: 1.6; }
+.notice-bar-act { margin-left: 12rpx; font-size: var(--fs-sm); color: var(--brand-600); white-space: nowrap; }
+
+/* 页面特有的排布；基础卡片与按钮由 app.wxss 统一。 */
+.card .btn { margin-top: 22rpx; }
+.card .btn.ghost { margin-top: 14rpx; }
+.meeting-time, .meeting-count { font-size: var(--fs-h1); color: var(--brand-700); font-weight: 700; font-variant-numeric: tabular-nums; }
+.act-primary { color: var(--btn-ink); background: linear-gradient(135deg, var(--btn-g1) 0%, var(--btn-mid) 62%, var(--btn-g2) 100%); box-shadow: 0 4rpx 12rpx var(--btn-shadow); border-color: transparent; }
+.act { box-sizing: border-box; line-height: 1.5; border-radius: var(--r-pill); }
+.notify-btn.button-disabled, .notify-btn:disabled { background: var(--surface-2); color: var(--ink-500); border-color: var(--line-strong); box-shadow: none; }
+
+/* ── 危险操作区（2026-10-20）──────────────────────────────
+   取消集合与"确认/暂不参加/我已到达"分开放。
+   分隔线用 danger-line 而不是普通 line：它要让人**先读到"这是另一类操作"**，
+   再读到按钮文字 —— 合并成一排时，两种后果完全不同的操作看起来一样重。 */
+.danger-zone {
+  margin-top: 20rpx;
+  padding-top: 18rpx;
+  border-top: 1rpx dashed var(--danger-line);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.danger-zone-note {
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--ink-500);
+  margin-bottom: 12rpx;
+}
+
+/* ── 位置详情折叠（2026-10-20）────────────────────────────
+   原始坐标对该页面没有可操作性，收进折叠区；展开后仍是可复制的文本。 */
+.loc-detail { margin-top: 4rpx; }
+.loc-detail-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  /* 折叠开关本身也是可点区域，给足 88rpx 热区（原文字行只有 40rpx 高） */
+  min-height: 88rpx;
+  font-size: var(--fs-sm);
+  color: var(--brand-700);
+}
+.loc-detail-arrow { font-size: var(--fs-sm); color: var(--ink-400); }
+.loc-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+  padding: 12rpx 16rpx;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+}
+.loc-detail-line {
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--ink-500);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ══════════════════════════════════════════════════════════
+   2026-10-20 美化：状态胶囊 / 主操作条 / 到齐进度 / 位置 chip
+   ══════════════════════════════════════════════════════════ */
+
+/* ── 地图上的队伍状态胶囊 ─────────────────────────────────
+   只展示信息、不绑点击：可点的胶囊会让人以为点了能进队伍详情。 */
+.team-pill {
+  position: absolute;
+  left: 20rpx;
+  top: 20rpx;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  max-width: 470rpx;
+  box-sizing: border-box;
+  padding: 10rpx 20rpx;
+  border-radius: var(--r-pill);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 2rpx 12rpx rgba(20, 32, 43, 0.16);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-900);
+}
+.team-pill-dot {
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 6rpx var(--success-ring);
+  margin-right: 12rpx;
+  flex: none;
+}
+.team-pill-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  max-width: 240rpx;
+}
+.team-pill-sep {
+  width: 1rpx;
+  height: 22rpx;
+  background: rgba(20, 32, 43, 0.12);
+  margin: 0 14rpx;
+  flex: none;
+}
+.team-pill-count {
+  flex: none;
+  color: var(--brand-700);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── 主操作条 ────────────────────────────────────────────
+   比普通卡片更"靠前"：品牌色描边 + 更强投影，让它是首屏里最重的一块。 */
+.action-bar {
+  /* .body 已经有 24rpx 左右内边距，这里不再加，否则比卡片窄一圈 */
+  margin: 0 0 20rpx;
+  padding: 22rpx 24rpx;
+  box-sizing: border-box;
+  background: var(--surface);
+  border: 2rpx solid var(--brand-200);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-2);
+}
+.ab-top {
+  display: flex;
+  align-items: baseline;
+  gap: 14rpx;
+}
+.ab-time {
+  font-size: 56rpx;
+  line-height: 1.1;
+  font-weight: 700;
+  color: var(--brand-700);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1rpx;
+}
+.ab-count {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--accent);
+  flex: 1;
+  min-width: 0;
+}
+.ab-status {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--ink-500);
+  background: var(--surface-2);
+  border-radius: var(--r-pill);
+  padding: 2rpx 14rpx;
+}
+.ab-place {
+  margin-top: 6rpx;
+  font-size: var(--fs-sm);
+  color: var(--ink-500);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ab-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14rpx;
+  margin-top: 18rpx;
+}
+.ab-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 88rpx;
+  padding: 0 24rpx;
+  box-sizing: border-box;
+  border-radius: var(--r-pill);
+  border: 2rpx solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink-900);
+  font-size: var(--fs-h2);
+  font-weight: 600;
+}
+.ab-btn-main {
+  flex: 1;
+  border-color: transparent;
+  color: var(--btn-ink);
+  background: linear-gradient(135deg, var(--btn-g1) 0%, var(--btn-mid) 62%, var(--btn-g2) 100%);
+  box-shadow: 0 8rpx 20rpx var(--btn-shadow);
+}
+.ab-tools {
+  display: flex;
+  flex-wrap: wrap;
+  margin-top: 14rpx;
+}
+.ab-tool {
+  min-height: 64rpx;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 20rpx;
+  margin: 0 12rpx 12rpx 0;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  color: var(--brand-700);
+  font-size: var(--fs-sm);
+}
+.ab-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8rpx;
+  min-height: 64rpx;
+  margin-top: 2rpx;
+  font-size: var(--fs-sm);
+  color: var(--ink-400);
+}
+.ab-caret { color: var(--ink-300); }
+
+/* ── 到齐进度 ────────────────────────────────────────────
+   两行文字（我 已确认 / 李 未到达）换成进度条 + 头像行：
+   一眼能看出"还差几个人、差谁"。 */
+.arrive-block { padding-bottom: 6rpx; }
+.arrive-bar {
+  height: 12rpx;
+  margin-top: 12rpx;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.arrive-fill {
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: linear-gradient(90deg, var(--brand-500), var(--brand-600));
+  transition: width 0.2s ease;
+}
+.arrive-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22rpx;
+  margin-top: 18rpx;
+}
+.arrive-mem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8rpx;
+  width: 104rpx;
+}
+.arrive-ava {
+  width: 66rpx;
+  height: 66rpx;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--brand-700);
+  background: var(--brand-100);
+  border: 2rpx dashed var(--brand-200);
+  overflow: hidden;
+}
+.arrive-ava-img { display: block; width: 66rpx; height: 66rpx; border-style: solid; }
+.arrive-mem.on .arrive-ava {
+  color: var(--surface);
+  background: var(--success);
+  border: 2rpx solid var(--success);
+  box-shadow: 0 0 0 6rpx var(--success-ring);
+}
+.arrive-mem.off .arrive-ava {
+  color: var(--ink-300);
+  background: var(--surface-2);
+  border-color: var(--line-strong);
+}
+.arrive-name {
+  font-size: var(--fs-xs);
+  color: var(--ink-500);
+  max-width: 104rpx;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: center;
+}
+.arrive-mem.on .arrive-name { color: var(--success); font-weight: 600; }
+
+/* ── 我的位置：一行 chip ─────────────────────────────────
+   整张卡片压成一条，技术细节收进「详情」。 */
+.loc-chip {
+  margin: 0 0 20rpx;
+  background: var(--surface);
+  border: 2rpx solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--sh-1);
+  overflow: hidden;
+}
+.loc-chip-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  min-height: 88rpx;
+  padding: 0 22rpx;
+}
+.loc-chip-left {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.loc-dot {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: var(--ink-300);
+  margin-right: 14rpx;
+  flex: none;
+}
+.loc-dot.on {
+  background: var(--success);
+  box-shadow: 0 0 0 6rpx var(--success-ring);
+}
+.loc-chip-text {
+  font-size: var(--fs-sm);
+  color: var(--ink-700);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.loc-chip-go {
+  flex: none;
+  font-size: var(--fs-sm);
+  color: var(--brand-700);
+}
+.loc-chip-body {
+  padding: 0 22rpx 18rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+/* ══════════════════════════════════════════════════════════
+   集合卡片重排（2026-10-23）
+   目标：一屏内只回答三件事 —— 在哪集合、几点、现在发起。
+   说明性文字要么压缩成一行状态，要么删掉（时间校验放提交时）。
+   ══════════════════════════════════════════════════════════ */
+.share-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10rpx;
+  margin-top: 14rpx;
+  padding: 8rpx 18rpx;
+  border-radius: var(--r-pill);
+  background: var(--brand-50);
+  color: var(--brand-700);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.share-dot {
+  flex: none;
+  width: 12rpx;
+  height: 12rpx;
+  border-radius: 50%;
+  background: var(--success);
+  box-shadow: 0 0 0 6rpx var(--success-ring);
+}
+.share-chip.off .share-dot { background: var(--ink-300); box-shadow: none; }
+.share-chip.off { color: var(--ink-500); }
+.share-arrow { color: var(--brand-500); font-weight: 400; margin-left: 2rpx; }
+
+.meet-section {
+  margin: 4rpx 0 12rpx;
+  font-size: var(--fs-h2);
+  font-weight: 700;
+  color: var(--ink-900);
+}
+/* 推荐降级为文字链接：可点区域仍做到 68rpx，避免"点了没反应" */
+.meet-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8rpx;
+  min-height: 68rpx;
+  color: var(--brand-600);
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+.meet-link-star { color: var(--brand-500); }
+.meet-divider { height: 1rpx; background: var(--line); margin: 8rpx 0 4rpx; }
+.meet-row { min-height: 88rpx; }
+/* 唯一主按钮：整宽、浅蓝渐变、深蓝字（与行程页一致） */
+.meet-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 92rpx;
+  margin-top: 18rpx;
+  border-radius: var(--r-pill);
+  color: var(--btn-ink);
+  background: linear-gradient(135deg, var(--btn-g1) 0%, var(--btn-mid) 62%, var(--btn-g2) 100%);
+  box-shadow: 0 8rpx 20rpx var(--btn-shadow);
+  font-size: var(--fs-h2);
+  font-weight: 700;
+}
+/* Match the approved three team states. Native map art is supplied by Tencent. */
+page { background: #f0f6ff; }.page { padding-bottom: 32rpx; padding-bottom: calc(32rpx + env(safe-area-inset-bottom)); background: linear-gradient(165deg, #f2f7ff, #edf4fe); color: #102b4d; }.body { padding: 10rpx 16rpx 0; }
+.mapwrap { height: 39vh; min-height: 420rpx; max-height: 540rpx; border-bottom: 1rpx solid #d6e2f2; }
+.team-pill { left: 16rpx; top: 14rpx; padding: 9rpx 20rpx; border: 1rpx solid #dce6f2; border-radius: 999rpx; box-shadow: 0 3rpx 9rpx rgba(29,69,118,.09); font-size: 23rpx; font-weight: 600; }.team-pill-dot { display: none; }.team-pill-name { max-width: 280rpx; }.team-pill-sep { width: 6rpx; height: 6rpx; border-radius: 50%; background: #142e4d; margin: 0 9rpx; }.team-pill-count { font-size: 23rpx; font-weight: 500; }
+.map-chat { width: 510rpx; left: 20rpx; bottom: 16rpx; }.map-chat-heading { display: none; }.map-chat-row { display: flex; align-items: center; width: 440rpx; margin-top: 6rpx; padding: 3rpx 12rpx 3rpx 4rpx; border-radius: 999rpx; border: 1rpx solid #e2e9f3; background-color: #fff; box-shadow: 0 2rpx 6rpx rgba(20,50,80,.06); }
+.map-chat-avatar { width: 40rpx; height: 40rpx; border-radius: 50%; flex-shrink: 0; background-color: #d5e5f6; color: #17324e; }.map-chat-initial { line-height: 40rpx; font-size: 22rpx; }.map-chat-bubble { display: flex; align-items: center; margin-left: 8rpx; padding: 0; width: 370rpx; border: none; border-radius: 0; background-color: #fff; }.map-chat-name { max-width: 110rpx; flex-shrink: 0; font-size: 21rpx; line-height: 30rpx; color: #142d4d; font-weight: 600; margin-right: 10rpx; }.map-chat-text { flex: 1; font-size: 21rpx; line-height: 30rpx; color: #15283f; }.map-chat-note { font-size: 21rpx; }
+.map-ctl { top: 20rpx; right: 20rpx; bottom: auto; gap: 12rpx; }.ctl-btn { width: 76rpx; height: 76rpx; border-radius: 23rpx; border: 1rpx solid #d6e1ef; background: #fff; box-shadow: 0 3rpx 8rpx rgba(30,60,95,.11); }.ctl-art { width: 39rpx; height: 39rpx; }
+.meeting-card { margin: 0 0 16rpx; padding: 20rpx 24rpx 16rpx; border: 1rpx solid #d5e1f0; border-radius: 28rpx; background: linear-gradient(155deg, #fff, #f8fbff); box-shadow: 0 4rpx 12rpx rgba(30,64,110,.035); }
+.meeting-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10rpx; flex-wrap: wrap; }.meeting-title { color: #102b4d; font-size: 35rpx; font-weight: 700; line-height: 1.45; }.meeting-ready-title { margin-top: 12rpx; }
+.meeting-clock { display: flex; align-items: center; font-size: 36rpx; color: #102b4d; font-weight: 700; line-height: 1.45; white-space: nowrap; }.meeting-clock-suffix { font-size: 29rpx; margin-left: 6rpx; }.meeting-countdown { display: inline-block; margin-left: 10rpx; padding: 3rpx 12rpx; background: #fff0c5; color: #b76d00; font-size: 21rpx; font-weight: 500; border-radius: 999rpx; }
+.meeting-sharing { display: flex; align-items: center; min-height: 44rpx; color: #2f9632; font-size: 22rpx; white-space: nowrap; }.meeting-sharing-off { color: #65748a; }.sharing-art { width: 23rpx; height: 23rpx; margin-right: 4rpx; }
+.meeting-arrived-label { display: inline-block; padding: 3rpx 14rpx; background: #d8f2d9; color: #287f2c; font-size: 23rpx; border-radius: 999rpx; }
+.meeting-place { display: flex; align-items: center; gap: 12rpx; font-size: 29rpx; font-weight: 650; line-height: 1.5; color: #132d4d; margin-top: 14rpx; min-width: 0; }.meeting-pin-art { width: 32rpx; height: 32rpx; flex: none; }
+.meeting-selection { display: flex; align-items: center; justify-content: space-between; gap: 10rpx; background: rgba(255,255,255,.8); border: 1rpx solid #cfdced; border-radius: 17rpx; padding: 9rpx 15rpx; margin: 16rpx 0 14rpx; min-height: 72rpx; }.meeting-selection .meeting-place { margin: 0; flex: 1; font-size: 29rpx; }.meeting-reselect { flex: none; color: #173b66; font-size: 23rpx; min-height: 52rpx; display: flex; align-items: center; }
+.meet-setup { border-top: none; margin-top: 0; padding-top: 0; }.meet-divider { display: none; }.meet-link { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 56rpx; margin: 0 0 10rpx; color: #1283e6; font-weight: 550; font-size: 25rpx; }
+.meet-row { min-height: 83rpx; }.meet-row .k { font-size: 25rpx; color: #142b47; font-weight: 500; flex: none; margin-right: 14rpx; }.meet-row .field { width: 0; min-width: 0; max-width: 74%; height: 66rpx; min-height: 66rpx; box-sizing: border-box; padding: 8rpx 16rpx; text-align: left; font-size: 26rpx; color: #153350; border: 1rpx solid #c9d7e8; background: #f8fbff; border-radius: 14rpx; }
+.meet-row picker { width: 74%; }.meet-row picker .v { display: block; padding: 10rpx 20rpx; min-height: 64rpx; line-height: 42rpx; box-sizing: border-box; border: 1rpx solid #c9d7e8; background: #f8fbff; border-radius: 14rpx; font-size: 27rpx; font-weight: 500; color: #153350; text-align: right; }
+.meet-cta { margin-top: 14rpx; min-height: 84rpx; border-radius: 23rpx; box-shadow: none; font-size: 31rpx; background: linear-gradient(180deg, #caeaff, #88ccff); }
+.arrive-block { margin-top: 18rpx; padding-bottom: 0; }.arrival-progress { display: flex; align-items: center; gap: 12rpx; }.arrival-progress-title { flex: none; font-size: 24rpx; color: #172a44; }.arrival-progress-count { flex: none; font-size: 24rpx; color: #17324e; }.arrive-bar { flex: 1; height: 14rpx; margin: 0; border-radius: 999rpx; background: #e5e7e9; }.arrive-fill { background: linear-gradient(90deg, #93df7d, #52bc48); }
+.arrive-row { display: flex; flex-wrap: wrap; gap: 10rpx; justify-content: space-around; margin-top: 18rpx; }.arrive-mem { width: 108rpx; }.arrive-avatar-wrap { position: relative; }.arrive-ava { width: 76rpx; height: 76rpx; border: 1rpx solid #9cbbdb; box-shadow: none; background: #ecf4fc; color: #17324e; }.arrive-mem.on .arrive-ava { box-shadow: none; background: #ecf4fc; color: #17324e; }.arrive-name { font-size: 23rpx; line-height: 1.4; margin-top: 8rpx; color: #132b49; }.arrive-mem.on .arrive-name { color: #132b49; }
+.arrival-check { position: absolute; right: -2rpx; bottom: 0; width: 24rpx; height: 24rpx; border: 3rpx solid #fff; border-radius: 50%; background: #35ad36; color: #fff; font-size: 17rpx; text-align: center; line-height: 24rpx; }.arrival-status { color: #61738e; font-size: 22rpx; line-height: 1.5; margin-top: 6rpx; }.arrive-mem.on .arrival-status { color: #2f9e32; }.meeting-all-arrived { margin-top: 12rpx; text-align: center; color: #2c8c2a; font-size: 24rpx; }
+.meeting-caption { color: #617088; font-size: 23rpx; line-height: 1.55; margin-top: 8rpx; }.ab-acts { gap: 18rpx; margin-top: 20rpx; }.ab-btn { border-radius: 23rpx; min-height: 78rpx; font-size: 28rpx; box-shadow: none; padding: 0 26rpx; font-weight: 550; border: 1rpx solid #c4d3e8; }.ab-btn-main { background: linear-gradient(180deg, #d0ecff, #8aceff); border-color: transparent; font-weight: 650; }
+.meeting-tools { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 10rpx; margin-top: 12rpx; color: #173b65; font-size: 23rpx; }.meeting-tools view { min-height: 48rpx; display: flex; align-items: center; }.meeting-tool-locations { gap: 8rpx; }.meeting-tool-art { width: 26rpx; height: 26rpx; margin-right: 6rpx; }
+.departure-card { margin-top: 20rpx; padding: 16rpx 18rpx; background: linear-gradient(135deg, #f4faff, #e3f3ff); border: 1rpx solid #b8dfff; border-radius: 22rpx; }.departure-overview { display: flex; align-items: center; gap: 14rpx; }.departure-route-art { width: 48rpx; height: 48rpx; flex: none; }.departure-copy { flex: 1; min-width: 0; }.departure-title { font-size: 28rpx; font-weight: 700; color: #142f51; }.departure-card .meeting-caption { font-size: 21rpx; margin-top: 6rpx; }
+.departure-primary { display: flex; flex: none; align-items: center; justify-content: center; min-height: 68rpx; margin: 0; padding: 10rpx 20rpx; box-sizing: border-box; border: none; border-radius: 999rpx; background: linear-gradient(180deg, #caeaff, #83caff); color: #173653; font-weight: 650; font-size: 25rpx; }
+.departure-recheck { min-height: 54rpx; display: flex; align-items: center; justify-content: center; color: #167ddd; font-size: 23rpx; }.departure-notice { text-align: center; color: #65748a; font-size: 21rpx; line-height: 1.5; margin-top: 4rpx; }
+.meeting-busy { opacity: .7; pointer-events: none; }.meeting-place-detail { box-shadow: none; border-color: #e0e7f1; }.foot { font-size: 22rpx; }.meeting-card .err { font-size: 23rpx; }
+@media (max-width: 340px) { .meeting-card { padding: 18rpx 20rpx 14rpx; }.meeting-title { font-size: 32rpx; }.meeting-clock { font-size: 32rpx; }.meeting-clock-suffix { font-size: 26rpx; }.meeting-countdown { font-size: 19rpx; margin-left: 6rpx; }.meeting-sharing { font-size: 20rpx; }.meeting-tools { gap: 6rpx; }.arrive-mem { width: 98rpx; }.departure-primary { padding-left: 14rpx; padding-right: 14rpx; }.departure-overview { gap: 9rpx; }.meeting-place { font-size: 27rpx; } }
+
+.meeting-place text { min-width: 0; overflow-wrap: anywhere; }
+.arrive-avatar-wrap { display: inline-flex; }
+.arrive-row { align-items: flex-start; }
+.meeting-card .meet-row { justify-content: space-between; }
+.meet-row .field { flex: 1; }
+
+/* 2026-11-11: proportions checked against the user's actual team-page screenshot. */
+.meeting-card { padding: 22rpx 26rpx 22rpx; border-radius: 28rpx; }
+.meeting-card-head { gap: 8rpx; }
+.meeting-title { font-size: 40rpx; line-height: 1.4; letter-spacing: .3rpx; }
+.meeting-sharing { font-size: 23rpx; }
+.meeting-caption { font-size: 24rpx; line-height: 1.5; }
+.meet-row { min-height: 88rpx; }
+.meet-row .k { font-size: 28rpx; }
+.meet-row .field { height: 70rpx; min-height: 70rpx; font-size: 28rpx; }
+.meet-row picker .v { min-height: 70rpx; font-size: 29rpx; }
+.meet-cta { min-height: 90rpx; border-radius: 24rpx; font-size: 35rpx; font-weight: 700; background: linear-gradient(180deg, #c5e8ff, #7ec8ff); }
+.meet-link { font-size: 27rpx; min-height: 56rpx; margin-bottom: 8rpx; }
+@media (max-width: 340px) {
+  .meeting-title { font-size: 36rpx; }
+  .meeting-sharing { font-size: 21rpx; }
+  .meeting-card { padding-left: 22rpx; padding-right: 22rpx; }
+}
+
+/* Screenshot review: meeting confirmation, with a real one-member roster. */
+.meeting-clock { font-size: 42rpx; line-height: 1.35; }
+.meeting-clock-suffix { font-size: 32rpx; margin-left: 6rpx; }
+.meeting-countdown { font-size: 23rpx; padding: 4rpx 12rpx; }
+.meeting-card-head { align-items: center; }
+.meeting-place { font-size: 31rpx; margin-top: 18rpx; }
+.arrive-block { margin-top: 24rpx; }
+.arrival-progress { gap: 14rpx; }
+.arrival-progress-title, .arrival-progress-count { font-size: 26rpx; }
+.arrive-bar { height: 16rpx; }
+.arrive-row { justify-content: flex-start; gap: 18rpx 0; margin-top: 26rpx; }
+.arrive-mem { flex: 0 0 25%; width: 25%; min-width: 0; gap: 0; }
+.arrive-ava, .arrive-ava-img { width: 82rpx; height: 82rpx; box-sizing: border-box; }
+.arrive-name { margin-top: 10rpx; font-size: 26rpx; font-weight: 500; line-height: 1.4; }
+.arrival-status { margin-top: 6rpx; font-size: 24rpx; line-height: 1.45; }
+.meeting-caption { margin-top: 14rpx; }
+.ab-acts { justify-content: flex-end; gap: 20rpx; margin-top: 20rpx; }
+.ab-btn { flex: 0 1 40%; min-height: 82rpx; font-size: 30rpx; border-radius: 24rpx; }
+.ab-btn-main { flex: 1; }
+.meeting-tools { margin-top: 16rpx; font-size: 25rpx; }
+.meeting-tool-art { width: 29rpx; height: 29rpx; }
+.meeting-card > .note { font-size: 23rpx; line-height: 1.5; margin-top: 10rpx; }
+@media (max-width: 340px) {
+  .meeting-clock { font-size: 38rpx; }
+  .meeting-clock-suffix { font-size: 29rpx; }
+  .meeting-countdown { font-size: 21rpx; margin-left: 6rpx; }
+  .meeting-sharing { font-size: 21rpx; }
+  .meeting-tools { font-size: 23rpx; }
+}
+
+.meeting-status { padding: 14rpx 18rpx; border-radius: 16rpx; background: #eef7ff; color: #3e648a; font-size: 24rpx; line-height: 1.6; }

@@ -1,0 +1,342 @@
+<view class="page">
+  <view class="mapwrap">
+    <map
+      id="tripmap"
+      class="map"
+      longitude="{{center.longitude}}"
+      latitude="{{center.latitude}}"
+      scale="{{scale}}"
+      markers="{{markers}}"
+      polyline="{{polyline}}"
+      show-location="{{false}}"
+      enable-zoom="{{true}}"
+      enable-scroll="{{true}}"
+      bindtap="onMapTap"
+      bindregionchange="onMapRegionChange"
+    >
+      <cover-view wx:if="{{noticeLandingNote}}" class="map-notice" catchtap="holdChatTap">
+        <cover-view class="map-notice-text">{{noticeLandingNote}}</cover-view>
+        <cover-view wx:if="{{notifyLandingFailed}}" class="map-notice-action" bindtap="openTeamSettings">去切换队伍</cover-view>
+        <cover-view wx:else class="map-notice-action" bindtap="dismissNoticeLanding">知道了</cover-view>
+      </cover-view>
+      <cover-view slot="callout">
+        <cover-view wx:for="{{memberChatCallouts}}" wx:key="id" marker-id="{{item.id}}"
+          class="member-callout" style="width: {{item.groupWidth}}px;" catchtap="holdChatTap">
+          <cover-view class="member-callout-message" style="width: {{item.width}}px;">
+            <cover-view wx:for="{{item.lines}}" wx:for-item="line" wx:for-index="lineIndex"
+              wx:key="lineIndex" class="member-callout-message-line">{{line}}</cover-view>
+          </cover-view>
+          <cover-view class="member-callout-name" style="color: {{item.nameColor}};">{{item.name}}</cover-view>
+        </cover-view>
+      </cover-view>
+      <cover-view wx:if="{{crewId && chatPreviewAvailable}}" class="map-chat {{pickMode ? 'map-chat-picking' : ''}}"
+        catchtap="holdChatTap" aria-label="队伍聊天最新消息">
+        <cover-view class="map-chat-heading">队伍消息</cover-view>
+        <cover-view wx:for="{{chatPreview}}" wx:key="messageId" class="map-chat-row">
+          <cover-image wx:if="{{item.avatarUrl}}" class="map-chat-avatar" src="{{item.avatarUrl}}"
+            data-message-id="{{item.messageId}}" binderror="chatAvatarError" />
+          <cover-view wx:else class="map-chat-avatar map-chat-initial">{{item.initial}}</cover-view>
+          <cover-view class="map-chat-bubble">
+            <cover-view class="map-chat-name">{{item.name}}</cover-view>
+            <cover-view class="map-chat-text">{{item.text}}</cover-view>
+          </cover-view>
+        </cover-view>
+        <cover-view wx:if="{{!chatPreview.length}}" class="map-chat-row">
+          <cover-view class="map-chat-avatar map-chat-initial">聊</cover-view>
+          <cover-view class="map-chat-bubble map-chat-empty">在下方输入框和队友聊天</cover-view>
+        </cover-view>
+        <cover-view wx:if="{{chatPreviewNote}}" class="map-chat-note">{{chatPreviewNote}}</cover-view>
+      </cover-view>
+    </map>
+
+    <!--
+      ══════════ 队伍状态胶囊（2026-10-20 美化）══════════════
+      队伍名与"到齐几个人"原来只写在下面的卡片首行，而地图上明明有一大片空白。
+      搬到这里之后，卡片里就不必再重复一遍队伍名与人数。
+
+      只做信息展示、不绑点击：可点的胶囊会让人以为点了能进队伍详情。
+    -->
+    <view wx:if="{{crewId}}" class="team-pill">
+      <text class="team-pill-dot"></text>
+      <text class="team-pill-name">{{crew ? crew.name : '队伍'}}</text>
+      <text class="team-pill-sep"></text>
+      <text class="team-pill-count">{{members.length}}人</text>
+    </view>
+
+    <!--
+      ══════════ 中间选点圆点（手动选点模式）══════════════════
+
+      用户要求：点击控件后只需拖动地图，选点标记固定在屏幕中心不动；
+      退出模式后整层不渲染，位置由 `meetingPoint` 对应的 marker 表示 ——
+      那个 marker 是地图坐标，会随地图一起动。
+
+      ⚠️ 覆盖层必须 `pointer-events: none`（wxss 里写），
+      否则它会把地图的拖动与点击都吃掉 —— 那样"拖动地图"根本做不到。
+    -->
+    <!--
+      ⚠️ 圆点中心必须就是地图中心：选点用 getCenterLocation() 取的是地图中心，
+      不是圆点下方那根针的尖端。2026-11-04 修复：原来圆点在中心上方 54rpx，
+      scale 15 下用户按圆点对齐南门，实际落点会向南偏约 80–90 米（到操场）。
+    -->
+    <view wx:if="{{pickMode}}" class="center-pin">
+      <view class="center-pin-ring"></view>
+      <view class="center-pin-dot"></view>
+    </view>
+
+    <!--
+      ══════════ 右下角小控件 ══════════════════════════════
+
+      用户要求把"获取我的位置"与"手动选点"从卡片里的按钮
+      改成**地图右下角的两个小控件**。
+    -->
+    <view class="map-ctl">
+      <view wx:if="{{crewId}}" class="ctl-btn ctl-team" bindtap="showTeamOnMap" hover-class="ctl-hover" aria-role="button" aria-label="查看全队位置"><image class="ctl-art" src="/assets/ui/users-navy.png" /></view>
+      <view class="ctl-btn" bindtap="useGps" hover-class="ctl-hover" role="button" aria-label="获取我的位置">
+        <image class="ctl-art" src="/assets/ui/crosshair-navy.png" />
+      </view>
+      <view class="ctl-btn" bindtap="startPick" hover-class="ctl-hover" role="button" aria-label="拖动地图选择集合点">
+        <image class="ctl-art" src="/assets/ui/pin-navy.png" />
+      </view>
+    </view>
+
+    <!-- 选点模式下的一条提示：告诉用户"拖地图"而不是"点地图" -->
+    <view wx:if="{{pickMode}}" class="pick-hint">
+      <text>拖动地图，把中间的红点对准集合点</text>
+      <text class="pick-hint-ok" bindtap="confirmPick" aria-role="button">定这里</text>
+    </view>
+  </view>
+
+  <team-chat-composer wx:if="{{crewId}}" crew-id="{{crewId}}" bind:sent="onMapChatSent" bind:accessdenied="onMapChatDenied" />
+
+  <view class="body">
+    <view wx:if="{{coordinateError}}" class="err">{{coordinateError}}</view>
+    <!--
+      订阅提醒落地提示（2026-10-17）。
+      从通知点进来时用一句话交代"你被带到了哪里"；如果目标队伍已不可访问
+      （退出/被移除/解散），这里必须给一个明确的返回入口 ——
+      不能把一个打不开的页面甩给用户。
+    -->
+    <!--
+      聚焦提示条（2026-10-14 用户要求）。
+      从行程页点「到了」跳过来时，这里说明"现在看的是哪一站"，
+      否则用户只看到地图突然放大，不知道在看什么。
+    -->
+    <view wx:if="{{focusPlace}}" class="focus-bar">
+      <text class="focus-name">📍 {{focusPlace.placeName}}</text>
+      <text class="focus-close" bindtap="clearFocusPlace" aria-role="button">知道了</text>
+    </view>
+
+    <!--
+      ⚠️⚠️ **本页不再挂 `team-panel`**（2026-10-14 用户要求：
+      "在地图页面删掉与同伴一起游览信息卡，然后队伍信息卡在这里只保留集合功能"）。
+
+      为什么这不只是"少一张卡"：那个面板抛的 `teamstate` 事件原本是
+      **队员位置与集合点的唯一来源**，所以删它必须同时补上两条数据路径，
+      否则地图上就看不到同伴在哪了（而且不报错）：
+        · 队员位置 → `refreshTeamLocations()` 调 `loc.list`
+        · 集合点   → `loadCrew()` 调 `meet.get` 填 `meetTask`
+      两条都已接上，本页不依赖 team-panel 提供队伍状态。
+
+      ⚠️ **不要把 `team-panel` 加回本页**：
+        · 组队与解散在「我的」页（面板的家）
+        · 集合相关的操作在本页自己的队伍卡片里
+      加回来会出现两处都能发起集合。
+    -->
+
+    <view wx:if="{{loading}}" class="hint">正在加载地点数据…</view>
+    <view wx:if="{{loadError}}" class="err">地点加载失败：{{loadError}}</view>
+
+    <!--
+      ══════════ 队伍（2026-10-14 用户要求）══════════════════
+
+      tab 名已从「地图」改成「队伍」—— 因为组队之后的事（队员位置、
+      集合、出发）都在这一页。小队面板那边只管组队与解散。
+
+      没有队伍时不显示这一整块 —— 空卡片会让用户以为页面出了问题。
+    -->
+    <view wx:if="{{!crewId}}" class="card">
+      <view class="row">
+        <text class="k">队伍</text>
+        <text class="v muted">还没有队伍</text>
+      </view>
+      <view class="sub">去「我的」页创建小队或输入邀请码加入，之后在这里看队员位置、发起集合。</view>
+      <button class="btn small" bindtap="openTeamSettings">去创建或加入小队</button>
+    </view>
+
+    <!--
+      ══════════ 主操作条（2026-10-20 美化）══════════════════
+
+      原来「确认集合 / 暂不参加 / 我已到达 / 取消本次集合」四颗同重按钮都塞在
+      下面的集合卡片里，要滚过成员列表才看得到。现在把"我现在该做什么"提到
+      地图正下方第一屏：时间 + 倒计时 + 主按钮；其余降为次按钮与工具行，
+      「取消本次集合」收进「其他操作」——点开仍是完整的危险说明 + 二次确认。
+    -->
+    <view wx:if="{{crewId}}" class="meeting-card {{teamBusy ? 'meeting-busy' : ''}}">
+      <view class="meeting-card-head">
+        <view>
+          <view wx:if="{{!meetTask}}" class="meeting-title">约个地方碰头</view>
+          <view wx:elif="{{meetTask.status === 'arrived_all'}}" class="meeting-arrived-label">✓ {{meetTask.arrivedCount}}人已到齐</view>
+          <view wx:else class="meeting-clock">{{meetTask.timeLabel}} <text class="meeting-clock-suffix">集合</text><text wx:if="{{meetTask.countdownLabel}}" class="meeting-countdown">{{meetTask.countdownLabel}}</text></view>
+        </view>
+        <view class="meeting-sharing {{sharing ? '' : 'meeting-sharing-off'}}" bindtap="openSharingSettings" aria-role="button"><image class="sharing-art" src="{{sharing ? '/assets/ui/pin-green.png' : '/assets/ui/pin-gray.png'}}" />{{sharing ? '位置共享已开启' : '位置共享已关闭'}} ›</view>
+      </view>
+      <block wx:if="{{meetTask}}">
+        <view wx:if="{{meetTask.status === 'arrived_all'}}" class="meeting-title meeting-ready-title">大家都到了，接着走吧</view>
+        <view class="meeting-place"><image class="meeting-pin-art" src="/assets/ui/pin-orange.png" /><text>{{meetTask.placeName || '集合点'}}</text></view>
+        <view class="arrive-block">
+          <view wx:if="{{meetTask.status !== 'arrived_all'}}" class="arrival-progress"><text class="arrival-progress-title">到达进度</text><view class="arrive-bar"><view class="arrive-fill" style="width: {{meetTask.arrivePercent}}%;"></view></view><text class="arrival-progress-count">{{meetTask.arrivedCount}} / {{meetTask.expectedCount}} 人</text></view>
+          <view class="arrive-row">
+            <view wx:for="{{meetTask.participants}}" wx:key="userId" class="arrive-mem {{item.arrived ? 'on' : (item.declined ? 'off' : '')}}">
+              <view class="arrive-avatar-wrap"><image class="arrive-ava arrive-ava-img" src="{{item.avatarUrl || '/assets/avatar-default.png'}}" mode="aspectFill" /><text wx:if="{{item.arrived}}" class="arrival-check">✓</text></view>
+              <text class="arrive-name">{{item.shortLabel || item.label}}</text><text class="arrival-status">{{item.arrivalLabel}}</text>
+            </view>
+          </view>
+          <view wx:if="{{meetTask.status === 'arrived_all'}}" class="meeting-all-arrived">{{meetTask.arrivedCount}}位成员均已标记到达</view>
+        </view>
+        <view wx:if="{{teamBusy}}" class="meeting-caption meeting-status" aria-live="polite">正在处理，请稍候…</view>
+        <view wx:elif="{{meetTask.statusHint}}" class="meeting-caption meeting-status" aria-live="polite">{{meetTask.statusHint}}</view>
+        
+        <view class="ab-acts">
+          <view wx:if="{{(meetTask.status === 'confirmed' || meetTask.status === 'active') && !meetTask.viewerArrived}}" class="ab-btn ab-btn-main" data-kind="arrive" bindtap="meetAction" hover-class="tap-hover" aria-role="button" aria-disabled="{{teamBusy}}">我已到达</view>
+          <view wx:if="{{meetTask.status === 'proposed' && (!meetTask.viewerConfirmed || meetTask.canFinalizeConfirmation)}}" class="ab-btn ab-btn-main" data-kind="confirm" bindtap="meetAction" hover-class="tap-hover" aria-role="button" aria-disabled="{{teamBusy}}">{{meetTask.canFinalizeConfirmation ? '开始集合' : '确认集合'}}</view>
+          <view wx:if="{{(meetTask.status === 'proposed' || meetTask.status === 'confirmed') && !meetTask.viewerArrived}}" class="ab-btn" data-kind="decline" bindtap="meetAction" hover-class="tap-hover" aria-role="button" aria-disabled="{{teamBusy}}">暂不参加</view>
+        </view>
+        <view wx:if="{{meetTask.status === 'arrived_all' && isInitiator}}" class="departure-card">
+          <view class="departure-overview"><image class="departure-route-art" src="/assets/ui/route-blue.png" /><view class="departure-copy"><view class="departure-title">{{departureCheck ? '后续行程已检查' : '先检查后续行程，再出发'}}</view>
+          <view wx:if="{{departureCheck}}" class="meeting-caption">{{departureCheck.message}}</view>
+          <view wx:if="{{departureCheck.endLabel}}" class="meeting-caption">预计结束：{{departureCheck.endLabel}}</view>
+          <view wx:for="{{departureCheck.tripImpact.conflicts}}" wx:key="code" class="meeting-caption">{{item.message}}</view>
+          <view wx:if="{{departureCheck.tripImpact.travelNote}}" class="meeting-caption">{{departureCheck.tripImpact.travelNote}}</view>
+          </view><view wx:if="{{departureCheck.canDepart}}" class="act act-primary departure-primary" bindtap="confirmDepart" hover-class="tap-hover" aria-role="button" aria-disabled="{{teamBusy}}">确认现在出发</view>
+          <view wx:else class="act act-primary departure-primary" bindtap="prepareDepart" hover-class="tap-hover" aria-role="button" aria-disabled="{{teamBusy}}">{{teamBusy ? '正在检查…' : '检查后续行程'}}</view></view>
+        </view>
+        <view wx:if="{{meetTask.status === 'arrived_all' && isInitiator && departureCheck.canDepart}}" class="departure-recheck" bindtap="prepareDepart" aria-role="button">重新检查后续行程 ›</view>
+        <view wx:if="{{meetTask.status === 'arrived_all' && isInitiator}}" class="departure-notice">{{departureCheck ? '检查两分钟内有效，确认后全队同步进入后续行程' : '检查通过后，由发起人确认出发'}}</view>
+        
+        <view class="meeting-tools"><view class="meeting-tool-locations"><view bindtap="refreshSharedLocation" aria-role="button"><image class="meeting-tool-art" src="/assets/ui/pin-navy.png" />更新位置</view><text>·</text><view bindtap="showTeamOnMap" aria-role="button">全队位置</view></view><view wx:if="{{isOwner}}" bindtap="toggleDanger" aria-role="button" aria-expanded="{{dangerOpen}}">其他操作 {{dangerOpen ? '▴' : '›'}}</view></view>
+        <view wx:if="{{isOwner && dangerOpen}}" class="danger-zone"><view class="danger-zone-note">取消后，全队都会看到集合已结束。更改地点或时间需要重新发起。</view><view class="act warn-act" data-kind="cancel" bindtap="meetAction" aria-role="button">取消本次集合</view></view>
+      </block>
+      <view wx:if="{{!meetTask}}" class="meet-setup">
+        <view wx:if="{{meetingPoint}}" class="meeting-selection"><view class="meeting-place"><image class="meeting-pin-art" src="/assets/ui/pin-orange.png" /><text>{{meetingPoint.name}}</text></view><view bindtap="startPick" class="meeting-reselect" aria-role="button">重新选点 ›</view></view>
+        <view wx:else class="meeting-caption">先选一个大家容易找到的地方。</view>
+        <photo-meeting crew-id="{{crewId}}" my-point="{{myPoint}}" bind:selected="onPhotoMeetingSelected" bind:manual="startPick" />
+        <view class="meet-link" bindtap="recommendMeetingPoint" hover-class="tap-hover" aria-role="button">✦ 按大家位置推荐 ›</view>
+        <view class="meet-divider"></view>
+        <view class="row meet-row"><text class="k">集合点名称</text><input class="field" placeholder="如广场入口指示牌旁" value="{{pointName}}" bindinput="onPointNameInput" maxlength="20" disabled="{{teamBusy}}" /></view>
+        <view class="row meet-row"><text class="k">集合时间</text><picker mode="time" value="{{meetTime}}" bindchange="onMeetTimeChange" disabled="{{teamBusy}}"><view class="v link">{{meetTime}} ›</view></picker></view>
+        <view class="meet-cta" bindtap="createMeeting" hover-class="tap-hover" aria-role="button" aria-disabled="{{teamBusy}}">{{teamBusy ? '正在处理…' : '发起集合'}}</view>
+      </view>
+      <view wx:if="{{teamNote && !meetTask.statusHint}}" class="note">{{teamNote}}</view><view wx:if="{{teamError}}" class="err" role="alert">{{teamError}}</view>
+      <view wx:if="{{autoLocationError}}" class="err">{{autoLocationError}}</view><view wx:if="{{locationError}}" class="err">{{locationError}}</view>
+    </view>
+
+    <!--
+      ══════════ 我的位置 → 一行 chip（2026-10-20 美化）══════════
+      原来它占一整张卡片，正文是"来源 / 精度 / 控件说明"，而这一页用户要的
+      只有一件事：我到底定位上没有。所以压成一行：状态 + 精度 + 时间，
+      其余（坐标、来源说明、精度告警、控件提示）点「详情」再展开。
+    -->
+    <view class="loc-chip">
+      <view class="loc-chip-main" bindtap="toggleLocationDetail" hover-class="tap-hover"
+        aria-role="button" aria-expanded="{{locationDetailOpen}}">
+        <view class="loc-chip-left">
+          <text class="loc-dot {{myPoint ? 'on' : ''}}"></text>
+          <text class="loc-chip-text">{{myPoint ? (mySource === 'gps' ? '已定位' : '手动选点') : '未获取位置'}}<block wx:if="{{myAccuracyM}}"> · 精度约 {{myAccuracyM}} 米</block><block wx:if="{{myLocatedAt}}"> · {{myLocatedAt}}</block></text>
+        </view>
+        <text class="loc-chip-go">{{locationDetailOpen ? '收起 ▴' : '详情 ▾'}}</text>
+      </view>
+      <view wx:if="{{locationDetailOpen}}" class="loc-chip-body">
+        <view wx:if="{{myPoint}}" class="loc-detail-line">坐标 {{myPoint.latitude}}, {{myPoint.longitude}}（GCJ-02）</view>
+        <view wx:if="{{myPoint}}" class="loc-detail-line">{{mySource === 'gps' ? '来自手机定位接口，坐标系与微信地图一致。' : '在地图上手动选点，没有使用手机定位。'}}</view>
+        <view wx:if="{{!myPoint}}" class="loc-detail-line">可自动获取当前位置；若定位不可用，也可在地图上手动点选。</view>
+        <view wx:if="{{myAccuracyBad}}" class="note warn">
+          这次定位精度只有约 {{myAccuracyM}} 米 —— 多半是室内、地下或刚开机还没定上卫星。
+          精度差的时候，基于它算的"我要走多久"会明显失真，建议走到室外重新取一次。
+        </view>
+        <view class="loc-detail-line">用地图右下角的控件：◎ 取我的位置；✛ 拖动地图选集合点。</view>
+        <view wx:if="{{note}}" class="note">{{note}}</view>
+      </view>
+    </view>
+
+    <view class="card" wx:if="{{nearby.length}}">
+      <view class="row">
+        <text class="k">集合点候选</text>
+        <text class="v muted">按步行时间排序</text>
+      </view>
+      <view
+        wx:for="{{nearby}}"
+        wx:key="placeId"
+        class="item"
+        data-placeid="{{item.placeId}}"
+        bindtap="selectMeeting"
+        hover-class="tap-hover-surface"
+      >
+        <view class="item-main">
+          <text class="item-name">{{item.name}}</text>
+          <text class="item-cat">{{item.category}}</text>
+        </view>
+        <view class="item-right">
+          <text class="mins">{{item.minutes}} 分钟</text>
+          <text class="meters">{{item.meters}} 米</text>
+        </view>
+      </view>
+      <view class="rule">个人参考：直线距离乘绕行系数估算，并非小队路网推荐。</view>
+    </view>
+
+    <view wx:if="{{meetingPoint}}" class="card sel meeting-place-detail">
+      <view class="row">
+        <text class="k">{{meetingPoint.fromTeamTask ? '集合地点详情' : '地点详情'}}</text>
+        <text class="v ok">{{meetingPoint.name}}</text>
+      </view>
+      <view class="sub">地图橙色标记为该地点，虚线仅提示方向，不代表实际步行路线。</view>
+      <view class="sub">点右下角 ✛ 可重新拖动选点；上方候选地点也能改选。</view>
+      <button wx:if="{{!meetingPoint.fromTeamTask}}" class="btn ghost" bindtap="clearMeeting">取消选择</button>
+
+      <button class="btn ghost" bindtap="fetchPhotos" disabled="{{photoBusy}}">
+        {{photoBusy ? '正在取照片…' : '取这个地方的照片'}}
+      </button>
+      <view wx:if="{{photoNote}}" class="note">{{photoNote}}</view>
+
+      <!--
+        ⚠️ 照片列表由 JS 算成 `currentPhotos`，模板不做数组索引。
+        原来写的是 `photos[meetingPoint.placeId].photos` ——
+        有 `wx:if` 守卫时能跑，但**同一行里取两次、其中一次在守卫之外**，
+        以后有人改动条件就很容易漏掉守卫。
+        与「我的」页白屏同一类问题：模板里先索引再取属性，取不到就整页不渲染。
+      -->
+      <block wx:if="{{currentPhotos.length}}">
+        <view class="row">
+          <text class="k">照片</text>
+          <text class="v muted">来自网络 · 未实地核验</text>
+        </view>
+        <view class="photos">
+          <view
+            class="shot"
+            wx:for="{{currentPhotos}}"
+            wx:key="url"
+            wx:for-item="ph"
+          >
+            <image wx:if="{{ph.fileID}}" class="shot-img" src="{{ph.fileID}}" mode="aspectFill" />
+            <view wx:else class="shot-img missing">未能保存</view>
+            <text wx:if="{{ph.title}}" class="shot-title">{{ph.title}}</text>
+          </view>
+        </view>
+        <view class="rule">
+          这些照片用于辨认地点，不构成对可达性、入口位置的核验。
+          该地点的核验等级以「{{meetingPoint.verified ? '已实地核验' : '未实地核验'}}」为准。
+        </view>
+      </block>
+    </view>
+
+    <view wx:if="{{!places.length && !loading}}" class="card">
+      <view class="hint">
+        暂无已保存的地点。可以推荐集合点，或拖动地图手动选点。
+      </view>
+    </view>
+
+    <view class="foot">
+      地点数据来自已录入地点；集合位置由成员共同确认。
+    </view>
+  </view>
+  <guide-entry scope="team" suppressed="{{teamBusy || pickMode}}" />
+</view>

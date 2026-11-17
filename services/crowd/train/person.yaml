@@ -1,0 +1,21 @@
+# 人形单类数据集配置。只保留 person 一类，避免 COCO 其余 79 类参与训练，
+# 也避免把 car/dog 等目标误算进人数。
+#
+# 数据集根目录（相对路径的解析方式取决于 ultralytics 的 datasets_dir 设置，
+# 常见做法是从仓库根目录运行，并执行 yolo settings datasets_dir=<仓库根目录>；
+# 也可以把 path 改成绝对路径）。最终的 train/val 分别为：
+#   datasets/person/images/train
+#   datasets/person/images/val
+#
+# 数据来源建议：CrowdHuman、COCO-person 子集、WiderPerson。三者许可证不同，
+# 商用/公开演示/再分发前必须逐项核对许可证与署名要求；不要把来源不明的
+# 爬虫图片直接混入。
+#
+# 标签必须是 YOLO 格式，所有 person 框的 class id 映射为 0；非 person 标注
+# 必须删除或忽略，不能留在验证集里，否则 P/R 和 mAP 会失真。
+path: datasets/person
+train: images/train
+val: images/val
+
+nc: 1
+names: [person]

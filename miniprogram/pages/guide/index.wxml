@@ -1,0 +1,170 @@
+<view class="chat-page" style="height: {{chatHeight}}px;">
+  <view class="chat-header">
+    <view class="chat-identity"><view class="assistant-symbol"><image class="assistant-mark" src="/assets/ui/sparkle.png" /></view><view><view class="header-title">随行 AI</view><view class="header-scope">{{scopeLabel}}</view></view></view>
+    <view class="chat-header-actions"><button class="preferences-link" size="mini" bindtap="openPreferences" disabled="{{busy || sending || voiceActive}}"><image class="header-action-icon" src="/assets/ui/settings-navy.png" />偏好</button><button class="new-chat" size="mini" bindtap="clear" disabled="{{busy || sending || voiceActive}}" aria-label="开始新对话"><image class="header-action-icon" src="/assets/ui/chat-navy.png" />新对话</button></view>
+  </view>
+  <view class="chat-model-line">文字回答 · {{textModelLabel}}</view>
+  <scroll-view class="chat-scroll" scroll-y scroll-with-animation scroll-into-view="{{scrollTarget}}">
+    <view class="chat-content">
+      <view wx:if="{{!messages.length}}" class="welcome">
+        <image class="welcome-symbol" src="/assets/ui/sparkle.png" />
+        <view class="welcome-title">这一程，有什么想问的？</view>
+        <view class="welcome-desc">问安排、聊景点，或发张照片。<br/>直接说出你的想法，我来帮你接着走。</view>
+        <view class="starter-list">
+          <view class="starter" data-text="下一站去哪？" bindtap="example" hover-class="tap-hover" aria-role="button">看看下一站的安排 <text>↗</text></view>
+          <view class="starter" data-text="介绍一下中央大街的历史" bindtap="example" hover-class="tap-hover" aria-role="button">聊聊中央大街的故事 <text>↗</text></view>
+          <view class="starter" data-text="下一站少待十分钟" bindtap="example" hover-class="tap-hover" aria-role="button">帮我调整一下行程 <text>↗</text></view>
+        </view>
+        <view class="welcome-note">讲解里可生成配图与短片，路线调整后可听新安排。修改行程前会请你确认。</view>
+      </view>
+      <view wx:for="{{messages}}" wx:for-item="message" wx:key="id" id="{{message.id}}" class="message message-{{message.role}}">
+        <view wx:if="{{message.role === 'assistant'}}" class="message-avatar"><image class="message-mark" src="/assets/ui/sparkle.png" /></view>
+        <view class="message-main">
+          <view wx:if="{{message.role === 'assistant'}}" class="message-label">随行助手</view>
+          <view wx:if="{{message.knowledgeOrigin}}" class="knowledge-origin {{message.knowledgeOrigin === 'web' ? 'knowledge-web' : ''}}">{{message.knowledgeOrigin === 'web' ? '联网搜索资料 · AI整理' : message.knowledgeOrigin === 'cloud' ? '云端知识库资料' : '未取得可引用资料'}}<view wx:if="{{message.searchTimeLabel}}" class="knowledge-time">检索于 {{message.searchTimeLabel}}</view></view>
+          <view class="bubble {{message.failed ? 'bubble-error' : ''}}">
+            <image wx:if="{{message.imagePath}}" class="message-photo" src="{{message.imagePath}}" mode="widthFix" data-path="{{message.imagePath}}" bindtap="previewPhoto" />
+            <view wx:if="{{message.pending}}" class="pending"><view class="busy-dot"></view><text>{{message.pendingLabel}}</text></view>
+            <text wx:else class="message-text" selectable>{{message.text}}</text>
+            <block wx:if="{{message.id !== activeReplyId}}">
+              <view wx:for="{{message.candidates}}" wx:key="id" class="candidate">
+                <view class="place-name">{{index + 1}}. {{item.name}}</view><view class="hint">{{item.address}}</view>
+              </view>
+              <view wx:for="{{message.questions}}" wx:key="*this" class="hint">{{item}}</view>
+            </block>
+            <view wx:if="{{message.crowd}}" class="crowd-preview">
+              <image class="crowd-photo" src="{{message.crowdImagePath}}" mode="widthFix" />
+              <view wx:for="{{message.crowdBoxes}}" wx:key="index" class="crowd-box" style="{{item.style}}"></view>
+            </view>
+            <view wx:if="{{message.crowd}}" class="hint">{{message.crowd.notice}}</view>
+            <view wx:for="{{message.notices}}" wx:key="*this" class="notice">{{item}}</view>
+            <block wx:if="{{message.id === activeReplyId && !sending}}">
+              <view wx:if="{{result.candidates.length}}" class="hint">回复序号或地点名即可选择，也可以点选下方地点。</view>
+    <view wx:if="{{result.tripContext.next || (result.meetingContext.available && result.meetingContext.status !== 'cancelled' && result.meetingContext.status !== 'departed' && result.meetingContext.status !== 'completed') || result.place}}" class="actions navigation-actions">
+      <button wx:if="{{result.tripContext.next}}" size="mini" bindtap="navigate" data-target="next" disabled="{{busy || voiceActive}}">打开地图去下一站</button>
+      <button wx:if="{{result.meetingContext.available && result.meetingContext.status !== 'cancelled' && result.meetingContext.status !== 'departed' && result.meetingContext.status !== 'completed'}}" size="mini" bindtap="navigate" data-target="meeting" disabled="{{busy || voiceActive}}">打开地图去集合点</button>
+      <button wx:if="{{result.place}}" size="mini" bindtap="navigate" data-target="place" disabled="{{busy || voiceActive}}">打开地图去该地点</button>
+    </view>
+    <view wx:if="{{result.tripContext.available}}" class="hint">{{result.tripContext.title}} · 查询于 {{result.tripContext.timeLabel}}</view>
+    <view wx:if="{{result.meetingContext}}" class="hint">集合状态查询于 {{result.meetingContext.timeLabel}}；可再次提问刷新。</view>
+
+    <view wx:for="{{result.candidates}}" wx:key="id" class="candidate">
+      <view class="place-name">{{index + 1}}. {{item.name}}</view>
+      <view class="hint">{{item.address || '暂无详细地址'}}</view>
+      <view wx:if="{{item.distanceMeters !== null}}" class="hint">距搜索位置直线 {{item.distanceMeters}} 米</view>
+      <view class="hint">{{item.evidence}}</view>
+      <view class="actions">
+        <button size="mini" data-id="{{item.id}}" bindtap="previewPlace">查看位置</button>
+        <button size="mini" class="primary-action" data-reply="{{message.id}}" data-id="{{item.id}}" bindtap="confirmPlace" disabled="{{busy || voiceActive}}">确认这个地点</button>
+      </view>
+    </view>
+  <view wx:if="{{result.tripPlan}}" class="card plan-card">
+    <view class="place-name">规划前往 {{result.tripPlan.destination.name}}</view>
+    <view class="hint">{{result.tripPlan.destination.address}}</view>
+    <view class="hint">{{center ? '出发位置：' + (center.label || '我的位置') : '请先设置出发位置'}}</view>
+    <view class="actions">
+      <button size="mini" bindtap="locate" disabled="{{busy || voiceActive || createdTripId}}">使用当前位置</button>
+      <button size="mini" bindtap="chooseStart" disabled="{{busy || voiceActive || createdTripId}}">地图选择出发点</button>
+    </view>
+    <view class="change-question">停留时间（分钟）</view>
+    <input class="change-input" type="number" maxlength="4" value="{{planStayMin}}" bindinput="setPlanStay" disabled="{{busy || createdTripId}}" />
+    <view class="change-question">出行方式</view>
+    <picker range="{{planModes}}" range-key="label" value="{{planModeIndex}}" bindchange="setPlanMode" disabled="{{busy || voiceActive || createdTripId}}">
+      <view class="change-choice">{{planModeLabel}} · 点击选择</view>
+    </picker>
+    <view class="hint">现在出发。停留时间默认 60 分钟，可自行修改。确认后生成个人行程，队伍路线需另行发布。</view>
+    <button class="send" bindtap="confirmPlan" disabled="{{busy || voiceActive}}">{{createdTripId ? '打开已生成行程' : '确认生成行程'}}</button>
+  </view>
+  <view wx:if="{{tripChange}}" class="card change-card">
+    <view class="place-name">行程修改 · 确认后生效</view>
+    <view class="hint">可以在下方直接回答追问，或回复“第一个方案”选择；修改前仍会请你确认。</view>
+    <view class="hint">基于第{{tripChange.baseVersion}}版行程；现在还没有修改原行程。</view>
+    <view wx:if="{{tripChange.interpretation}}" class="hint">{{tripChange.interpretation.degraded ? 'AI 暂不可用，已按基础规则理解你的要求。' : '已理解你的修改要求。'}}</view>
+    <view wx:for="{{changeSummary}}" wx:key="index" class="hint">{{item}}</view>
+    <view wx:for="{{changeQuestions}}" wx:key="key" wx:for-item="question" class="change-question">
+      <view>{{question.prompt}}</view>
+      <block wx:if="{{question.kind === 'node' || question.kind === 'place'}}">
+        <view wx:for="{{question.options}}" wx:key="value" wx:for-item="option" class="change-choice {{question.value === option.value ? 'change-selected' : ''}}"
+          data-reply="{{message.id}}" data-key="{{question.key}}" data-value="{{option.value}}" bindtap="answerChange"
+          hover-class="tap-hover-surface" aria-role="radio" aria-checked="{{question.value === option.value}}">{{option.label}}</view>
+        <view wx:if="{{question.answerLabel}}" class="hint">已选：{{question.answerLabel}}</view>
+      </block>
+      <input wx:elif="{{question.kind === 'minutes'}}" class="change-input" type="number" value="{{question.value || ''}}" placeholder="请输入整数分钟"
+        data-reply="{{message.id}}" data-key="{{question.key}}" bindinput="answerChange" disabled="{{busy}}" />
+      <picker wx:elif="{{question.kind === 'clock'}}" mode="time" value="{{question.value || '17:00'}}" data-reply="{{message.id}}" data-key="{{question.key}}" bindchange="answerChange" disabled="{{busy}}">
+        <view class="change-choice">{{question.value || '选择结束时间'}}</view>
+      </picker>
+      <view wx:else class="hint">直接在下方输入框改写要求，重新发送。</view>
+    </view>
+    <button wx:if="{{tripChange.needsClarification}}" bindtap="continueChange" disabled="{{busy || voiceActive || changeNeedsRewrite}}">补充完成，生成方案</button>
+    <view wx:for="{{changeCandidates}}" wx:key="candidateId" class="candidate">
+      <view class="place-name">{{item.strategyLabel}}</view>
+      <view class="hint">{{item.nodeSummary}}</view>
+      <view wx:for="{{item.notes}}" wx:for-item="note" wx:key="index" class="hint">{{note}}</view>
+      <view wx:for="{{item.conflicts}}" wx:for-item="conflict" wx:key="index" class="error">{{conflict}}</view>
+      <button wx:if="{{item.feasible}}" class="send" data-reply="{{message.id}}" data-id="{{item.candidateId}}" bindtap="confirmChange" disabled="{{busy || voiceActive}}">选择并确认此方案</button>
+      <view wx:else class="notice">此方案不可行，无法确认。</view>
+    </view>
+    <view wx:if="{{tripChange.noFeasible}}" class="notice">没有可行方案，请修改要求后重新提问。</view>
+    <button bindtap="discardChange" disabled="{{busy}}">放弃本次修改</button>
+  </view>
+              <button wx:if="{{result.meetingDraft}}" class="send" bindtap="useMeeting" disabled="{{busy || voiceActive}}">确认用作集合点</button>
+            </block>
+            <view wx:if="{{message.sources.length}}" class="source-panel">
+              <view class="source-toggle" data-message="{{message.id}}" bindtap="toggleSources" aria-role="button" aria-expanded="{{message.sourcesOpen}}"><image class="source-icon" src="/assets/ui/text-navy.png" /><text>参考来源 · {{message.sources.length}}</text><text class="source-chevron">{{message.sourcesOpen ? '⌃' : '⌄'}}</text></view>
+              <block wx:if="{{message.sourcesOpen}}">
+                <view wx:for="{{message.sources}}" wx:key="id" class="source">
+                  <view class="source-title">[{{item.number}}] {{item.title}}</view>
+                  <view class="hint">{{item.publisher}}<text wx:if="{{item.origin !== 'web'}}"> · 核对于 {{item.reviewedAt}}</text><text wx:else> · 联网搜索来源</text></view>
+                  <view class="link" data-url="{{item.url}}" bindtap="copySource" aria-role="button">复制来源链接</view>
+                </view>
+              </block>
+            </view>
+          </view>
+          <view wx:if="{{message.merchants.length}}" class="merchant-list">
+            <view class="merchant-ranking">{{message.rankingNote}}</view>
+            <view wx:for="{{message.merchants}}" wx:for-item="merchant" wx:key="id" class="merchant-card">
+              <view class="merchant-title">{{merchant.rank}}. {{merchant.name}}</view>
+              <view class="merchant-metrics"><text class="merchant-rating">{{merchant.ratingLabel}}</text><text>{{merchant.distanceLabel}} · 直线</text><text>{{merchant.costLabel}}</text></view>
+              <view class="merchant-address">{{merchant.address}}</view>
+              <view wx:for="{{merchant.reasons}}" wx:for-item="reason" wx:key="*this" class="merchant-reason">{{reason}}</view>
+              <button size="mini" class="merchant-map" data-message="{{message.id}}" data-merchant="{{merchant.id}}" bindtap="openMerchant">地图查看 / 导航</button>
+            </view>
+          </view>
+          <guide-media wx:if="{{message.mediaAvailable}}" preferred-kind="{{message.mediaPreferredKind}}" session-id="{{message.mediaSessionId || ''}}" version="{{message.mediaVersion}}" crew-id="{{message.mediaCrewId || ''}}" available="{{message.id === activeReplyId && !sending}}" data-reply="{{message.id}}" bindlayout="onMediaLayout" />
+          <route-voice wx:if="{{message.appliedTrip && message.id === activeReplyId && !sending}}" trip-id="{{message.appliedTrip.tripId || ''}}" version="{{message.appliedTrip.version}}" />
+        </view>
+        <image wx:if="{{message.role === 'user'}}" class="user-avatar" src="/assets/avatar-default.png" />
+      </view>
+      <view class="conversation-end"></view>
+    </view>
+  </scroll-view>
+  <view class="composer">
+    <view wx:if="{{error && !sending}}" class="composer-error">{{error}}</view>
+    <view wx:if="{{imagePath}}" class="attachment">
+      <image class="attachment-photo" src="{{imagePath}}" mode="aspectFill" />
+      <view class="attachment-info">照片已就绪<view class="hint">可以问地点，也可以问“照片里有多少人”</view></view>
+      <view class="remove-photo" bindtap="removePhoto" aria-role="button" aria-label="移除照片">×</view>
+    </view>
+    <view wx:if="{{moreActionsOpen}}" class="more-actions">
+      <button size="mini" class="tool-action" bindtap="locate" disabled="{{busy || sending || voiceActive}}">{{center ? '更新附近位置' : '使用当前位置'}}</button>
+      <view class="hint">定位用于附近检索；照片仅在发送时上传识别，不保存原图。</view>
+    </view>
+    <view hidden="{{!voiceOpen}}" class="voice-panel">
+      <voice-input disabled="{{busy || sending}}" context-key="{{voiceContext}}" bindresult="onVoice" bindstate="onVoiceState" hint="说完后检查文字，再发送。" />
+    </view>
+    <view class="input-shell">
+      <textarea class="question" value="{{text}}" bindinput="onText" maxlength="1000" auto-height fixed adjust-position="{{false}}"
+        bindkeyboardheightchange="onKeyboardHeight" disabled="{{busy || sending || voiceActive}}" placeholder="问点什么，或说说想怎样调整行程…" />
+      <view class="compose-bar">
+        <view class="compose-tools">
+          <button size="mini" class="tool-btn {{voiceOpen ? 'tool-active' : ''}}" bindtap="toggleVoice" disabled="{{busy || sending || voiceActive}}" aria-label="语音输入"><image class="compose-icon" src="/assets/ui/mic-navy.png" /></button>
+          <button size="mini" class="tool-btn" bindtap="choosePhoto" disabled="{{busy || sending || voiceActive}}" aria-label="拍照或选择图片"><image class="compose-icon" src="/assets/ui/image-navy.png" /></button>
+          <button size="mini" class="tool-btn" bindtap="toggleMoreActions" disabled="{{busy || sending || voiceActive}}" aria-expanded="{{moreActionsOpen}}" aria-label="更多设置"><image class="compose-icon" src="/assets/ui/plus-navy.png" /></button>
+        </view>
+        <button size="mini" class="send-circle" bindtap="ask" disabled="{{busy || sending || voiceActive || (!text && !imagePath)}}" aria-label="发送消息"><text wx:if="{{sending}}">…</text><image wx:else class="send-icon" src="/assets/ui/send-white.png" /></button>
+      </view>
+    </view>
+    <view class="composer-note"><image class="info-icon" src="/assets/ui/info-gray.png" />修改行程前会请你确认。</view>
+  </view>
+</view>

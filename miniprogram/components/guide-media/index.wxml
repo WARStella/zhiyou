@@ -1,0 +1,25 @@
+<view class="media-panel">
+  <view wx:if="{{available && (!hasImageTask || !hasVideoTask) && !busy}}" class="media-chooser">
+    <view class="media-heading">{{preferredKind === 'image' && !hasImageTask ? '为这个地点生成一张配图' : preferredKind === 'video' && !hasVideoTask ? '为这个地点生成讲解短片' : '换个方式了解这里'}}</view>
+    <view class="media-actions">
+      <button wx:if="{{!hasImageTask}}" size="mini" class="media-create {{preferredKind === 'image' ? 'media-create-primary' : ''}}" data-kind="image" bindtap="generate" disabled="{{busy}}"><image class="media-action-icon" src="/assets/ui/image-blue.png" />生成配图</button>
+      <button wx:if="{{!hasVideoTask}}" size="mini" class="media-create {{preferredKind === 'video' ? 'media-create-primary' : ''}}" data-kind="video" bindtap="generate" disabled="{{busy}}"><image class="media-action-icon" src="/assets/ui/film-blue.png" />生成短片</button>
+    </view>
+    <view class="media-caption media-cost">按需生成，可能产生平台费用</view>
+  </view>
+  <view wx:if="{{busy}}" class="media-progress"><view class="media-spinner"></view><view>{{generatingKind === 'video' ? '正在提交短片生成请求…' : '正在生成讲解配图…'}}<view class="media-caption">可以继续提问，结果会保留在这条消息里。</view></view></view>
+  <view wx:for="{{tasks}}" wx:key="taskId" class="media-result">
+    <view wx:if="{{!item.completed || item.kind !== 'image'}}" class="media-result-header"><view class="media-result-identity"><view class="media-result-icon"><image class="media-result-art" src="{{item.kind === 'image' ? '/assets/ui/image-blue.png' : '/assets/ui/film-blue.png'}}" /></view><text class="media-result-title">{{item.kindLabel}}</text></view><text class="media-badge media-{{item.tone}}">{{item.stateLabel}}</text></view>
+    <image wx:if="{{item.kind === 'image' && item.url}}" src="{{item.url}}" mode="widthFix" class="media-generated" data-url="{{item.url}}" bindtap="preview" bindload="mediaLoaded" binderror="mediaError" />
+    <video wx:if="{{item.kind === 'video' && item.url}}" src="{{item.url}}" controls class="media-video" bindloadedmetadata="mediaLoaded" binderror="mediaError" />
+    <view wx:if="{{item.waiting}}" class="media-progress"><view class="media-spinner"></view><view>可以继续提问，稍后回到这条消息查看。</view></view>
+    <view wx:if="{{item.message}}" class="media-caption">{{item.message}}</view>
+    <view wx:if="{{item.waiting}}" class="media-result-query" bindtap="refresh" aria-role="button" aria-disabled="{{refreshing}}">{{refreshing ? '正在查询…' : '查看状态'}} ›</view>
+    <view wx:if="{{item.url}}" class="media-credit"><text>AI演绎示意 · 非实拍</text><text wx:if="{{item.completed && item.kind === 'image'}}" class="media-badge media-success">✓ 配图已生成</text></view>
+  </view>
+  <view wx:if="{{error}}" class="media-error" role="alert">{{error}}</view>
+  <view wx:if="{{error}}" class="media-footer">
+    <button wx:if="{{canRefresh}}" class="media-query" size="mini" bindtap="refresh" disabled="{{refreshing || busy}}">{{refreshing ? '正在查询…' : '查看生成状态'}}</button>
+    <button class="media-preferences" size="mini" bindtap="settings">模型偏好 ›</button>
+  </view>
+</view>

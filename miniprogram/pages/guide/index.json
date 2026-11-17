@@ -1,0 +1,1 @@
+{ "navigationBarTitleText": "随行助手", "usingComponents": { "voice-input": "/components/voice-input/index", "guide-media": "/components/guide-media/index", "route-voice": "/components/route-voice/index" } }

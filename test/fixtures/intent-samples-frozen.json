@@ -1,0 +1,585 @@
+{
+  "meta": {
+    "name": "需求解析样例集（冻结集）",
+    "version": "v1.1",
+    "createdAt": "2026-11-05",
+    "purpose": "与开发集分离的留出集，用于回答“换一批没见过的说法，解析还准不准”。冻结集一经确定不再修改；任何改动都要记录原因并同时保留旧版本结果。",
+    "disciplines": [
+      "本集不得用于调整提示词或规则；调参只能看开发集。",
+      "expected 只标注必须正确的字段，不惩罚合理的不同表达。",
+      "本轮为首次评测；若样本有改动，旧结果作废并重跑。"
+    ],
+    "note": "首轮 20 条之外按维度补至 50 条：时间边界（6）、地点组合与别名（5）、必去与排除（4）、停留表达（5）、节奏与方式（5）、复合与否定（4）。含 3 条高难度样本（双重排除、二选一、否定嵌套），用于观察边界而不是凑分数。",
+    "dimensions": {
+      "时间边界": 6,
+      "地点组合与别名": 5,
+      "必去与排除": 4,
+      "停留表达": 5,
+      "节奏与出行方式": 5,
+      "复合与否定": 4,
+      "首轮基础": 20
+    }
+  },
+  "samples": [
+    {
+      "id": "f01",
+      "text": "傍晚六点前结束就行",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "endClock": {
+          "hour": 18,
+          "minute": 0
+        }
+      }
+    },
+    {
+      "id": "f02",
+      "text": "下午四点半就得走了",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "endClock": {
+          "hour": 16,
+          "minute": 30
+        }
+      }
+    },
+    {
+      "id": "f03",
+      "text": "明早九点从中央大街出发",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "startClock": {
+          "hour": 9,
+          "minute": 0
+        },
+        "searchKeywordsContain": [
+          "中央大街"
+        ]
+      }
+    },
+    {
+      "id": "f04",
+      "text": "先逛中央大街，再去索菲亚教堂，最后到防洪纪念塔",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "searchKeywordsAtLeast": 3
+      }
+    },
+    {
+      "id": "f05",
+      "text": "索菲亚教堂一定要去",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "mustVisitTextsContain": [
+          "索菲亚"
+        ]
+      }
+    },
+    {
+      "id": "f06",
+      "text": "别给我安排极地馆，太远了",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "avoidTextsContain": [
+          "极地馆"
+        ]
+      }
+    },
+    {
+      "id": "f07",
+      "text": "别太赶，路上留点空",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "pace": "relaxed"
+      }
+    },
+    {
+      "id": "f08",
+      "text": "一天想多跑几个点",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "pace": "packed"
+      }
+    },
+    {
+      "id": "f09",
+      "text": "尽量坐公交，少走路",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "preferredMode": "transit"
+      }
+    },
+    {
+      "id": "f10",
+      "text": "想骑车逛，别走路",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "preferredMode": "bicycling"
+      }
+    },
+    {
+      "id": "f11",
+      "text": "在中央大街待一个半小时",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "searchKeywordsContain": [
+          "中央大街"
+        ],
+        "stayMinutes": 90
+      }
+    },
+    {
+      "id": "f12",
+      "text": "索菲亚多留二十分钟",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "extendStayMin": 20
+      }
+    },
+    {
+      "id": "f13",
+      "text": "我有点累，别走太多",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "uncertaintiesAtLeast": 1,
+        "uncertaintiesContainField": [
+          "maxWalkMinutes"
+        ],
+        "mustNotGuessMaxWalkMinutes": true
+      }
+    },
+    {
+      "id": "f14",
+      "text": "随便逛逛，没想好去哪",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "searchKeywordsEmpty": true
+      }
+    },
+    {
+      "id": "f15",
+      "text": "上午十点出发，先去中央大街待一小时，再去索菲亚，三点前结束",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "startClock": {
+          "hour": 10,
+          "minute": 0
+        },
+        "endClock": {
+          "hour": 15,
+          "minute": 0
+        },
+        "searchKeywordsContain": [
+          "中央大街",
+          "索菲亚"
+        ],
+        "stayMinutesByTextContains": {
+          "中央大街": 60
+        }
+      }
+    },
+    {
+      "id": "f36",
+      "text": "别安排太远的地方",
+      "source": "frozen-2026-11-05",
+      "note": "取舍·需确认",
+      "expected": {
+        "uncertaintiesAtLeast": 1
+      }
+    },
+    {
+      "id": "f16",
+      "text": "五点半以后再出门",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "startClock": {
+          "hour": 17,
+          "minute": 30
+        }
+      }
+    },
+    {
+      "id": "f17",
+      "text": "别去中央大街了，人太多",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "searchKeywordsNotContain": [
+          "中央大街"
+        ],
+        "avoidTextsContain": [
+          "中央大街"
+        ]
+      }
+    },
+    {
+      "id": "f18",
+      "text": "去太阳岛，待四十分钟",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "searchKeywordsContain": [
+          "太阳岛"
+        ],
+        "stayMinutes": 40
+      }
+    },
+    {
+      "id": "f19",
+      "text": "今天不想走路，能坐车就坐车",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "preferredMode": "transit"
+      }
+    },
+    {
+      "id": "f20",
+      "text": "晚上七点前得回学校",
+      "source": "frozen-2026-11-05",
+      "expected": {
+        "endClock": {
+          "hour": 19,
+          "minute": 0
+        }
+      }
+    },
+    {
+      "id": "f21",
+      "text": "五点一刻必须走",
+      "source": "frozen-2026-11-05",
+      "note": "时间·刻钟",
+      "expected": {
+        "endClock": {
+          "hour": 17,
+          "minute": 15
+        }
+      }
+    },
+    {
+      "id": "f22",
+      "text": "六点四十之前结束",
+      "source": "frozen-2026-11-05",
+      "note": "时间·精确分钟",
+      "expected": {
+        "endClock": {
+          "hour": 18,
+          "minute": 40
+        }
+      }
+    },
+    {
+      "id": "f23",
+      "text": "早上八点半出发",
+      "source": "frozen-2026-11-05",
+      "note": "时间·出发",
+      "expected": {
+        "startClock": {
+          "hour": 8,
+          "minute": 30
+        }
+      }
+    },
+    {
+      "id": "f24",
+      "text": "下午两点开始逛",
+      "source": "frozen-2026-11-05",
+      "note": "时间·24时制",
+      "expected": {
+        "startClock": {
+          "hour": 14,
+          "minute": 0
+        }
+      }
+    },
+    {
+      "id": "f25",
+      "text": "晚上九点前收工",
+      "source": "frozen-2026-11-05",
+      "note": "时间·晚上",
+      "expected": {
+        "endClock": {
+          "hour": 21,
+          "minute": 0
+        }
+      }
+    },
+    {
+      "id": "f26",
+      "text": "中午十二点半出发",
+      "source": "frozen-2026-11-05",
+      "note": "时间·正午",
+      "expected": {
+        "startClock": {
+          "hour": 12,
+          "minute": 30
+        }
+      }
+    },
+    {
+      "id": "f27",
+      "text": "去索菲亚看看",
+      "source": "frozen-2026-11-05",
+      "note": "地点·简称",
+      "expected": {
+        "searchKeywordsContain": [
+          "索菲亚"
+        ]
+      }
+    },
+    {
+      "id": "f28",
+      "text": "中央大街和防洪纪念塔都想去",
+      "source": "frozen-2026-11-05",
+      "note": "地点·并列",
+      "expected": {
+        "searchKeywordsContain": [
+          "中央大街",
+          "防洪纪念塔"
+        ]
+      }
+    },
+    {
+      "id": "f29",
+      "text": "先去太阳岛，再回中央大街",
+      "source": "frozen-2026-11-05",
+      "note": "地点·往返",
+      "expected": {
+        "searchKeywordsContain": [
+          "太阳岛",
+          "中央大街"
+        ]
+      }
+    },
+    {
+      "id": "f30",
+      "text": "极地馆和太阳岛哪个都不去",
+      "source": "frozen-2026-11-05",
+      "note": "地点·双重排除（难）",
+      "expected": {
+        "avoidTextsContain": [
+          "极地馆",
+          "太阳岛"
+        ]
+      }
+    },
+    {
+      "id": "f31",
+      "text": "中央大街逛完去江边",
+      "source": "frozen-2026-11-05",
+      "note": "地点·部分指代",
+      "expected": {
+        "searchKeywordsContain": [
+          "中央大街"
+        ]
+      }
+    },
+    {
+      "id": "f32",
+      "text": "道里那边的中央大街必须去",
+      "source": "frozen-2026-11-05",
+      "note": "必去·带限定语",
+      "expected": {
+        "mustVisitTextsContain": [
+          "中央大街"
+        ]
+      }
+    },
+    {
+      "id": "f33",
+      "text": "极地馆就不用安排了",
+      "source": "frozen-2026-11-05",
+      "note": "排除·委婉",
+      "expected": {
+        "avoidTextsContain": [
+          "极地馆"
+        ]
+      }
+    },
+    {
+      "id": "f34",
+      "text": "索菲亚一定要去，极地馆就算了",
+      "source": "frozen-2026-11-05",
+      "note": "必去+排除·混合",
+      "expected": {
+        "mustVisitTextsContain": [
+          "索菲亚"
+        ],
+        "avoidTextsContain": [
+          "极地馆"
+        ]
+      }
+    },
+    {
+      "id": "f35",
+      "text": "防洪纪念塔和太阳岛二选一",
+      "source": "frozen-2026-11-05",
+      "note": "取舍·需确认",
+      "expected": {
+        "uncertaintiesAtLeast": 1
+      }
+    },
+    {
+      "id": "f37",
+      "text": "在太阳岛待一刻钟",
+      "source": "frozen-2026-11-05",
+      "note": "停留·一刻钟",
+      "expected": {
+        "searchKeywordsContain": [
+          "太阳岛"
+        ],
+        "stayMinutes": 15
+      }
+    },
+    {
+      "id": "f38",
+      "text": "中央大街逛四十五分钟",
+      "source": "frozen-2026-11-05",
+      "note": "停留·四十五分",
+      "expected": {
+        "searchKeywordsContain": [
+          "中央大街"
+        ],
+        "stayMinutes": 45
+      }
+    },
+    {
+      "id": "f39",
+      "text": "索菲亚停半小时",
+      "source": "frozen-2026-11-05",
+      "note": "停留·半小时",
+      "expected": {
+        "searchKeywordsContain": [
+          "索菲亚"
+        ],
+        "stayMinutes": 30
+      }
+    },
+    {
+      "id": "f40",
+      "text": "冰雪大世界待两个钟头",
+      "source": "frozen-2026-11-05",
+      "note": "停留·两小时口语",
+      "expected": {
+        "searchKeywordsContain": [
+          "冰雪大世界"
+        ],
+        "stayMinutes": 120
+      }
+    },
+    {
+      "id": "f41",
+      "text": "中央大街多待十分钟",
+      "source": "frozen-2026-11-05",
+      "note": "停留·延长",
+      "expected": {
+        "extendStayMin": 10
+      }
+    },
+    {
+      "id": "f42",
+      "text": "慢点走，不着急",
+      "source": "frozen-2026-11-05",
+      "note": "节奏·relaxed",
+      "expected": {
+        "pace": "relaxed"
+      }
+    },
+    {
+      "id": "f43",
+      "text": "时间紧，尽量多逛几个",
+      "source": "frozen-2026-11-05",
+      "note": "节奏·packed",
+      "expected": {
+        "pace": "packed"
+      }
+    },
+    {
+      "id": "f44",
+      "text": "全程打车",
+      "source": "frozen-2026-11-05",
+      "note": "方式·打车",
+      "expected": {
+        "preferredMode": "driving"
+      }
+    },
+    {
+      "id": "f45",
+      "text": "能走路就走路",
+      "source": "frozen-2026-11-05",
+      "note": "方式·步行",
+      "expected": {
+        "preferredMode": "walking"
+      }
+    },
+    {
+      "id": "f46",
+      "text": "坐公交去太阳岛",
+      "source": "frozen-2026-11-05",
+      "note": "方式·公交",
+      "expected": {
+        "searchKeywordsContain": [
+          "太阳岛"
+        ],
+        "preferredMode": "transit"
+      }
+    },
+    {
+      "id": "f47",
+      "text": "不是不去中央大街，是晚点去",
+      "source": "frozen-2026-11-05",
+      "note": "否定嵌套（难）",
+      "expected": {
+        "searchKeywordsContain": [
+          "中央大街"
+        ]
+      }
+    },
+    {
+      "id": "f48",
+      "text": "上午先中央大街，下午太阳岛，六点前结束",
+      "source": "frozen-2026-11-05",
+      "note": "复合·两段",
+      "expected": {
+        "endClock": {
+          "hour": 18,
+          "minute": 0
+        },
+        "searchKeywordsContain": [
+          "中央大街",
+          "太阳岛"
+        ]
+      }
+    },
+    {
+      "id": "f49",
+      "text": "先去索菲亚待二十分钟，再去中央大街待一小时，五点前结束",
+      "source": "frozen-2026-11-05",
+      "note": "复合·逐点停留",
+      "expected": {
+        "endClock": {
+          "hour": 17,
+          "minute": 0
+        },
+        "stayMinutesByTextContains": {
+          "索菲亚": 20,
+          "中央大街": 60
+        }
+      }
+    },
+    {
+      "id": "f50",
+      "text": "今天不走路坐车，先去中央大街，最后到太阳岛，八点前收",
+      "source": "frozen-2026-11-05",
+      "note": "复合·四要素",
+      "expected": {
+        "endClock": {
+          "hour": 20,
+          "minute": 0
+        },
+        "searchKeywordsContain": [
+          "中央大街",
+          "太阳岛"
+        ],
+        "preferredMode": "transit"
+      }
+    }
+  ]
+}

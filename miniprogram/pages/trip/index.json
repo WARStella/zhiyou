@@ -1,0 +1,8 @@
+{
+  "navigationBarTitleText": "行程",
+  "usingComponents": {
+    "route-voice": "/components/route-voice/index",
+    "voice-input": "/components/voice-input/index",
+    "guide-entry": "/components/guide-entry/index"
+  }
+}

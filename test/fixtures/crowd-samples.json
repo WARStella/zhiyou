@@ -1,0 +1,25 @@
+{
+  "meta": {
+    "name": "人群计数评测器自检样例（合成）",
+    "synthetic": true,
+    "note": "这些数字是人为构造的，只用来验证 lib/crowd-metrics.js 的误差计算是否正确。它们不代表任何真实检测结果，也不能当作准确率对外引用。真实评测需要：把照片交给部署好的 /count 服务记下 count，再由人工点一遍人数填进 expected。",
+    "schema": {
+      "id": "照片标识（任意字符串，便于回溯）",
+      "expected": "人工数出的人数（非负整数）",
+      "predicted": "/count 返回的 count（非负整数）",
+      "scene": "可选：拍摄条件备注（远景 / 逆光 / 遮挡 等）"
+    }
+  },
+  "samples": [
+    { "id": "synthetic-01", "scene": "空场景", "expected": 0, "predicted": 0 },
+    { "id": "synthetic-02", "scene": "单人", "expected": 1, "predicted": 1 },
+    { "id": "synthetic-03", "scene": "小合影", "expected": 4, "predicted": 3 },
+    { "id": "synthetic-04", "scene": "小合影", "expected": 5, "predicted": 6 },
+    { "id": "synthetic-05", "scene": "街景中景", "expected": 9, "predicted": 7 },
+    { "id": "synthetic-06", "scene": "街景中景", "expected": 12, "predicted": 12 },
+    { "id": "synthetic-07", "scene": "广场远景", "expected": 24, "predicted": 18 },
+    { "id": "synthetic-08", "scene": "广场远景", "expected": 31, "predicted": 25 },
+    { "id": "synthetic-09", "scene": "密集人群", "expected": 68, "predicted": 44 },
+    { "id": "synthetic-10", "scene": "密集人群", "expected": 120, "predicted": 71 }
+  ]
+}

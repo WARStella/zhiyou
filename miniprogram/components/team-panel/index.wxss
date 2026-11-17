@@ -1,0 +1,48 @@
+.panel{background:var(--surface);border:1rpx solid var(--line-strong);border-radius: var(--r-md);padding:24rpx;margin:20rpx 0;color:var(--ink-900);font-size: var(--fs-body);line-height:1.7}.title{font-size: var(--fs-h1);font-weight:700}.subtitle{font-size: var(--fs-body);font-weight:600;margin-top:24rpx}.hint{font-size: var(--fs-sm);color:var(--ink-500);word-break:break-all}.error{color:var(--danger);background:var(--danger-bg);padding:14rpx;border-radius: var(--r-sm)}.row{padding:14rpx 0;border-bottom:1rpx solid var(--line)}.tp-input {background:var(--surface-2);padding:18rpx;border-radius: var(--r-sm);margin-top:16rpx}.tp-btn {font-size: var(--fs-body);background:var(--brand-600);color: var(--surface);margin:12rpx 8rpx 12rpx 0}.tp-btn.secondary{background:var(--brand-50);color:var(--brand-700)}
+
+/* ── 折叠表头（2026-10-14）─────────────────────────────────
+   面板很长（共同路线 + 位置与集合 + 候选方案），展开着会把地图和
+   当前路线挤到屏幕外，而它做的事是间歇性的。 */
+.head{display:flex;align-items:center;justify-content:space-between;padding:6rpx 0}
+.head-hover{background:var(--surface-2);border-radius: var(--r-sm)}
+.head-sub{font-size: var(--fs-sm);color:var(--ink-500);margin-top:4rpx}
+.chevron{font-size: var(--fs-body);color:var(--ink-500);margin-left:16rpx}
+/* 收起时表头就是全部内容，给它一点与下方卡片的间距 */
+.head .title{flex:1}
+.body{margin-top:20rpx}
+.tp-btn { min-height: 68rpx; box-sizing: border-box; width: auto; flex: 0 0 auto; padding: 12rpx 24rpx; line-height: 1.5; border-radius: var(--r-pill);
+  color: var(--btn-ink); background: linear-gradient(135deg, var(--btn-g1), var(--btn-mid) 62%, var(--btn-g2));
+  box-shadow: 0 4rpx 12rpx var(--btn-shadow); }
+.tp-btn::after { border: none; }
+/* 框架默认按钮 184px；双类才能让邀请类按钮按内容宽度排 */
+.tp-btn.tp-btn { width: auto; }
+.tp-btn.button-disabled, .tp-btn:disabled { background: var(--line-strong); color: var(--ink-500); box-shadow: none; }
+
+/* ── 成员行（2026-11-04 加头像与自动刷新）────────────────────
+   头像来自 loc.list 的当前 avatarFileId，昵称来自 crew.get；
+   面板每 15 秒轻量重读一次，队友改名/换头像/新加入都会自动出现。 */
+.tp-member { display: flex; align-items: center; padding: 14rpx 0; border-bottom: 1rpx solid var(--line); }
+.tp-member-avatar { width: 64rpx; height: 64rpx; border-radius: 50%; flex-shrink: 0;
+  background: var(--brand-50); color: var(--brand-700); }
+.tp-member-initial { display: flex; align-items: center; justify-content: center;
+  font-size: var(--fs-body); font-weight: 600; }
+.tp-member-info { flex: 1; min-width: 0; margin-left: 16rpx; }
+.tp-member-name { color: var(--ink-900); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tp-member-role { color: var(--ink-500); font-size: var(--fs-sm); }
+
+/* Profile team card follows the same visual scale as settings. */
+.panel { padding: 24rpx 26rpx; margin: 20rpx 0; border: 1rpx solid #d8e5f3; border-radius: 28rpx; background: rgba(255,255,255,.94); box-shadow: 0 4rpx 12rpx rgba(35,70,115,.04); color: #233d5b; }
+.head { gap: 12rpx; flex-wrap: wrap; }
+.title { color: #18314f; font-size: 34rpx; line-height: 1.45; }
+.chevron { font-size: 25rpx; color: #6a7e96; }
+.hint, .head-sub { color: #718199; font-size: 24rpx; line-height: 1.75; word-break: normal; overflow-wrap: anywhere; }
+.body { margin-top: 18rpx; }
+.body .tp-btn.tp-btn { display: inline-flex; align-items: center; justify-content: center; width: calc(50% - 10rpx); vertical-align: top; min-height: 76rpx; margin: 14rpx 10rpx 14rpx 0; padding: 12rpx 14rpx; border: 1rpx solid #c1e1fa; border-radius: 20rpx; background: linear-gradient(180deg, #dcf0ff, #a7d9ff); box-shadow: none; color: #20476d; font-size: 26rpx; font-weight: 500; line-height: 1.5; }
+.body .tp-btn.secondary { width: 100%; margin-right: 0; background: #f7faff; border-color: #d4e1ee; color: #65758a; }
+.tp-member { padding: 20rpx 0; border-color: #e4ecf6; }
+.tp-member-avatar { width: 76rpx; height: 76rpx; border: 1rpx solid #d0e1f2; box-sizing: border-box; }
+.tp-member-info { margin-left: 18rpx; }
+.tp-member-name { font-size: 28rpx; color: #263e59; line-height: 1.5; }
+.tp-member-role { font-size: 23rpx; color: #7b8ba0; }
+.tp-input { min-height: 76rpx; box-sizing: border-box; padding: 16rpx 20rpx; border: 1rpx solid #ccdded; border-radius: 18rpx; background: #f7faff; font-size: 27rpx; }
+.body .tp-btn.button-disabled, .body .tp-btn:disabled { background: #e9f1f9; border-color: #d2dfed; color: #8292a6; box-shadow: none; }
